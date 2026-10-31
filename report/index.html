@@ -1,0 +1,1073 @@
+<title>评价调研报告</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700&family=JetBrains+Mono:wght@500;600&display=swap">
+<style>
+/* 布局：顶部工具条 + 单栏报告；报告按 Excel 模板的六个章节排成宽表，窄屏时表格横向滚动 */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --surface-2: #edf1f6;
+  --ink: #18212b;
+  --muted: #5a6776;
+  --line: #d8dee6;
+  --navy: #1f4e78;
+  --navy-ink: #ffffff;
+  --blue: #4472c4;
+  --head: #d9e2f3;
+  --note: #d9eaf7;
+  --final: #e2f0d9;
+  --ok: #2e7d4f;
+  --ok-weak: #e3f2e8;
+  --warn: #9a5b00;
+  --warn-weak: #fbf0dc;
+  --err: #b42f2f;
+  --err-weak: #fbe5e5;
+  --bar: #4472c4;
+  --f-display: "Noto Serif SC", "Songti SC", "STSong", serif;
+  --f-body: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --f-mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10151b; --surface: #171e26; --surface-2: #1e2731; --ink: #e5eaef; --muted: #9aa7b4; --line: #2a3541;
+    --navy: #2a5f8f; --navy-ink: #ffffff; --blue: #5b8bdc; --head: #22324a; --note: #1a2c3d; --final: #1d3020;
+    --ok: #6cc893; --ok-weak: #17301f; --warn: #e6b45c; --warn-weak: #33281a; --err: #ff8585; --err-weak: #3a1d1d; --bar: #6f9be6;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10151b; --surface: #171e26; --surface-2: #1e2731; --ink: #e5eaef; --muted: #9aa7b4; --line: #2a3541;
+  --navy: #2a5f8f; --navy-ink: #ffffff; --blue: #5b8bdc; --head: #22324a; --note: #1a2c3d; --final: #1d3020;
+  --ok: #6cc893; --ok-weak: #17301f; --warn: #e6b45c; --warn-weak: #33281a; --err: #ff8585; --err-weak: #3a1d1d; --bar: #6f9be6;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--bg); color: var(--ink); }
+body { margin: 0; font: 14px/1.6 var(--f-body); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+a { color: var(--blue); }
+
+.wrap { max-width: 1280px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 48px; }
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); padding-block: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.top h1 { margin: 0; font: 700 19px/1.2 var(--f-display); letter-spacing: .02em; }
+.top .sub { color: var(--muted); font-size: 12px; }
+.top .right { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; line-height: 1.4; white-space: nowrap; }
+.btn:hover { border-color: var(--blue); }
+.btn.primary { background: var(--navy); color: var(--navy-ink); border-color: var(--navy); font-weight: 600; }
+.btn.ghost { border-color: transparent; background: transparent; color: var(--muted); }
+.btn.danger { color: var(--err); }
+.btn.sm { padding: 3px 9px; font-size: 12px; }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+.grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }
+@media (min-width: 980px) { .grid.two { grid-template-columns: minmax(0, 1.1fr) minmax(0, .9fr); align-items: start; } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; min-width: 0; }
+.card h2 { margin: 0 0 4px; font: 600 16px/1.3 var(--f-display); }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.grow { flex: 1 1 auto; min-width: 0; }
+.hint { color: var(--muted); font-size: 12px; }
+label.f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); min-width: 0; }
+label.f > span { font-weight: 500; }
+input[type=text], select, textarea { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 7px 9px; width: 100%; min-width: 0; color: var(--ink); }
+textarea { resize: vertical; line-height: 1.55; }
+.cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cols4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 560px) { .cols2, .cols4 { grid-template-columns: 1fr 1fr; } }
+
+.drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 18px; text-align: center; color: var(--muted); cursor: pointer; background: var(--surface-2); }
+.drop.over { border-color: var(--blue); color: var(--ink); }
+.drop b { display: block; color: var(--ink); margin-bottom: 2px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: 0; background: var(--surface); padding: 5px 12px; cursor: pointer; font-size: 13px; }
+.seg button[aria-pressed="true"] { background: var(--head); font-weight: 600; }
+
+.loaded { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.kpi { background: var(--surface-2); border-radius: 6px; padding: 8px 10px; }
+.kpi b { display: block; font: 600 18px/1.2 var(--f-mono); font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 12px; color: var(--muted); }
+.preview { max-height: 180px; overflow: auto; font-size: 12px; background: var(--surface-2); border-radius: 6px; padding: 8px 10px; margin: 0; white-space: pre-wrap; color: var(--muted); }
+
+.steps { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; }
+.steps .dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-size: 11px; }
+.steps li.doing .dot { border-color: var(--blue); }
+.steps li.done .dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+.steps li.fail .dot { background: var(--err); border-color: var(--err); color: #fff; }
+.bar { height: 6px; background: var(--surface-2); border-radius: 3px; overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--bar); }
+@media (prefers-reduced-motion: no-preference) { .steps li.doing .dot { animation: pulse 1.2s ease-in-out infinite; } }
+@keyframes pulse { 50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--blue) 25%, transparent); } }
+
+.banner { padding: 9px 12px; border-radius: 6px; font-size: 13px; background: var(--warn-weak); color: var(--warn); }
+.banner.err { background: var(--err-weak); color: var(--err); }
+.banner.ok { background: var(--ok-weak); color: var(--ok); }
+
+.hist { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--surface); }
+.hist .it { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 10px 12px; border-top: 1px solid var(--line); cursor: pointer; text-align: left; background: none; border-left: 0; border-right: 0; border-bottom: 0; width: 100%; }
+.hist .it:first-child { border-top: 0; }
+.hist .it:hover { background: var(--surface-2); }
+.hist .it b { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hist .it span { color: var(--muted); font-size: 12px; }
+.tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--surface-2); color: var(--muted); font-weight: 500; vertical-align: 1px; }
+.tag.ex { background: var(--warn-weak); color: var(--warn); }
+
+.empty { border: 1px dashed var(--line); border-radius: 8px; padding: 24px 16px; text-align: center; color: var(--muted); }
+.empty b { display: block; color: var(--ink); font-family: var(--f-display); margin-bottom: 4px; }
+
+/* ---------- 报告（仿 Excel 模板） ---------- */
+.rep { margin-top: 16px; display: flex; flex-direction: column; gap: 18px; }
+.rep-title { background: var(--navy); color: var(--navy-ink); border-radius: 8px 8px 0 0; padding: 12px 16px; font: 700 18px/1.35 var(--f-display); text-align: center; text-wrap: balance; }
+.rep-note { background: var(--note); padding: 9px 16px; font-size: 13px; border-radius: 0 0 8px 8px; margin-top: -18px; }
+.sec h3 { margin: 0; background: var(--blue); color: #fff; font: 600 15px/1.4 var(--f-body); padding: 7px 12px; border-radius: 6px 6px 0 0; }
+.tw { overflow-x: auto; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 6px 6px; background: var(--surface); }
+table.t { border-collapse: collapse; width: 100%; min-width: 980px; font-size: 13px; table-layout: fixed; }
+table.t th { background: var(--head); font-weight: 600; padding: 8px; text-align: center; border: 1px solid var(--line); border-top: 0; font-size: 12.5px; }
+table.t td { padding: 8px; border: 1px solid var(--line); vertical-align: top; line-height: 1.55; word-break: break-word; }
+table.t td.n { text-align: center; font: 600 15px var(--f-mono); font-variant-numeric: tabular-nums; }
+table.t td.n .mini { display: block; height: 4px; margin: 6px auto 0; max-width: 64px; background: var(--surface-2); border-radius: 2px; overflow: hidden; }
+table.t td.n .mini i { display: block; height: 100%; background: var(--bar); }
+table.t td.name { font-weight: 600; }
+table.t tr.final td { background: var(--final); font-weight: 600; }
+table.t td .q { color: var(--muted); }
+.lvl { display: inline-block; padding: 1px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+.lvl.hi { background: var(--err-weak); color: var(--err); }
+.lvl.mid { background: var(--warn-weak); color: var(--warn); }
+.lvl.lo { background: var(--surface-2); color: var(--muted); }
+.more { margin-top: 6px; }
+.more summary { cursor: pointer; color: var(--blue); font-size: 12px; }
+.more ul { margin: 6px 0 0; padding-left: 16px; color: var(--muted); font-size: 12px; }
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 8px 16px; border-radius: 99px; font-size: 13px; z-index: 50; max-width: calc(100% - 32px); }
+.confirm { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; color: var(--err); }
+
+</style>
+<div id="app" class="wrap"></div>
+<script>
+/* 极简 Excel (.xlsx) 读写，无需第三方库。
+ * 写：XlsxLite.build([{ name, rows, widths, merges, heights, styled, freeze }]) → Uint8Array
+ *   rows 里的单元格可以是值，或 { v: 值, s: 样式名 }；样式名见 STYLES
+ *   styled=false（默认）时：第一行表头加粗、其余自动换行、冻结首行
+ * 读：await XlsxLite.read(ArrayBuffer) → [{ name, rows: [[...]] }]
+ */
+(function (root) {
+  'use strict';
+  const enc = new TextEncoder();
+  const CRC = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  function crc32(buf) { let c = 0xFFFFFFFF; for (let i = 0; i < buf.length; i++) c = CRC[(c ^ buf[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+
+  function zip(files) { // 不压缩的 zip
+    const parts = []; const central = []; let offset = 0;
+    files.forEach(f => {
+      const name = enc.encode(f.name); const data = f.data; const crc = crc32(data);
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+      lh.setUint16(10, 0, true); lh.setUint16(12, 0x21, true); lh.setUint32(14, crc, true);
+      lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+      parts.push(new Uint8Array(lh.buffer), name, data);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+      ch.setUint16(12, 0, true); ch.setUint16(14, 0x21, true); ch.setUint32(16, crc, true); ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true);
+      ch.setUint16(28, name.length, true); ch.setUint16(30, 0, true); ch.setUint16(32, 0, true); ch.setUint16(34, 0, true); ch.setUint16(36, 0, true);
+      ch.setUint32(38, 0, true); ch.setUint32(42, offset, true);
+      central.push(new Uint8Array(ch.buffer), name);
+      offset += 30 + name.length + data.length;
+    });
+    const cdSize = central.reduce((s, p) => s + p.length, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
+    end.setUint32(12, cdSize, true); end.setUint32(16, offset, true);
+    const all = [...parts, ...central, new Uint8Array(end.buffer)];
+    const out = new Uint8Array(all.reduce((s, p) => s + p.length, 0)); let pos = 0;
+    all.forEach(p => { out.set(p, pos); pos += p.length; });
+    return out;
+  }
+
+  // ---------- 样式 ----------
+  // [字体, 填充, 边框, 对齐]
+  const FONT = '<name val="Microsoft YaHei"/><family val="2"/><charset val="134"/>';
+  const FONTS = [
+    `<font><sz val="11"/>${FONT}</font>`,                                   // 0 普通 11
+    `<font><b/><sz val="11"/>${FONT}</font>`,                               // 1 粗 11
+    `<font><b/><sz val="16"/><color rgb="FFFFFFFF"/>${FONT}</font>`,        // 2 标题
+    `<font><sz val="10"/><color rgb="FF1F1F1F"/>${FONT}</font>`,            // 3 说明
+    `<font><b/><sz val="12"/><color rgb="FFFFFFFF"/>${FONT}</font>`,        // 4 章节
+    `<font><b/><sz val="10"/><color rgb="FF1F1F1F"/>${FONT}</font>`,        // 5 表头/结论
+    `<font><sz val="10"/>${FONT}</font>`                                    // 6 正文 10
+  ];
+  const fill = rgb => `<fill><patternFill patternType="solid"><fgColor rgb="${rgb}"/><bgColor indexed="64"/></patternFill></fill>`;
+  const FILLS = ['<fill><patternFill patternType="none"/></fill>', '<fill><patternFill patternType="gray125"/></fill>',
+    fill('FFE2EDF5'), fill('FF1F4E78'), fill('FFD9EAF7'), fill('FF4472C4'), fill('FFD9E2F3'), fill('FFE2F0D9'), fill('FFFCE4D6')];
+  const THIN = '<border><left style="thin"><color rgb="FFBFBFBF"/></left><right style="thin"><color rgb="FFBFBFBF"/></right><top style="thin"><color rgb="FFBFBFBF"/></top><bottom style="thin"><color rgb="FFBFBFBF"/></bottom><diagonal/></border>';
+  const BORDERS = ['<border><left/><right/><top/><bottom/><diagonal/></border>', THIN];
+  const STYLES = { // name: [font, fill, border, h, v]
+    plain: [0, 0, 0, null, null],
+    legacyHead: [1, 2, 0, null, null],
+    legacyCell: [0, 0, 0, null, 'top'],
+    title: [2, 3, 0, 'center', 'center'],
+    note: [3, 4, 0, 'left', 'center'],
+    section: [4, 5, 0, 'left', 'center'],
+    head: [5, 6, 1, 'center', 'center'],
+    cell: [6, 0, 1, null, 'top'],
+    num: [6, 0, 1, 'center', 'top'],
+    final: [5, 7, 1, null, 'top'],
+    warn: [6, 8, 1, null, 'top']
+  };
+  const STYLE_IDX = {}; Object.keys(STYLES).forEach((k, i) => { STYLE_IDX[k] = i; });
+  function stylesXml() {
+    const xfs = Object.values(STYLES).map(([f, fi, b, h, v]) => {
+      const al = (h || v) ? `<alignment${h ? ` horizontal="${h}"` : ''}${v ? ` vertical="${v}"` : ''} wrapText="1"/>` : '';
+      return `<xf numFmtId="0" fontId="${f}" fillId="${fi}" borderId="${b}" xfId="0" applyFont="1" applyFill="1" applyBorder="1"${al ? ' applyAlignment="1">' + al + '</xf>' : '/>'}`;
+    });
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="${FONTS.length}">${FONTS.join('')}</fonts><fills count="${FILLS.length}">${FILLS.join('')}</fills><borders count="${BORDERS.length}">${BORDERS.join('')}</borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${xfs.length}">${xfs.join('')}</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  }
+
+  const esc = s => String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  function col(i) { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+  function sheetXml(sh) {
+    const rows = sh.rows || [];
+    const widths = sh.widths || [];
+    const styled = !!sh.styled;
+    const freeze = sh.freeze !== undefined ? sh.freeze : !styled;
+    const cols = widths.length ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('')}</cols>` : '';
+    const body = rows.map((r, ri) => {
+      const ht = sh.heights && sh.heights[ri] ? ` ht="${sh.heights[ri]}" customHeight="1"` : '';
+      return `<row r="${ri + 1}"${ht}>${(r || []).map((cell, ci) => {
+        const ref = col(ci) + (ri + 1);
+        let v = cell, sName = null;
+        if (cell && typeof cell === 'object' && !Array.isArray(cell)) { v = cell.v; sName = cell.s || null; }
+        if (!sName) sName = styled ? 'cell' : (ri === 0 ? 'legacyHead' : 'legacyCell');
+        const s = ` s="${STYLE_IDX[sName] !== undefined ? STYLE_IDX[sName] : 0}"`;
+        if (v === null || v === undefined || v === '') return `<c r="${ref}"${s}/>`;
+        if (typeof v === 'number' && isFinite(v)) return `<c r="${ref}"${s}><v>${v}</v></c>`;
+        return `<c r="${ref}" t="inlineStr"${s}><is><t xml:space="preserve">${esc(String(v).slice(0, 32000))}</t></is></c>`;
+      }).join('')}</row>`;
+    }).join('');
+    const merges = (sh.merges || []).length ? `<mergeCells count="${sh.merges.length}">${sh.merges.map(m => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>` : '';
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0">${freeze && rows.length > 1 ? '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>' : ''}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="16"/>${cols}<sheetData>${body}</sheetData>${merges}<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup orientation="landscape" paperSize="9" fitToWidth="1" fitToHeight="0"/></worksheet>`;
+  }
+  function build(sheets) {
+    const names = []; sheets.forEach((s, i) => { let n = String(s.name || 'Sheet' + (i + 1)).replace(/[\[\]:*?\/\\]/g, ' ').slice(0, 31); while (names.includes(n)) n = n.slice(0, 28) + '_' + i; names.push(n); });
+    const files = [
+      ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${names.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>`],
+      ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`],
+      ['xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${names.map((n, i) => `<sheet name="${esc(n)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>`],
+      ['xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${names.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${names.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+      ['xl/styles.xml', stylesXml()]
+    ];
+    sheets.forEach((s, i) => files.push([`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s)]));
+    return zip(files.map(([name, xml]) => ({ name, data: enc.encode(xml) })));
+  }
+
+  // ---------- 读取 ----------
+  async function inflateRaw(bytes) {
+    const ds = new DecompressionStream('deflate-raw');
+    const stream = new Blob([bytes]).stream().pipeThrough(ds);
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+  }
+  async function unzip(buf) {
+    const u8 = new Uint8Array(buf); const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
+    let eocd = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 70000); i--) { if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; } }
+    if (eocd < 0) throw new Error('不是有效的 Excel 文件');
+    const count = dv.getUint16(eocd + 10, true); let p = dv.getUint32(eocd + 16, true);
+    const out = {}; const dec = new TextDecoder();
+    for (let i = 0; i < count; i++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) break;
+      const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+      const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), lho = dv.getUint32(p + 42, true);
+      const name = dec.decode(u8.subarray(p + 46, p + 46 + nlen));
+      const lnlen = dv.getUint16(lho + 26, true), lxlen = dv.getUint16(lho + 28, true);
+      const data = u8.subarray(lho + 30 + lnlen + lxlen, lho + 30 + lnlen + lxlen + csize);
+      out[name] = { method, data };
+      p += 46 + nlen + xlen + clen;
+    }
+    return {
+      async text(name) {
+        const f = out[name] || out[Object.keys(out).find(k => k.toLowerCase() === name.toLowerCase())]; if (!f) return null;
+        const raw = f.method === 0 ? f.data : await inflateRaw(f.data);
+        // 去掉 BOM 和标签上的命名空间前缀（如 <x:row>），方便统一解析
+        return dec.decode(raw).replace(/^﻿/, '').replace(/<(\/?)[A-Za-z][\w.-]*:(?=[A-Za-z])/g, '<$1');
+      },
+      names: Object.keys(out)
+    };
+  }
+  const unesc = s => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(+n)).replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCodePoint(parseInt(n, 16))).replace(/&amp;/g, '&');
+  const tText = xml => { const m = xml.match(/<t[^>]*>([\s\S]*?)<\/t>/g) || []; return m.map(x => unesc(x.replace(/<t[^>]*>|<\/t>/g, ''))).join(''); };
+  function colIdx(ref) { const m = ref.match(/^([A-Z]+)/); let n = 0; for (const ch of m[1]) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; }
+  async function read(buf) {
+    const z = await unzip(buf);
+    const wb = await z.text('xl/workbook.xml') || '';
+    const rels = await z.text('xl/_rels/workbook.xml.rels') || '';
+    const relMap = {}; (rels.match(/<Relationship\b[^>]*>/g) || []).forEach(r => { const id = (r.match(/Id="([^"]+)"/) || [])[1]; const t = (r.match(/Target="([^"]+)"/) || [])[1]; if (id && t) relMap[id] = t.replace(/^\/?xl\//, '').replace(/^\//, ''); });
+    const ssXml = await z.text('xl/sharedStrings.xml') || '';
+    const ss = (ssXml.match(/<si>[\s\S]*?<\/si>/g) || []).map(tText);
+    const sheets = [];
+    for (const tag of (wb.match(/<sheet\b[^>]*>/g) || [])) {
+      const name = unesc((tag.match(/name="([^"]*)"/) || [])[1] || '');
+      const rid = (tag.match(/r:id="([^"]+)"/) || [])[1];
+      const path = 'xl/' + (relMap[rid] || '');
+      const xml = await z.text(path); if (!xml) continue;
+      const rows = [];
+      (xml.match(/<row\b[\s\S]*?<\/row>|<row\b[^>]*\/>/g) || []).forEach(rx => {
+        const rn = +((rx.match(/<row\b[^>]*\br="(\d+)"/) || [])[1] || rows.length + 1) - 1;
+        const row = [];
+        (rx.match(/<c\b[^>]*\/>|<c\b[^>]*>[\s\S]*?<\/c>/g) || []).forEach(cx => {
+          const ref = (cx.match(/\br="([A-Z]+\d+)"/) || [])[1];
+          const t = (cx.match(/\bt="([^"]+)"/) || [])[1];
+          const ci = ref ? colIdx(ref) : row.length;
+          let v = null;
+          if (t === 's') { const m = cx.match(/<v>([\s\S]*?)<\/v>/); v = m ? ss[+m[1]] : ''; }
+          else if (t === 'inlineStr') v = tText(cx);
+          else { const m = cx.match(/<v>([\s\S]*?)<\/v>/); if (m) { v = unesc(m[1]); if (t !== 'str' && t !== 'e' && t !== 'b' && /^-?\d+(\.\d+)?(E[-+]?\d+)?$/i.test(v)) v = +v; } }
+          row[ci] = v;
+        });
+        rows[rn] = row;
+      });
+      for (let i = 0; i < rows.length; i++) if (!rows[i]) rows[i] = [];
+      sheets.push({ name, rows });
+    }
+    return sheets;
+  }
+
+  const api = { build, read, STYLES: Object.keys(STYLES) };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  root.XlsxLite = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+/* 评价调研：数据读入 → Claude 建分类 → 逐条打标 → 统计 → Claude 写结论
+ * 纯逻辑，不碰页面。window.Pipeline
+ */
+(function (root) {
+  'use strict';
+
+  // ---------- 固定的客流/场景维度（来自你们的模板） ----------
+  const SEGMENTS = [
+    { id: 'S1', name: '朋友/好友/同事聚餐', hint: '朋友、好友、同事、三五好友、聚餐、小聚、局' },
+    { id: 'S2', name: '家庭/亲子', hint: '家人、全家、孩子、带娃、父母、长辈' },
+    { id: 'S3', name: '双人消费', hint: '两个人、双人套餐、两位' },
+    { id: 'S4', name: '情侣/约会', hint: '情侣、对象、男/女朋友、约会、老公老婆' },
+    { id: 'S5', name: '晚上/夜宵', hint: '晚上、夜宵、宵夜、深夜、凌晨' },
+    { id: 'S6', name: '外地游客/旅行客', hint: '来XX玩、旅游、游客、出差、住酒店、来都来了' },
+    { id: 'S7', name: '团购/套餐驱动', hint: '团购、套餐、券、优惠、囤了' },
+    { id: 'S8', name: '慕名/推荐/种草/打卡', hint: '网红、推荐、小红书、抖音、收藏、打卡、慕名、排名' },
+    { id: 'S9', name: '排队/等位高峰', hint: '排队、等位、取号、人多' },
+    { id: 'S10', name: '售罄/卖完', hint: '卖完、售罄、没有了、沽清' },
+    { id: 'S11', name: '回头客/复购', hint: '二刷、又来、经常来、老顾客、第N次' }
+  ];
+
+  // ---------- 读入 ----------
+  const clean = s => String(s === null || s === undefined ? '' : s).replace(/\[[^\]]{1,8}\]/g, '').replace(/\s+/g, ' ').trim();
+  const num = v => { if (typeof v === 'number') return v; const s = String(v || '').replace(/,/g, '').trim(); const m = s.match(/([\d.]+)\s*(万|w|W|千|k|K)?/); if (!m) return 0; let n = parseFloat(m[1]); if (/万|w/i.test(m[2] || '')) n *= 1e4; else if (/千|k/i.test(m[2] || '')) n *= 1e3; return Math.round(n) || 0; };
+
+  /** 扩展导出的调研数据 → 条目 */
+  function fromExtension(data) {
+    const items = [];
+    const titles = {};
+    (data.posts || []).forEach(p => {
+      titles[p.id] = p.title || '';
+      const t = clean([p.title, p.desc].filter(Boolean).join('。'));
+      if (t.length >= 6) items.push({ t, l: num(p.likes), d: p.publishedText || '', src: '笔记', post: p.title || '' });
+    });
+    (data.comments || []).forEach(c => {
+      const t = clean(c.text);
+      if (t) items.push({ t, l: num(c.likes), d: c.date || '', src: '评论', post: titles[c.postId] || '' });
+    });
+    return { items, label: `${data.platform === 'douyin' ? '抖音' : '小红书'}「${data.keyword || ''}」${(data.posts || []).length} 篇帖子`, brand: data.keyword || '' };
+  }
+
+  /** 表格（二维数组）→ 自动识别列 */
+  function guessColumns(rows) {
+    let hr = 0;
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const r = rows[i] || []; const strs = r.filter(v => typeof v === 'string' && v.trim() && v.length < 30);
+      if (strs.length >= 2) { hr = i; break; }
+    }
+    const header = (rows[hr] || []).map(v => String(v === null || v === undefined ? '' : v).trim());
+    const body = rows.slice(hr + 1).filter(r => r && r.some(v => v !== null && v !== undefined && String(v).trim()));
+    const n = Math.max(header.length, ...body.slice(0, 50).map(r => r.length));
+    const avgLen = c => { const s = body.slice(0, 200).map(r => String(r[c] === null || r[c] === undefined ? '' : r[c])); return s.reduce((a, x) => a + x.length, 0) / (s.length || 1); };
+    const find = re => { for (let c = 0; c < n; c++) if (re.test(header[c] || '')) return c; return -1; };
+    const NOT_TEXT = /时间|日期|星|分|编号|id|人|用户|昵称|回复|状态|类型|来源|门店|图片|链接/i;
+    let text = find(/评价内容|评论内容|点评内容|评价正文|评论正文|内容|review|comment|text/i);
+    if (text < 0) { for (let c = 0; c < n; c++) if (/评价|评论|点评/.test(header[c] || '') && !NOT_TEXT.test(header[c] || '')) { text = c; break; } }
+    if (text < 0 || avgLen(text) < 8) { let best = -1, bl = 0; for (let c = 0; c < n; c++) { const l = avgLen(c); if (l > bl) { bl = l; best = c; } } text = best; }
+    return {
+      headerRow: hr, header: Array.from({ length: n }, (_, c) => header[c] || `第${c + 1}列`), count: body.length,
+      text, date: find(/时间|日期|date|time/i), star: find(/星级|评分|分数|口味分|总分|star|rating/i), likes: find(/点赞|赞|有用|like/i), tag: find(/回头客|标签|tag/i)
+    };
+  }
+  function fromTable(rows, map) {
+    const body = rows.slice(map.headerRow + 1);
+    const items = [];
+    body.forEach(r => {
+      if (!r) return;
+      const t = clean(r[map.text]); if (!t) return;
+      const it = { t, l: map.likes >= 0 ? num(r[map.likes]) : 0, d: map.date >= 0 ? excelDate(r[map.date]) : '', src: '评价', post: '' };
+      if (map.star >= 0 && r[map.star] !== null && r[map.star] !== undefined) it.star = String(r[map.star]);
+      if (map.tag >= 0 && r[map.tag]) it.tag = String(r[map.tag]);
+      items.push(it);
+    });
+    return items;
+  }
+  function excelDate(v) {
+    if (typeof v === 'number' && v > 20000 && v < 80000) { const d = new Date(Math.round((v - 25569) * 864e5)); return d.toISOString().slice(0, 10); }
+    return String(v === null || v === undefined ? '' : v).trim();
+  }
+  function parseCSV(text) {
+    const rows = []; let row = [], cur = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === ',' || ch === '\t') { row.push(cur); cur = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cur); rows.push(row); row = []; cur = ''; }
+      else cur += ch;
+    }
+    if (cur || row.length) { row.push(cur); rows.push(row); }
+    return rows;
+  }
+  function decodeText(buf) {
+    const u = new TextDecoder('utf-8').decode(buf).replace(/^﻿/, '');
+    if ((u.match(/\uFFFD/g) || []).length > 3) { try { return new TextDecoder('gb18030').decode(buf); } catch (e) { return u; } }
+    return u;
+  }
+  function fromPlain(text) {
+    const parts = text.includes('\n\n') ? text.split(/\n\s*\n/) : text.split('\n');
+    return parts.map(clean).filter(t => t.length >= 2).map(t => ({ t, l: 0, d: '', src: '评价', post: '' }));
+  }
+
+  /** 去重、去掉太短的；按价值排序后截取 */
+  function prepare(items, cap) {
+    const seen = new Set(); const out = [];
+    items.forEach(it => {
+      const k = it.t.replace(/[\s，。！？!?,.~～…]/g, '');
+      if (k.length < 4 || seen.has(k)) return; seen.add(k); out.push(it);
+    });
+    const total = out.length;
+    let picked = out;
+    if (cap && out.length > cap) {
+      const score = it => Math.log2(1 + it.l) * 3 + Math.min(it.t.length, 150) / 15;
+      picked = out.slice().sort((a, b) => score(b) - score(a)).slice(0, cap);
+    }
+    picked.forEach((it, i) => { it.i = i + 1; });
+    return { items: picked, total };
+  }
+  function dateRange(items) {
+    const ds = items.map(it => it.d).map(d => { const m = String(d).match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/); return m ? `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}` : null; }).filter(Boolean).sort();
+    return ds.length ? { from: ds[0], to: ds[ds.length - 1] } : null;
+  }
+
+  // ---------- 提示词 ----------
+  const cut = (s, n) => (s.length > n ? s.slice(0, n) + '…' : s);
+  function taxonomyPrompt(brand, menuHint, items) {
+    const sample = items.slice().sort((a, b) => b.t.length - a.t.length).slice(0, 360).sort((a, b) => a.i - b.i);
+    let body = ''; for (const it of sample) { const line = `${it.i}. ${cut(it.t, 160)}\n`; if (body.length + line.length > 60000) break; body += line; }
+    return `你是餐饮品牌的顾客评价分析师。下面是「${brand}」的顾客评价/评论样本（共 ${items.length} 条，这里给出其中信息量最大的一部分）。${menuHint ? `\n门店招牌菜/菜单参考：${menuHint}` : ''}
+
+请为后续"逐条打标签"建立一套分类：
+1. products：顾客明确提到的具体菜品/产品。同一道菜的不同叫法合并（写进 alias）。最多 25 个，按提及多少从多到少。不要把"海鲜""菜品"这种大类当成菜。
+2. praise：顾客反复描述的"具体好评点"，要具体到可以拍成视频的体验，例如"海鲜新鲜、鲜甜""爆膏/虾膏多""大只/饱满/肥美""锅气/现炒""酥脆/Q弹/嫩等口感""烟火气/热闹氛围""服务热情/上菜快"。不要"好吃""不错"这类空话。8–14 个。
+3. complaints：顾客反复描述的"具体吐槽点"，例如"排队/等位""偏腻/重口""偏咸""价格偏贵/性价比一般""海鲜清洁/鲜度波动""售罄/卖完""环境热/通风""停车/交通""份量/菜量"。8–14 个。
+每个 praise/complaints 给一句 hint 写判断标准。只根据下面评价里真实出现的内容来建，不要编。
+
+只输出 JSON，格式：
+{"products":[{"name":"爆膏奶油虾","alias":["奶油虾","爆膏虾"]}],"praise":[{"name":"海鲜新鲜、鲜甜","hint":"明确说海鲜/虾/蚝新鲜、鲜甜、鲜活"}],"complaints":[{"name":"排队/等位","hint":"提到排队、等位、等太久"}]}
+
+评价：
+${body}`;
+  }
+  function taxText(tax) {
+    return [
+      '产品：', ...tax.products.map(p => `${p.id} ${p.name}${p.alias && p.alias.length ? `（也叫：${p.alias.join('、')}）` : ''}`),
+      '好评点：', ...tax.praise.map(p => `${p.id} ${p.name}${p.hint ? `：${p.hint}` : ''}`),
+      '吐槽点：', ...tax.complaints.map(p => `${p.id} ${p.name}${p.hint ? `：${p.hint}` : ''}`),
+      '客流/场景：', ...SEGMENTS.map(s => `${s.id} ${s.name}：${s.hint}`)
+    ].join('\n');
+  }
+  function tagPrompt(brand, tax, batch) {
+    return `你在给「${brand}」的顾客评价逐条打标签，结果会用来统计"多少条评价提到了某个点"，所以要准，宁缺毋滥。
+
+可用编号：
+${taxText(tax)}
+
+每条输出一个对象：
+- i：评价编号
+- r：这条是否在评价这家店/这次消费体验。与店无关的闲聊、问账号、广告、纯表情、只有@人，记 0；否则记 1
+- p：提到的产品，每项 [编号, 方向, 细节]。方向："+" 夸，"-" 批评，"0" 只提到没有评价。细节写顾客原意的具体点，≤12 字（如"虾膏多""底汁太咸""壳脆肉弹"）。列表里没有但顾客明确点名的菜，编号写 "新:菜名"
+- g：命中的好评点编号；b：命中的吐槽点编号；s：命中的客流/场景编号
+评价末尾如果有（喜欢的菜：…），那是顾客自己勾选的推荐菜，算作对这些菜的 "+"（细节可留空）。
+只标顾客明确表达的内容，不要推测；同一条可以命中多个。r 为 0 时其他字段省略。空数组省略。
+
+只输出 JSON 数组，例如：
+[{"i":12,"r":1,"p":[["P1","+","虾膏多"],["P3","-","有沙"]],"g":["G2"],"b":["B5"],"s":["S1","S5"]},{"i":13,"r":0}]
+
+评价：
+${batch.map(it => `[${it.i}] ${cut(it.t, 300)}`).join('\n')}`;
+  }
+
+  // ---------- 统计 ----------
+  const score = it => Math.log2(1 + (it.l || 0)) * 2 + Math.min(it.t.length, 120) / 20 + (it.t.length < 10 ? -3 : 0);
+  function topQuotes(list, n) {
+    const seen = new Set(); const out = [];
+    list.slice().sort((a, b) => score(b) - score(a)).forEach(it => { const k = it.t.slice(0, 20); if (out.length < n && !seen.has(k)) { seen.add(k); out.push(cut(it.t, 110)); } });
+    return out;
+  }
+  function freq(arr, n) { const m = {}; arr.forEach(x => { if (x) m[x] = (m[x] || 0) + 1; }); return Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, n); }
+
+  function aggregate(items, tags, tax) {
+    const byI = {}; items.forEach(it => { byI[it.i] = it; });
+    const tagged = items.filter(it => tags[it.i]);
+    const rel = tagged.filter(it => tags[it.i].r !== 0);
+    // 新菜名合并：和已有别名重合的并入
+    const prodByKey = {}; const prods = tax.products.map(p => ({ id: p.id, name: p.name, alias: p.alias || [], pos: [], neg: [], men: [], posD: [], negD: [] }));
+    prods.forEach(p => { [p.name, ...p.alias].forEach(a => { prodByKey[a] = p; }); prodByKey[p.id] = p; });
+    const g = {}, b = {}, s = {};
+    tax.praise.forEach(x => { g[x.id] = []; }); tax.complaints.forEach(x => { b[x.id] = []; }); SEGMENTS.forEach(x => { s[x.id] = []; });
+    rel.forEach(it => {
+      const tg = tags[it.i];
+      const seenP = new Set();
+      (tg.p || []).forEach(arr => {
+        if (!Array.isArray(arr)) return;
+        let [pid, dir, det] = arr; pid = String(pid || '');
+        let p = prodByKey[pid];
+        if (!p && /^新[:：]/.test(pid)) {
+          const nm = pid.replace(/^新[:：]/, '').trim(); if (!nm) return;
+          p = prodByKey[nm] || prods.find(x => x.name.includes(nm) || nm.includes(x.name));
+          if (!p) { p = { id: 'N' + (prods.length + 1), name: nm, alias: [], pos: [], neg: [], men: [], posD: [], negD: [], isNew: true }; prods.push(p); prodByKey[nm] = p; }
+        }
+        if (!p) return;
+        const key = p.id + dir;
+        if (seenP.has(key)) return; seenP.add(key);
+        if (!p.men.includes(it)) p.men.push(it);
+        if (dir === '+') { p.pos.push(it); p.posD.push(det); } else if (dir === '-') { p.neg.push(it); p.negD.push(det); }
+      });
+      (tg.g || []).forEach(id => { if (g[id] && !g[id].includes(it)) g[id].push(it); });
+      (tg.b || []).forEach(id => { if (b[id] && !b[id].includes(it)) b[id].push(it); });
+      (tg.s || []).forEach(id => { if (s[id] && !s[id].includes(it)) s[id].push(it); });
+      if (it.tag && /回头客/.test(it.tag) && !s.S11.includes(it)) s.S11.push(it);
+    });
+    const P = prods.map(p => ({ id: p.id, name: p.name, isNew: !!p.isNew, pos: p.pos.length, neg: p.neg.length, mention: p.men.length,
+      posD: freq(p.posD, 8), negD: freq(p.negD, 6), posQ: topQuotes(p.pos, 5), negQ: topQuotes(p.neg, 4) }))
+      .filter(p => p.mention > 0 && (!p.isNew || p.mention >= 3));
+    const bucket = (defs, map) => defs.map(x => ({ id: x.id, name: x.name, count: map[x.id].length, q: topQuotes(map[x.id], 5) })).filter(x => x.count > 0).sort((a, b) => b.count - a.count);
+    return {
+      products: P,
+      praise: bucket(tax.praise, g),
+      complaints: bucket(tax.complaints, b),
+      segments: SEGMENTS.map(x => ({ id: x.id, name: x.name, count: s[x.id].length, q: topQuotes(s[x.id], 4) })),
+      totals: { analyzed: items.length, tagged: tagged.length, relevant: rel.length }
+    };
+  }
+  function goodProducts(A) { return A.products.filter(p => p.pos >= 2).sort((a, b) => b.pos - a.pos).slice(0, 8); }
+  function badProducts(A) { return A.products.filter(p => p.neg >= 2).sort((a, b) => b.neg - a.neg).slice(0, 6); }
+
+  function writePrompt(brand, A, meta) {
+    const G = goodProducts(A), B = badProducts(A);
+    const qs = arr => arr.map(q => `「${q}」`).join(' ');
+    const D = arr => arr.map(([d, n]) => `${d}×${n}`).join('、');
+    return `你是餐饮品牌的营销与运营顾问。下面是「${brand}」${meta.relevant} 条有效顾客评价的统计结果（已逐条打标，数字是"命中评价数"，各类可交叉）。请按我们的《顾客评价调研模块》模板写结论。
+
+要求：
+- 只根据给出的数字、细节词和原话下结论，不编造没出现的事实；数字直接引用给出的。
+- 写得具体、能落地：卖点要能拍，整改要能执行。语言简洁，像给老板和拍摄团队看的内部报告。
+- evidence（代表性原话）只能从给出的原话里挑 1–3 句原样引用，用 “” 包起来，多句用 " / " 分隔。
+- level（影响级别）只能是：严重、中度、轻中度、轻度。
+
+【好评产品】（产品｜正向命中｜正向细节词｜原话）
+${G.map(p => `${p.id} ${p.name}｜${p.pos}｜${D(p.posD)}｜${qs(p.posQ)}`).join('\n') || '无'}
+
+【差评产品】（产品｜负向命中｜负向细节词｜原话）
+${B.map(p => `${p.id} ${p.name}｜${p.neg}｜${D(p.negD)}｜${qs(p.negQ)}`).join('\n') || '无'}
+
+【好评点】（编号 名称｜命中｜原话）
+${A.praise.map(x => `${x.id} ${x.name}｜${x.count}｜${qs(x.q)}`).join('\n') || '无'}
+
+【吐槽点】
+${A.complaints.map(x => `${x.id} ${x.name}｜${x.count}｜${qs(x.q)}`).join('\n') || '无'}
+
+【客流/场景】
+${A.segments.map(x => `${x.id} ${x.name}｜${x.count}｜${qs(x.q)}`).join('\n')}
+
+只输出 JSON，字段如下（数组按给出的顺序，用 id 对应）：
+{
+ "goodProducts":[{"id":"P1","praise":"顾客真正夸的点","evidence":"代表性原话","sell":"可提炼卖点（短语用 + 连接）","shoot":"拍摄重点（镜头顺序用 → 连接）"}],
+ "badProducts":[{"id":"P1","issue":"具体问题","evidence":"代表性原话","essence":"问题本质","fix":"整改重点"}],
+ "praise":[{"id":"G1","say":"顾客具体怎么说","judge":"需求判断","express":"内容表达（一句可直接用的内容角度）","shots":"必须拍到的证据镜头"}],
+ "complaints":[{"id":"B1","show":"具体表现","cause":"归因","action":"整改动作","level":"严重"}],
+ "content":[{"point":"核心卖点","evidence":"评价证据（带数字）","theme":"内容母题","shots":"建议镜头","fit":"适合菜品/场景"}],
+ "segments":[{"id":"S1","feature":"评价里能明确看到的特征","evidence":"代表性证据","judge":"经营判断","insight":"内容/投放启示"}],
+ "final":{"conclusion":"客流特征最终结论","support":"由哪些数字支持","model":"核心客流模型（用 → 串起来）","priority":"内容优先级与运营必须同步解决的问题"}
+}
+content 给 6 条，按重要性排序。segments 只写命中数 ≥ 3 的。`;
+  }
+
+  function validTax(t) {
+    if (!t || !Array.isArray(t.products) || !Array.isArray(t.praise) || !Array.isArray(t.complaints)) return null;
+    const pick = (arr, pre, max) => arr.filter(x => x && x.name).slice(0, max).map((x, i) => ({ id: pre + (i + 1), name: String(x.name).trim(), alias: Array.isArray(x.alias) ? x.alias.map(String).filter(Boolean).slice(0, 6) : [], hint: x.hint ? String(x.hint) : '' }));
+    return { products: pick(t.products, 'P', 30), praise: pick(t.praise, 'G', 16), complaints: pick(t.complaints, 'B', 16) };
+  }
+  function validTags(arr, batch) {
+    const ok = {}; const ids = new Set(batch.map(it => it.i));
+    (Array.isArray(arr) ? arr : []).forEach(o => {
+      if (!o || !ids.has(+o.i)) return;
+      ok[+o.i] = { r: o.r === 0 ? 0 : 1, p: Array.isArray(o.p) ? o.p : [], g: Array.isArray(o.g) ? o.g : [], b: Array.isArray(o.b) ? o.b : [], s: Array.isArray(o.s) ? o.s : [] };
+    });
+    return ok;
+  }
+
+  const api = { SEGMENTS, fromExtension, guessColumns, fromTable, parseCSV, decodeText, fromPlain, prepare, dateRange, taxonomyPrompt, tagPrompt, aggregate, goodProducts, badProducts, writePrompt, validTax, validTags };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+  root.Pipeline = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+/* 评价调研报告：页面、Claude 调用、团队共享、Excel 导出 */
+(function () {
+  'use strict';
+  const P = window.Pipeline, X = window.XlsxLite;
+  const app = document.getElementById('app');
+  const h = s => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const br = s => h(s).replace(/\n/g, '<br>');
+  const uid = p => p + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+  const S = {
+    db: null, sample: null, downloads: null, user: null, ready: false, sampleOk: true,
+    reports: [], loadedList: false, view: 'home', openId: null, items: null,
+    form: { brand: '', menu: '', cap: 800, mode: 'file' },
+    src: null, // { kind, label, items, table:{rows, map}, raw }
+    job: null, msg: null, confirm: null
+  };
+  try { const f = JSON.parse(localStorage.getItem('rv_form') || 'null'); if (f) Object.assign(S.form, f, { mode: f.mode || 'file' }); } catch (e) { /* 无痕模式 */ }
+  const saveForm = () => { try { localStorage.setItem('rv_form', JSON.stringify({ brand: S.form.brand, menu: S.form.menu, cap: S.form.cap })); } catch (e) { /* ignore */ } };
+
+  let toastT;
+  function toast(m) { let el = document.querySelector('.toast'); if (!el) { el = document.createElement('div'); el.className = 'toast'; el.setAttribute('role', 'status'); document.body.appendChild(el); } el.textContent = m; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { el.hidden = true; }, 2400); }
+
+  // ---------- 报告表格（页面和 Excel 共用） ----------
+  const HEADS = {
+    s1: ['产品', '正向细节命中', '顾客真正夸的点', '代表性原话/证据', '可提炼卖点', '拍摄重点'],
+    s2: ['产品', '负向细节命中', '具体问题', '代表性原话/证据', '问题本质', '整改重点'],
+    s3: ['顾客需求/口碑点', '命中评价数', '顾客具体怎么说', '需求判断', '内容表达', '必须拍到的证据镜头'],
+    s4: ['吐槽点', '命中评价数', '具体表现', '归因', '整改动作', '影响级别'],
+    s5: ['排序', '核心卖点', '评价证据', '内容母题', '建议镜头', '适合菜品/场景'],
+    s6: ['客流维度', '评价命中量', '评价里能明确看到的特征', '代表性证据', '经营判断', '内容/投放启示']
+  };
+  const TITLES = {
+    s1: '一、顾客明确提及的好评产品', s2: '二、顾客明确提及的差评产品', s3: '三、顾客反复描述的“具体口碑点”——真正可以变成拍摄卖点',
+    s4: '四、顾客反复描述的“具体吐槽点”——需要优先整改', s5: brand => `五、${brand}评价调研后的“内容拍摄结论”`, s6: n => `六、客流特征分析（基于${n}条评价文本）`
+  };
+  const quoteJoin = arr => (arr || []).slice(0, 2).map(q => `“${q}”`).join(' / ');
+  const dJoin = arr => (arr || []).slice(0, 4).map(x => x[0]).filter(Boolean).join('；');
+
+  function buildTable(brand, A, W, meta) {
+    W = W || {};
+    const by = (arr, id) => (arr || []).find(x => x && x.id === id) || {};
+    const rows = (list, fn) => list.map(fn);
+    const G = P.goodProducts(A), B = P.badProducts(A);
+    const range = meta.range ? `｜区间：${meta.range.from} 至 ${meta.range.to}` : '';
+    const segs = A.segments.filter(s => s.count >= 3);
+    const fin = W.final || {};
+    return {
+      title: `${brand}｜顾客评价调研模块`,
+      note: `评价样本：${meta.relevant}条有效（共读取 ${meta.analyzed} 条${meta.total > meta.analyzed ? `，原始去重后 ${meta.total} 条` : ''}）${range}｜来源：${meta.source}｜口径：逐条提取顾客明确描述的产品、具体体验与客流场景；各类命中可交叉，不可直接相加为人数。`,
+      s1: rows(G, p => { const w = by(W.goodProducts, p.id); return { c: [p.name, p.pos, w.praise || dJoin(p.posD), w.evidence || quoteJoin(p.posQ), w.sell || '', w.shoot || ''], q: p.posQ }; }),
+      s2: rows(B, p => { const w = by(W.badProducts, p.id); return { c: [p.name, p.neg, w.issue || dJoin(p.negD), w.evidence || quoteJoin(p.negQ), w.essence || '', w.fix || ''], q: p.negQ }; }),
+      s3: rows(A.praise, x => { const w = by(W.praise, x.id); return { c: [x.name, x.count, w.say || '', w.judge || '', w.express || '', w.shots || ''], q: x.q }; }),
+      s4: rows(A.complaints, x => { const w = by(W.complaints, x.id); return { c: [x.name, x.count, w.show || quoteJoin(x.q), w.cause || '', w.action || '', w.level || ''], q: x.q }; }),
+      s5: (W.content || []).slice(0, 6).map((c, i) => ({ c: [i + 1, c.point || '', c.evidence || '', c.theme || '', c.shots || '', c.fit || ''] })),
+      s6: rows(segs, x => { const w = by(W.segments, x.id); return { c: [x.name, x.count, w.feature || '', w.evidence || quoteJoin(x.q), w.judge || '', w.insight || ''], q: x.q }; }),
+      final: [fin.conclusion || '', fin.support || '', fin.model || '', fin.priority || ''],
+      sampleN: meta.relevant
+    };
+  }
+
+  // ---------- 渲染 ----------
+  function render() {
+    const rep = S.view === 'report' ? S.reports.find(r => r.id === S.openId) : null;
+    app.innerHTML = `
+      <header class="top">
+        <h1>评价调研报告</h1><span class="sub">顾客评价 → 好评产品 · 差评产品 · 口碑点 · 吐槽点 · 拍摄结论 · 客流</span>
+        <div class="right">${rep ? `
+          <button class="btn ghost sm" data-a="home">← 全部报告</button>
+          <button class="btn primary sm" data-a="xlsx">导出 Excel</button>
+          ${rep.example ? '' : (S.confirm === 'del' ? `<span class="confirm">删除后团队都看不到了<button class="btn sm danger" data-a="del">确定删除</button><button class="btn sm" data-a="nodel">取消</button></span>` : `<button class="btn ghost sm" data-a="askdel">删除</button>`)}` : ''}
+        </div>
+      </header>
+      ${S.msg ? `<div class="banner ${S.msg.k || ''}" style="margin-top:12px">${h(S.msg.t)}</div>` : ''}
+      ${rep ? viewReport(rep) : viewHome()}`;
+  }
+
+  function viewHome() {
+    return `<div class="grid two">
+      <section class="card stack" aria-labelledby="new-h">
+        <div><h2 id="new-h">新建调研</h2><span class="hint">Claude 会逐条读评价，按你们的模板统计命中数并写出结论。</span></div>
+        ${S.job ? viewJob() : viewForm()}
+      </section>
+      <section class="stack" aria-labelledby="hist-h">
+        <h2 id="hist-h" style="margin:0;font:600 16px/1.3 var(--f-display)">全部报告</h2>
+        ${viewHistory()}
+      </section>
+    </div>`;
+  }
+  function viewForm() {
+    const f = S.form; const src = S.src;
+    const canRun = S.sample && S.sampleOk;
+    return `
+      <div class="cols2">
+        <label class="f"><span>门店 / 品牌名</span><input type="text" id="f-brand" data-f="brand" value="${h(f.brand)}" placeholder="如：珠海玖洲道店"></label>
+        <label class="f"><span>招牌菜（可选，帮助认菜名）</span><input type="text" id="f-menu" data-f="menu" value="${h(f.menu)}" placeholder="如：爆膏奶油虾、捞汁花甲、蒜蓉生蚝"></label>
+      </div>
+      <div class="row"><span class="hint">评价来源</span>
+        <div class="seg" role="group"><button data-a="mode" data-v="file" aria-pressed="${f.mode === 'file'}">上传文件</button><button data-a="mode" data-v="paste" aria-pressed="${f.mode === 'paste'}">粘贴</button></div></div>
+      ${f.mode === 'file' ? `
+        <label class="drop" id="drop" for="file"><b>点击选择或拖进文件</b>点评/美团后台导出的评价 Excel、CSV，或扩展「调研」导出的数据文件（.json）</label>
+        <input type="file" id="file" accept=".xlsx,.csv,.txt,.json" hidden>`
+        : `<label class="f"><span>粘贴扩展「调研」复制的数据，或一行一条评价</span><textarea id="paste" rows="6" placeholder="在扩展的调研报告里点「生成深度报告」，再粘贴到这里"></textarea></label>
+        <div class="row"><button class="btn sm" data-a="readpaste">读取</button></div>`}
+      ${src ? viewSource(src) : ''}
+      ${src ? `<div class="row">
+        <label class="f" style="width:auto"><span>分析条数</span><select id="f-cap" data-f="cap">${[[300, '300 条（快速试跑）'], [800, '800 条'], [1500, '1500 条'], [3000, '全部（最多 3000）']].map(([v, l]) => `<option value="${v}" ${+f.cap === v ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+        <span class="hint grow">${estimate(src)}</span></div>
+        ${canRun ? `<div class="row"><button class="btn primary" data-a="run">开始分析</button><span class="hint">会用你自己的 Claude 用量；第一次会弹窗请你允许。</span></div>`
+          : `<div class="banner">${S.sample ? '你拒绝了使用 Claude，刷新页面后可以重新允许。' : '这个页面只能在 Claude 里打开时调用 Claude 分析。'}报告仍可查看和导出。</div>`}` : ''}`;
+  }
+  function estimate(src) {
+    const n = Math.min(src.items.length, +S.form.cap || 800);
+    const calls = Math.ceil(n / 80) + 2;
+    const min = Math.max(2, Math.round(calls * 40 / 2 / 60));
+    return `将分析 ${n} 条，约 ${calls} 次 Claude 调用，预计 ${min}–${min * 2} 分钟`;
+  }
+  function viewSource(src) {
+    const t = src.table;
+    const rng = P.dateRange(src.items);
+    return `<div class="stack" style="gap:10px">
+      <div class="loaded">
+        <div class="kpi"><b>${src.items.length}</b><span>条评价（已去重）</span></div>
+        <div class="kpi"><b style="font-size:14px;font-family:var(--f-body)">${h(src.label)}</b><span>来源</span></div>
+        ${rng ? `<div class="kpi"><b style="font-size:13px">${rng.from}<br>${rng.to}</b><span>日期区间</span></div>` : ''}
+      </div>
+      ${t ? `<div class="cols4">${[['text', '评价内容列'], ['date', '日期列'], ['likes', '点赞/有用列'], ['tag', '标签列（如回头客）']].map(([k, l]) => `
+        <label class="f"><span>${l}</span><select id="map-${k}" data-map="${k}">${k === 'text' ? '' : '<option value="-1">无</option>'}${t.map.header.map((hd, i) => `<option value="${i}" ${t.map[k] === i ? 'selected' : ''}>${h(hd)}</option>`).join('')}</select></label>`).join('')}</div>` : ''}
+      <pre class="preview">${h(src.items.slice(0, 6).map((it, i) => `${i + 1}. ${it.t.slice(0, 90)}`).join('\n'))}</pre>
+    </div>`;
+  }
+  function viewJob() {
+    const j = S.job;
+    const nb = j.batches.length, ok = j.batches.filter(b => b.status === 'ok').length, fail = j.batches.filter(b => b.status === 'fail').length;
+    const st = (k) => j.stage === k ? 'doing' : (j.done[k] ? 'done' : (j.failed === k ? 'fail' : ''));
+    const pct = nb ? Math.round((ok + fail) / nb * 100) : 0;
+    return `<div class="stack">
+      <div class="row"><b>${h(j.brand)}</b><span class="hint grow">${j.items.length} 条</span>
+        ${j.running ? `<button class="btn sm danger" data-a="stop">停止</button>` : ''}</div>
+      <ol class="steps">
+        <li class="${st('tax')}"><span class="dot">${j.done.tax ? '✓' : '1'}</span><span>通读样本，建立菜品 / 好评点 / 吐槽点分类</span><span class="hint">${j.tax ? `${j.tax.products.length} 菜 · ${j.tax.praise.length} 好评点 · ${j.tax.complaints.length} 吐槽点` : ''}</span></li>
+        <li class="${st('tag')}"><span class="dot">${j.done.tag ? '✓' : '2'}</span><span>逐条打标签</span><span class="hint">${nb ? `${ok}/${nb} 批${fail ? ` · ${fail} 批失败` : ''}` : ''}</span></li>
+        <li class="${st('write')}"><span class="dot">${j.done.write ? '✓' : '3'}</span><span>统计命中数，写结论</span><span class="hint"></span></li>
+      </ol>
+      ${j.stage === 'tag' || j.done.tax ? `<div class="bar"><i style="width:${pct}%"></i></div>` : ''}
+      ${j.note ? `<div class="banner ${j.noteKind || ''}">${h(j.note)}</div>` : ''}
+      ${!j.running ? `<div class="row">
+        ${j.paused ? `<button class="btn primary sm" data-a="resume">继续</button>` : ''}
+        ${fail && j.done.tax && !j.done.write ? `<button class="btn sm" data-a="retry">重试失败的 ${fail} 批</button><button class="btn sm" data-a="skipfail">跳过，直接出报告</button>` : ''}
+        ${j.failed === 'tax' || j.failed === 'write' ? `<button class="btn primary sm" data-a="resume">重试</button>` : ''}
+        <button class="btn ghost sm" data-a="canceljob">放弃这次分析</button></div>` : ''}
+    </div>`;
+  }
+  function viewHistory() {
+    if (!S.loadedList) return `<div class="empty"><b>正在读取团队的报告…</b></div>`;
+    if (!S.reports.length) return `<div class="empty"><b>还没有报告</b>上传评价文件开始第一份调研，完成后报告会保存在这里，团队成员打开这个页面都能看到。</div>`;
+    return `<div class="hist">${S.reports.map(r => `<button class="it" data-a="open" data-id="${h(r.id)}"><b>${h(r.brand)} ${r.example ? '<span class="tag ex">示例</span>' : ''}</b><span>${r.sample ? r.sample.relevant + ' 条' : ''}</span>
+      <span>${h(r.source || '')}</span><span>${r.createdAt ? new Date(r.createdAt).toLocaleDateString('zh-CN') : ''}</span></button>`).join('')}</div>`;
+  }
+
+  function viewReport(r) {
+    const T = r.table;
+    const sec = (key, title, rows, opts) => {
+      opts = opts || {};
+      const max = Math.max(1, ...rows.map(x => typeof x.c[1] === 'number' ? x.c[1] : 0));
+      return `<section class="sec"><h3>${h(title)}</h3><div class="tw"><table class="t">
+        <colgroup><col style="width:13%"><col style="width:${key === 's5' ? 6 : 8}%"><col style="width:20%"><col style="width:24%"><col style="width:17%"><col style="width:18%"></colgroup>
+        <thead><tr>${HEADS[key].map(x => `<th scope="col">${h(x)}</th>`).join('')}</tr></thead><tbody>
+        ${rows.length ? rows.map(x => `<tr>${x.c.map((v, i) => {
+          if (i === 1 && typeof v === 'number' && key !== 's5') return `<td class="n">${v}<span class="mini"><i style="width:${Math.round(v / max * 100)}%"></i></span></td>`;
+          if (key === 's5' && i === 0) return `<td class="n">${h(v)}</td>`;
+          if (key === 's4' && i === 5) return `<td><span class="lvl ${/严重/.test(v) ? 'hi' : /中/.test(v) ? 'mid' : 'lo'}">${h(v)}</span></td>`;
+          const evCol = { s1: 3, s2: 3, s6: 3, s3: 2, s4: 2 }[key];
+          const more = i === evCol && x.q && x.q.length > 1 ? `<details class="more"><summary>更多原话（${x.q.length}）</summary><ul>${x.q.map(q => `<li>${h(q)}</li>`).join('')}</ul></details>` : '';
+          return `<td class="${i === 0 ? 'name' : ''}">${br(v)}${more}</td>`;
+        }).join('')}</tr>`).join('') : `<tr><td colspan="6" class="hint" style="text-align:center">没有足够的评价支撑这一部分</td></tr>`}
+        ${opts.final ? `<tr class="final"><td>客流特征最终结论</td><td></td>${opts.final.map(v => `<td>${br(v)}</td>`).join('')}</tr>` : ''}
+        </tbody></table></div></section>`;
+    };
+    return `<div class="rep">
+      <div class="rep-title">${h(T.title)}</div>
+      <div class="rep-note">${h(T.note)}</div>
+      ${sec('s1', TITLES.s1, T.s1)}
+      ${sec('s2', TITLES.s2, T.s2)}
+      ${sec('s3', TITLES.s3, T.s3)}
+      ${sec('s4', TITLES.s4, T.s4)}
+      ${sec('s5', TITLES.s5(r.brand), T.s5)}
+      ${sec('s6', TITLES.s6(T.sampleN), T.s6, { final: T.final && T.final.some(Boolean) ? T.final : null })}
+      <p class="hint">命中数由 Claude 逐条阅读评价后统计，结论只引用评价里出现过的内容。${r.example ? '这份是根据你们上传的模板录入的示例，没有逐条明细。' : '导出的 Excel 里附有每条评价的打标明细，方便抽查。'}</p>
+    </div>`;
+  }
+
+  // ---------- 读入数据 ----------
+  async function loadFile(file) {
+    S.msg = null;
+    try {
+      const name = file.name.toLowerCase(); const buf = await file.arrayBuffer();
+      if (name.endsWith('.json')) return useText(P.decodeText(buf));
+      if (name.endsWith('.xlsx')) {
+        const sheets = await X.read(buf);
+        const sh = sheets.slice().sort((a, b) => b.rows.length - a.rows.length)[0];
+        if (!sh || sh.rows.length < 2) throw new Error('表格里没有数据');
+        return useTable(sh.rows, `${file.name}`);
+      }
+      const text = P.decodeText(buf);
+      if (name.endsWith('.csv')) return useTable(P.parseCSV(text), file.name);
+      return useText(text, file.name);
+    } catch (e) { S.msg = { k: 'err', t: '读取失败：' + (e.message || '文件格式不对') + '。支持 .xlsx（不支持老的 .xls，可另存为 .xlsx）、.csv、.json、.txt' }; render(); }
+  }
+  function useTable(rows, label) {
+    const map = P.guessColumns(rows);
+    if (map.text < 0) throw new Error('没找到评价内容列');
+    S.src = { kind: 'table', label: `${label}`, table: { rows, map }, items: P.prepare(P.fromTable(rows, map)).items };
+    if (!S.form.brand) S.form.brand = label.replace(/\.(xlsx|csv)$/i, '').replace(/[-_ ]?(评价|评论|导出|数据).*$/, '');
+    render();
+  }
+  function useText(text, label) {
+    text = String(text || '').trim();
+    if (!text) { S.msg = { k: 'err', t: '没有内容' }; render(); return; }
+    let data = null;
+    if (/^[{[]/.test(text)) { try { data = JSON.parse(text); } catch (e) { data = null; } }
+    if (data && (data.comments || data.posts)) {
+      const r = P.fromExtension(data);
+      S.src = { kind: 'ext', label: r.label, items: P.prepare(r.items).items };
+      if (!S.form.brand) S.form.brand = r.brand;
+    } else {
+      S.src = { kind: 'text', label: label || '粘贴的评价', items: P.prepare(P.fromPlain(text)).items };
+    }
+    if (!S.src.items.length) { S.msg = { k: 'err', t: '没读到有效评价（每条至少 4 个字）' }; S.src = null; }
+    render();
+  }
+
+  // ---------- 分析任务 ----------
+  async function startJob() {
+    const brand = S.form.brand.trim(); if (!brand) { toast('先填门店/品牌名'); document.getElementById('f-brand')?.focus(); return; }
+    saveForm();
+    const raw = S.src.kind === 'table' ? P.fromTable(S.src.table.rows, S.src.table.map) : S.src.items;
+    const prep = P.prepare(raw.map(x => Object.assign({}, x)), +S.form.cap || 800);
+    S.job = { id: uid('rep'), brand, menu: S.form.menu.trim(), items: prep.items, total: prep.total, source: S.src.label, tax: null, tags: {}, batches: [], stage: 'tax', done: {}, running: false, paused: false, note: '', failed: null, ctl: null };
+    render(); run();
+  }
+  function errNote(e) {
+    const c = e && e.code;
+    if (c === 'not_granted') return ['你没有允许这个页面使用 Claude，分析已停止。刷新页面后可以重新允许。', 'stop'];
+    if (c === 'rate_limited' || c === 'queue_overflow') return ['Claude 用量暂时到上限了。等几分钟后点"继续"，已完成的部分不会丢。', 'pause'];
+    if (c === 'sampling_disabled' || c === 'capability_disabled' || c === 'capability_removed') return ['当前账号不能在页面里使用 Claude。', 'stop'];
+    if (c === 'session_expired') return ['登录已过期，请刷新页面后点"继续"。', 'pause'];
+    if (c === 'prompt_too_large') return ['一次发送的内容太多，请把分析条数调小。', 'stop'];
+    if (c === 'cancelled') return ['已停止。', 'pause'];
+    return [`这一步没成功（${c || '网络问题'}）。可以点"重试"。`, 'fail'];
+  }
+  async function run() {
+    const j = S.job; if (!j || j.running) return;
+    j.running = true; j.paused = false; j.note = ''; j.failed = null; render();
+    try {
+      // 1. 分类
+      if (!j.tax) {
+        j.stage = 'tax'; render();
+        j.ctl = new AbortController();
+        const raw = await S.sample.json(P.taxonomyPrompt(j.brand, j.menu, j.items), { modelTier: 'complex', signal: j.ctl.signal });
+        const tax = P.validTax(raw); if (!tax || !tax.products.length) throw { code: 'invalid_json' };
+        j.tax = tax; j.done.tax = true;
+        for (let i = 0; i < j.items.length; i += 80) j.batches.push({ items: j.items.slice(i, i + 80), status: 'wait' });
+      }
+      // 2. 打标（同时跑 2 批）
+      if (!j.done.tag) {
+        j.stage = 'tag'; render();
+        let stopReason = null;
+        const worker = async () => {
+          while (!stopReason) {
+            const b = j.batches.find(x => x.status === 'wait'); if (!b) return;
+            b.status = 'run';
+            const ctl = new AbortController(); b.ctl = ctl; j.ctls = (j.ctls || []).concat(ctl);
+            try {
+              const out = await S.sample.json(P.tagPrompt(j.brand, j.tax, b.items), { modelTier: 'default', signal: ctl.signal });
+              const tags = P.validTags(out, b.items);
+              if (Object.keys(tags).length < b.items.length * 0.6) throw { code: 'invalid_json' };
+              Object.assign(j.tags, tags); b.status = 'ok';
+            } catch (e) {
+              const [note, kind] = errNote(e);
+              if (kind === 'fail') { b.status = 'fail'; b.err = e && e.code; }
+              else { b.status = 'wait'; stopReason = stopReason || { note, kind }; }
+            }
+            render();
+          }
+        };
+        await Promise.all([worker(), worker()]);
+        if (stopReason) { j.note = stopReason.note; j.noteKind = stopReason.kind === 'stop' ? 'err' : ''; j.paused = stopReason.kind === 'pause'; j.running = false; render(); return; }
+        const fails = j.batches.filter(b => b.status === 'fail');
+        if (fails.length && !j.skipFail) {
+          j.note = `${fails.length} 批（${fails.reduce((s, b) => s + b.items.length, 0)} 条）没有成功。可以重试，或者跳过直接出报告。`;
+          j.running = false; render(); return;
+        }
+        j.done.tag = true;
+      }
+      // 3. 统计 + 写结论
+      j.stage = 'write'; render();
+      const A = P.aggregate(j.items, j.tags, j.tax);
+      const meta = { relevant: A.totals.relevant, analyzed: A.totals.tagged, total: j.total, range: P.dateRange(j.items), source: j.source };
+      j.ctl = new AbortController();
+      const W = await S.sample.json(P.writePrompt(j.brand, A, meta), { modelTier: 'complex', signal: j.ctl.signal });
+      j.done.write = true;
+      await saveReport(j, A, W, meta);
+    } catch (e) {
+      const [note, kind] = errNote(e);
+      j.note = note; j.noteKind = kind === 'stop' ? 'err' : '';
+      if (kind === 'fail') j.failed = j.stage; else j.paused = kind === 'pause';
+      j.running = false; render(); return;
+    }
+    j.running = false;
+  }
+
+  // ---------- 保存（团队共享） ----------
+  function itemRows(j, tax) {
+    const name = {}; tax.products.forEach(p => { name[p.id] = p.name; }); tax.praise.forEach(p => { name[p.id] = p.name; }); tax.complaints.forEach(p => { name[p.id] = p.name; }); P.SEGMENTS.forEach(s => { name[s.id] = s.name; });
+    const nm = id => name[id] || String(id).replace(/^新[:：]/, '');
+    return j.items.map(it => {
+      const t = j.tags[it.i];
+      return { i: it.i, t: it.t, l: it.l || 0, d: it.d || '', src: it.src || '', rel: t ? (t.r === 0 ? '无关' : '有效') : '未分析',
+        p: t ? (t.p || []).filter(Array.isArray).map(([id, dir, det]) => `${nm(id)}(${dir === '+' ? '好' : dir === '-' ? '差' : '提及'}${det ? '：' + det : ''})`).join('；') : '',
+        g: t ? (t.g || []).map(nm).join('、') : '', b: t ? (t.b || []).map(nm).join('、') : '', s: t ? (t.s || []).map(nm).join('、') : '' };
+    });
+  }
+  async function saveReport(j, A, W, meta) {
+    const table = buildTable(j.brand, A, W, meta);
+    const doc = { id: j.id, brand: j.brand, createdAt: new Date().toISOString(), source: j.source,
+      sample: { relevant: meta.relevant, analyzed: meta.analyzed, total: meta.total, from: meta.range ? meta.range.from : '', to: meta.range ? meta.range.to : '' },
+      table, tax: { products: j.tax.products.map(p => p.name), praise: j.tax.praise.map(p => p.name), complaints: j.tax.complaints.map(p => p.name) }, chunks: 0 };
+    const rows = itemRows(j, j.tax);
+    S.items = { id: j.id, rows };
+    try {
+      if (S.user) { try { doc.by = await S.user.id(); } catch (e) { /* 匿名 */ } }
+      const chunks = []; for (let i = 0; i < rows.length; i += 120) chunks.push(rows.slice(i, i + 120));
+      doc.chunks = chunks.length;
+      if (S.db) {
+        await S.db.collection('reports').doc(j.id).set(doc);
+        for (let k = 0; k < chunks.length; k++) await S.db.collection('reportItems').doc(`${j.id}_${k}`).set({ reportId: j.id, k, rows: chunks[k] });
+      }
+    } catch (e) {
+      S.msg = { k: 'err', t: e && e.code === 'quota_exceeded' ? '团队库存满了，报告只在本次打开期间可见。请先导出 Excel 保存。' : '报告没能保存到团队（' + ((e && e.code) || '网络问题') + '），请先导出 Excel 保存。' };
+    }
+    if (!S.reports.find(r => r.id === doc.id)) S.reports.unshift(doc);
+    S.job = null; S.src = null; S.view = 'report'; S.openId = doc.id; render(); window.scrollTo(0, 0);
+    toast('报告已生成');
+  }
+  async function loadItems(rep) {
+    if (S.items && S.items.id === rep.id) return S.items.rows;
+    if (!S.db || !rep.chunks) return [];
+    const rows = [];
+    for (let k = 0; k < rep.chunks; k++) { const d = await S.db.collection('reportItems').doc(`${rep.id}_${k}`).get(); if (d.exists) rows.push(...(d.data().rows || [])); }
+    S.items = { id: rep.id, rows }; return rows;
+  }
+
+  // ---------- Excel ----------
+  async function exportXlsx(rep) {
+    const T = rep.table;
+    const rows = [], merges = [], heights = {};
+    const add = (cells, ht) => { rows.push(cells); if (ht) heights[rows.length - 1] = ht; return rows.length; };
+    const full = (v, s, ht) => { const r = add([{ v, s }, { v: '', s }, { v: '', s }, { v: '', s }, { v: '', s }, { v: '', s }], ht); merges.push(`A${r}:F${r}`); };
+    full(T.title, 'title', 30);
+    full(T.note, 'note', 40);
+    const section = (key, title, list, final) => {
+      add([]);
+      full(title, 'section', 24);
+      add(HEADS[key].map(v => ({ v, s: 'head' })), 32);
+      list.forEach(x => add(x.c.map((v, i) => ({ v, s: (i === 1 && typeof v === 'number') || (key === 's5' && i === 0) ? 'num' : (key === 's4' && i === 5 && /严重/.test(v) ? 'warn' : 'cell') })), 72));
+      if (final) add([{ v: '客流特征最终结论', s: 'final' }, { v: '', s: 'final' }, ...final.map(v => ({ v, s: 'final' }))], 90);
+    };
+    section('s1', TITLES.s1, T.s1); section('s2', TITLES.s2, T.s2); section('s3', TITLES.s3, T.s3); section('s4', TITLES.s4, T.s4);
+    section('s5', TITLES.s5(rep.brand), T.s5); section('s6', TITLES.s6(T.sampleN), T.s6, T.final && T.final.some(Boolean) ? T.final : null);
+    const sheets = [{ name: `${rep.brand}-评价调研`.slice(0, 31), styled: true, widths: [22, 14, 36, 48, 32, 36], rows, merges, heights }];
+    if (!rep.example) {
+      const items = await loadItems(rep).catch(() => []);
+      if (items.length) sheets.push({ name: '评价明细（打标）', widths: [6, 60, 8, 12, 8, 8, 40, 28, 28, 28], rows: [['序号', '评价', '点赞', '日期', '来源', '是否有效', '提到的产品', '好评点', '吐槽点', '客流/场景'], ...items.map(r => [r.i, r.t, r.l, r.d, r.src, r.rel, r.p, r.g, r.b, r.s])] });
+    }
+    const bytes = X.build(sheets);
+    const name = `${rep.brand}-顾客评价调研.xlsx`;
+    const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    if (S.downloads) {
+      try { await S.downloads.save({ filename: name, data: blob }); return; }
+      catch (e) { if (e && e.code === 'declined') return; if (e && e.code !== 'unavailable' && e.code !== 'not_granted') { toast('导出失败：' + (e.code || '')); return; } }
+    }
+    toast('这里不能下载文件，请在 Claude 里打开这个页面再导出');
+  }
+
+  // ---------- 事件 ----------
+  app.addEventListener('click', async e => {
+    const el = e.target.closest('[data-a]'); if (!el) return;
+    const a = el.dataset.a;
+    switch (a) {
+      case 'mode': S.form.mode = el.dataset.v; render(); break;
+      case 'readpaste': useText(document.getElementById('paste').value); break;
+      case 'run': startJob(); break;
+      case 'stop': if (S.job) { (S.job.ctls || []).forEach(c => c.abort()); if (S.job.ctl) S.job.ctl.abort(); } break;
+      case 'resume': run(); break;
+      case 'retry': S.job.batches.forEach(b => { if (b.status === 'fail') b.status = 'wait'; }); run(); break;
+      case 'skipfail': S.job.skipFail = true; run(); break;
+      case 'canceljob': if (S.job) { (S.job.ctls || []).forEach(c => c.abort()); if (S.job.ctl) S.job.ctl.abort(); } S.job = null; render(); break;
+      case 'open': S.view = 'report'; S.openId = el.dataset.id; S.confirm = null; S.msg = null; render(); window.scrollTo(0, 0); break;
+      case 'home': S.view = 'home'; S.openId = null; S.confirm = null; render(); break;
+      case 'xlsx': { const r = S.reports.find(x => x.id === S.openId); if (r) { el.disabled = true; await exportXlsx(r); el.disabled = false; } break; }
+      case 'askdel': S.confirm = 'del'; render(); break;
+      case 'nodel': S.confirm = null; render(); break;
+      case 'del': {
+        const r = S.reports.find(x => x.id === S.openId); if (!r) return;
+        try { if (S.db) { await S.db.collection('reports').doc(r.id).delete(); for (let k = 0; k < (r.chunks || 0); k++) await S.db.collection('reportItems').doc(`${r.id}_${k}`).delete(); } }
+        catch (err) { toast('删除失败：' + (err.code || '没有权限')); return; }
+        S.reports = S.reports.filter(x => x.id !== r.id); S.view = 'home'; S.confirm = null; toast('已删除'); render(); break;
+      }
+    }
+  });
+  app.addEventListener('input', e => { const k = e.target.dataset && e.target.dataset.f; if (k === 'brand' || k === 'menu') S.form[k] = e.target.value; });
+  app.addEventListener('change', e => {
+    const t = e.target;
+    if (t.id === 'file' && t.files && t.files[0]) { loadFile(t.files[0]); return; }
+    if (t.dataset.f === 'cap') { S.form.cap = +t.value; render(); return; }
+    if (t.dataset.map && S.src && S.src.table) {
+      S.src.table.map[t.dataset.map] = +t.value;
+      S.src.items = P.prepare(P.fromTable(S.src.table.rows, S.src.table.map)).items; render();
+    }
+  });
+  app.addEventListener('dragover', e => { const d = e.target.closest && e.target.closest('#drop'); if (d) { e.preventDefault(); d.classList.add('over'); } });
+  app.addEventListener('dragleave', e => { const d = e.target.closest && e.target.closest('#drop'); if (d) d.classList.remove('over'); });
+  app.addEventListener('drop', e => { const d = e.target.closest && e.target.closest('#drop'); if (d) { e.preventDefault(); d.classList.remove('over'); const f = e.dataTransfer.files[0]; if (f) loadFile(f); } });
+  window.addEventListener('beforeunload', e => { if (S.job && S.job.running) { e.preventDefault(); e.returnValue = ''; } });
+
+  // ---------- 启动 ----------
+  render();
+  (async () => {
+    const use = n => (window.claude && window.claude.use ? window.claude.use(n).catch(() => null) : Promise.resolve(null));
+    const [db, sample, downloads, user] = await Promise.all([use('db'), use('sample'), use('downloads'), use('user')]);
+    Object.assign(S, { db, sample, downloads, user });
+    if (db) {
+      db.collection('reports').orderBy('createdAt', 'desc').limit(60).onSnapshot(snap => {
+        const local = S.reports.filter(r => !snap.docs.some(d => d.id === r.id) && !r._remote && S.job === null && r.id === S.openId);
+        S.reports = snap.docs.map(d => Object.assign({ _remote: true }, d.data(), { id: d.id })).concat(local);
+        S.loadedList = true;
+        const a = document.activeElement; if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
+        render();
+      }, () => { S.loadedList = true; render(); });
+    } else { S.loadedList = true; }
+    render();
+  })();
+  window.__rv = S;
+})();
+
+</script>

@@ -1,0 +1,80 @@
+{
+  "manifest_version": 3,
+  "name": "矩阵内容助手",
+  "version": "2.5.0",
+  "description": "选行业+关键词，自动调研小红书/抖音/大众点评：竞对、同城热门店、全国对标，挖顾客需求、菜品/产品口碑和爆款规律；分行业模板与多账号人设内容生成，账号库与数据回读。",
+  "permissions": [
+    "activeTab",
+    "clipboardWrite",
+    "scripting",
+    "sidePanel",
+    "storage",
+    "tabs",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "*://*.xiaohongshu.com/*",
+    "*://*.douyin.com/*",
+    "*://*.dianping.com/*",
+    "https://*.meituan.net/*",
+    "https://api.deepseek.com/*",
+    "https://dashscope.aliyuncs.com/*",
+    "https://api.moonshot.cn/*",
+    "https://ark.cn-beijing.volces.com/*",
+    "https://api.anthropic.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "打开矩阵内容助手",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.xiaohongshu.com/*",
+        "*://*.douyin.com/*"
+      ],
+      "js": [
+        "hook.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "*://*.xiaohongshu.com/*",
+        "*://*.douyin.com/*"
+      ],
+      "js": [
+        "content.js",
+        "collector.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "*://*.dianping.com/*"
+      ],
+      "js": [
+        "dianping.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "minimum_chrome_version": "111"
+}
