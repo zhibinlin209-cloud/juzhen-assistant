@@ -24,6 +24,10 @@
         body: JSON.stringify({ model, temperature: opts.temperature ?? 0.4, max_tokens: opts.maxTokens || 8000, messages: [{ role: 'system', content: sys }, { role: 'user', content: prompt }] }) });
     }
     const txt = await res.text();
+    if (!res.ok && cfg.provider === 'deepseek' && (res.status === 400 || res.status === 404) && /model/i.test(txt) && model !== 'deepseek-flash') {
+      // DeepSeek 换代后旧模型名可能下线：自动改用当前的 deepseek-flash 再试一次
+      return chat(Object.assign({}, cfg, { model: 'deepseek-flash' }), prompt, signal, opts);
+    }
     if (!res.ok) {
       let msg = txt.slice(0, 200); try { const j = JSON.parse(txt); msg = (j.error && (j.error.message || j.error.code)) || j.message || msg; } catch (e) { /* 非 JSON */ }
       if (res.status === 401 || res.status === 403) throw new Error('API 密钥不对或没有权限：' + msg);
