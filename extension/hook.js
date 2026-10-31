@@ -6,7 +6,7 @@
   'use strict';
   if (window.__rmHook) return;
   window.__rmHook = true;
-  const WANT = /\/api\/sns\/web\/v\d+\/(comment\/page|comment\/sub\/page|search\/notes|feed)|\/aweme\/v\d+\/web\/(comment\/list|general\/search|search\/item|aweme\/detail)/;
+  const WANT = /\/api\/sns\/web\/v\d+\/(comment\/page|comment\/sub\/page|search\/notes|feed|user_posted|user\/otherinfo)|\/aweme\/v\d+\/web\/(comment\/list|general\/search|search\/item|aweme\/detail|aweme\/post|user\/profile\/other)/;
   // 先存一份：插件脚本晚于页面请求启动时，可以要求重放
   const buf = [];
   const post = m => { try { window.postMessage(m, location.origin); } catch (e) { /* 忽略 */ } };

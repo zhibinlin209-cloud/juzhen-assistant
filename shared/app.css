@@ -305,3 +305,11 @@ table.tpl tr.final td{background:rgba(214,69,43,.06);font-weight:500}
 .kwlist{max-height:320px;overflow:auto;border:1px solid var(--line,#eee);border-radius:8px;padding:4px 8px}
 .kwrow{gap:6px;padding:3px 0;border-bottom:1px dashed var(--line,#eee);font-size:13px;flex-wrap:nowrap}
 .kwrow.next{background:rgba(47,158,91,.06)}
+
+/* ---- 二创工作台 ---- */
+.studio{display:grid;grid-template-columns:1fr;gap:10px}
+@media (min-width:900px){.studio{grid-template-columns:minmax(260px,1fr) 2fr}.studio>.panel:not(.studio-src){grid-column:2}.studio-src{grid-row:1 / span 3;align-self:start;position:sticky;top:8px}}
+.st-lines{display:flex;flex-direction:column;gap:8px}
+.st-line{border:1px solid var(--line,#e6e6e6);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px}
+.st-line textarea{font-size:14px}
+.st-orig{max-width:45%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

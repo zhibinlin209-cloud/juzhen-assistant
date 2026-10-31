@@ -105,6 +105,34 @@
       });
       return;
     }
+    // 小红书博主主页：作品列表 + 粉丝数
+    if (/\/api\/sns\/web\/v\d+\/user_posted/.test(url)) {
+      ((j.data || {}).notes || []).forEach(n => {
+        const id = n.note_id || n.id; if (!id) return; const ii = n.interact_info || {};
+        D.search.set(id, { id, type: n.type === 'video' ? 'video' : 'note', time: idTime(id), token: n.xsec_token || '', title: n.display_title || '', author: (n.user || {}).nickname || (n.user || {}).nick_name || '', authorId: (n.user || {}).user_id || '',
+          likes: toNum(ii.liked_count), cover: (n.cover || {}).url_default || (n.cover || {}).url || '', sticky: !!ii.sticky });
+      });
+      return;
+    }
+    if (/\/api\/sns\/web\/v\d+\/user\/otherinfo/.test(url)) {
+      const d = j.data || {}; const fans = (d.interactions || []).find(x => x.type === 'fans');
+      D.profile = { name: (d.basic_info || {}).nickname || '', fans: fans ? toNum(fans.count) : null };
+      return;
+    }
+    // 抖音博主主页：作品列表 + 粉丝数
+    if (/\/aweme\/v\d+\/web\/aweme\/post/.test(url)) {
+      (j.aweme_list || []).forEach(a => {
+        if (!a || !a.aweme_id) return; const s = a.statistics || {}; const isNote = a.aweme_type === 68 || (a.images && a.images.length);
+        D.search.set(String(a.aweme_id), { id: String(a.aweme_id), time: ms(a.create_time), kind: isNote ? 'note' : 'video', type: isNote ? 'note' : 'video', title: (a.desc || '').slice(0, 80), author: (a.author || {}).nickname || '', authorId: (a.author || {}).sec_uid || '',
+          likes: toNum(s.digg_count), comments: toNum(s.comment_count), collects: toNum(s.collect_count), shares: toNum(s.share_count), fans: toNum((a.author || {}).follower_count), sticky: !!a.is_top,
+          cover: ((((a.video || {}).cover || {}).url_list) || [])[0] || ((((a.images || [])[0] || {}).url_list) || [])[0] || '' });
+      });
+      return;
+    }
+    if (/\/aweme\/v\d+\/web\/user\/profile\/other/.test(url)) {
+      const u = j.user || {}; D.profile = { name: u.nickname || '', fans: toNum(u.follower_count) };
+      return;
+    }
     // 小红书帖子详情
     if (/\/api\/sns\/web\/v\d+\/feed/.test(url)) {
       ((j.data || {}).items || []).forEach(it => {
@@ -148,9 +176,9 @@
   function numLine(lines) { return lines.find(l => /^\d+(\.\d+)?\s*(万|w|W)?\+?$/.test(l.trim())) || ''; }
   function xhsDomItems(seen) {
     $$('section.note-item').forEach(sec => {
-      const a = $$('a', sec).find(x => /\/(explore|search_result|discovery\/item)\/[0-9a-f]{24}/.test(x.getAttribute('href') || ''));
+      const a = $$('a', sec).find(x => /\/(explore|search_result|discovery\/item|user\/profile\/[0-9a-f]{24})\/[0-9a-f]{24}/.test(x.getAttribute('href') || ''));
       if (!a) return;
-      const href = a.getAttribute('href'); const id = href.match(/\/([0-9a-f]{24})/)[1];
+      const href = a.getAttribute('href'); const id = href.match(/\/(?:explore|search_result|discovery\/item|user\/profile\/[0-9a-f]{24})\/([0-9a-f]{24})/)[1];
       if (seen.has(id)) return;
       const u = new URL(href, location.origin);
       const img = $('img', sec);
@@ -327,6 +355,18 @@
   }
 
   chrome.runtime.onMessage.addListener((msg, sender, reply) => {
+    if (msg.type === 'rm:collectProfile') {
+      (async () => {
+        await waitFor(() => (isXhs() ? $('section.note-item') : $('a[href*="/video/"], a[href*="/note/"]')) || D.search.size || blocked(), 12000);
+        const b = blocked(); if (b) return reply({ ok: false, blocked: b });
+        const list = await collectList(msg.limit || 30);
+        let name = (D.profile || {}).name || ''; let fans = (D.profile || {}).fans ?? null;
+        if (!name) name = ((isXhs() ? $('.user-name') : $('[data-e2e="user-info"] h1, h1')) || {}).innerText || '';
+        if (fans === null) { const el = $$('span, div').find(x => /^粉丝$/.test((x.innerText || '').trim())); if (el && el.parentElement) fans = toNum((el.parentElement.innerText || '').replace('粉丝', '')); }
+        reply({ ok: true, list, profile: { name: String(name).trim().slice(0, 40), fans }, blocked: blocked() });
+      })().catch(e => reply({ ok: false, error: e.message }));
+      return true;
+    }
     if (msg.type === 'rm:replyTo') { replyTo(msg).then(reply).catch(e => reply({ ok: false, error: e.message })); return true; }
     if (msg.type === 'rm:status') { reply({ ok: true, blocked: blocked(), url: location.href, ready: document.readyState }); return false; }
     if (msg.type === 'rm:collectList') {

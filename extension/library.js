@@ -49,9 +49,9 @@
   const defaultCfg = () => ({
     platforms: ['xhs'], cities: ['深圳'], areas: [], areasCustom: [], cats: ['海鲜大排档'], catsCustom: [], scenes: ['朋友聚会', '夜宵', '生日', '带外地朋友'], scenesCustom: [],
     types: Object.fromEntries(TYPES.map(t => [t.key, { on: t.on, words: t.words.slice() }])), brands: [], ourBrand: '',
-    perRun: 20, perKw: 30, range: 90, deepMax: 40, removed: [], added: [], accepted: [], rejected: []
+    perRun: 20, perKw: 30, range: 90, deepMax: 40, removed: [], added: [], accepted: [], rejected: [], accounts: [], monitorOnRun: true
   });
-  const ST = { d: null, view: 'lib', job: null, f: { type: 'all', scene: 'all', cat: 'all', pf: 'all', sort: 'score', hot: false, done: false }, open: null, addKw: '' };
+  const ST = { d: null, view: 'lib', job: null, f: { type: 'all', scene: 'all', cat: 'all', pf: 'all', sort: 'score', hot: false, done: false, when: 'all', acct: 'all' }, open: null, addKw: '', addAcct: '', studio: null, stBusy: null };
   async function load() {
     const raw = (await get(KEY)) || {};
     const cfg = Object.assign(defaultCfg(), raw.cfg || {});
@@ -113,15 +113,19 @@
   }
 
   // ---------- 采集 ----------
-  async function run() {
-    const c = ST.d.cfg; const batch = nextBatch();
-    if (!batch.length) { toast('先在「采集设置」里勾选品类/场景/内容类型'); ST.view = 'cfg'; render(); return; }
+  async function run(opts) {
+    opts = opts || {};
+    const c = ST.d.cfg; const batch = opts.onlyAccounts ? [] : nextBatch();
+    const accts = (opts.onlyAccounts || c.monitorOnRun) ? c.accounts : [];
+    if (!batch.length && !accts.length) { toast(opts.onlyAccounts ? '先在「采集设置」里添加对标账号' : '先在「采集设置」里勾选品类/场景/内容类型'); ST.view = 'cfg'; render(); return; }
     if (ST.job && ST.job.running) return;
-    ST.job = { running: true, paused: false, stop: false, log: [], phase: '搜索', i: 0, n: batch.length * c.platforms.length, found: 0, fresh: 0, deep: 0, win: null };
+    ST.job = { running: true, paused: false, stop: false, log: [], phase: accts.length ? '对标账号' : '搜索', i: 0, n: batch.length * c.platforms.length + accts.length, found: 0, fresh: 0, deep: 0, win: null };
     render();
     const cutoff = Date.now() - c.range * 864e5; const touched = new Set();
     try {
-      for (const pf of c.platforms) {
+      await monitorAccounts(accts, touched);
+      ST.job.phase = '搜索';
+      for (const pf of (batch.length ? c.platforms : [])) {
         for (const k of batch) {
           if (ST.job.stop) break; await waitPause();
           ST.job.i++; ST.job.cur = `${pfName(pf)}：${k.kw}`; render();
@@ -153,7 +157,7 @@
       await classify(pool.filter(p => p.rule === 'ok' && !p.type));
       // 选候选读正文和评论
       score();
-      const cands = pool.filter(p => p.rule === 'ok' && p.relevant !== false && !p.detailAt).sort((a, b) => (b.pre || 0) - (a.pre || 0)).slice(0, c.deepMax);
+      const cands = pool.filter(p => p.rule === 'ok' && p.relevant !== false && !p.detailAt).sort((a, b) => ((b.outlier ? 60 : 0) + (b.pre || 0)) - ((a.outlier ? 60 : 0) + (a.pre || 0))).slice(0, c.deepMax);
       ST.job.phase = '读正文和评论'; render();
       for (const p of cands) {
         if (ST.job.stop) break; await waitPause();
@@ -191,10 +195,50 @@
     try { if (ST.job.win) await chrome.windows.remove(ST.job.win.id); } catch (e) { /* 已关 */ }
     ST.job.running = false; await save(); render();
   }
+  // ---------- 对标账号 ----------
+  function parseAcct(u) {
+    u = String(u || '').trim(); let m;
+    if ((m = u.match(/xiaohongshu\.com\/user\/profile\/([0-9a-f]{24})/i))) return { platform: 'xhs', key: 'xs' + m[1], url: `https://www.xiaohongshu.com/user/profile/${m[1]}` };
+    if ((m = u.match(/douyin\.com\/user\/([A-Za-z0-9_\-]{10,})/))) return { platform: 'douyin', key: 'dy' + m[1], url: `https://www.douyin.com/user/${m[1]}` };
+    return null;
+  }
+  function acctPosts(key) { return Object.values(ST.d.posts).filter(p => p.acct === key); }
+  function median(a) { const s = a.slice().sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; }
+  function markOutliers(key) {
+    const ps = acctPosts(key).filter(p => !p.sticky); const base = median(ps.map(p => metrics(p).eng));
+    ps.forEach(p => { p.ratio = base > 0 ? Math.round(metrics(p).eng / base * 10) / 10 : null; p.outlier = ps.length >= 5 && p.ratio >= 3; });
+    return base;
+  }
+  async function monitorAccounts(accts, touched) {
+    for (const a of accts) {
+      if (ST.job.stop) break; await waitPause();
+      ST.job.i++; ST.job.cur = `对标账号：${a.name || a.url}`; render();
+      await nav(a.url);
+      let r;
+      for (let t = 0; t < 3; t++) { r = await send(ST.job.win.tab, { type: 'rm:collectProfile', limit: 30 }, 240000); if (r && !r.ok && r.blocked) { await blockedPause(r.blocked); if (ST.job.stop) break; continue; } break; }
+      if (!r || !r.ok) { log(`跳过账号：${(r && (r.error || r.blocked)) || '读取失败'}`); continue; }
+      if (r.profile) { if (r.profile.name) a.name = r.profile.name; if (r.profile.fans !== null && r.profile.fans !== undefined) a.fans = r.profile.fans; }
+      let fresh = 0;
+      (r.list || []).forEach(x => {
+        const id = (a.platform === 'douyin' ? 'dy' : 'xs') + x.id; let p = ST.d.posts[id];
+        if (!p) { p = ST.d.posts[id] = { id, raw: x.id, platform: a.platform, url: x.url, firstSeen: Date.now(), kws: [], kwTypes: [] }; fresh++; }
+        Object.assign(p, { acct: a.key, author: a.name || x.author || p.author || '', title: x.title || p.title || '', cover: x.cover || p.cover || '', time: x.time || p.time || null, sticky: !!x.sticky, lastSeen: Date.now(), url: x.url || p.url, fans: a.fans || p.fans || null });
+        ['likes', 'collects', 'comments', 'shares'].forEach(f => { if (x[f] !== null && x[f] !== undefined && x[f] !== '') p[f] = n0(x[f]); });
+        p.rule = p.rule || ruleFilter(p); touched.add(id);
+      });
+      const base = markOutliers(a.key);
+      a.lastCheck = Date.now(); a.newCount = fresh;
+      ST.job.found += (r.list || []).length; ST.job.fresh += fresh;
+      log(`账号「${a.name || a.key}」${(r.list || []).length} 篇（新 ${fresh}，平时互动中位数 ${fmt(Math.round(base))}，爆文 ${acctPosts(a.key).filter(p => p.outlier).length}）`);
+      await save();
+      await sleep(rand(3000, 6000));
+    }
+  }
+
   function ruleFilter(p) {
     const t = (p.title || '') + ' ' + (p.desc || '');
     if (/(抽奖|转发.{0,4}抽|免费送|招聘|求职|兼职|代购|二手|出租|转让)/.test(t)) return '无关';
-    if (n0(p.likes) + n0(p.comments) + n0(p.collects) < 10) return '互动太低';
+    if (!p.acct && n0(p.likes) + n0(p.comments) + n0(p.collects) < 10) return '互动太低';
     return 'ok';
   }
 
@@ -262,7 +306,7 @@ ${batch.map((p, i) => `${i + 1}. 【${pfName(p.platform)}】${(p.title || '').sl
       list.forEach(p => {
         const m = metrics(p);
         const s = 0.42 * pctRank(M.map(pick), pick(m)) + 0.25 * pctRank(M.map(x => x.velocity), m.velocity) + 0.13 * pctRank(all.map(x => x.colRate), m.colRate) + 0.2 * (m.intent === null ? 0.5 : Math.min(1, m.intent / 0.35));
-        p.score = Math.round(s * 100); p.pre = p.pre || Math.round((0.6 * pctRank(all.map(x => x.eng), m.eng) + 0.4 * pctRank(all.map(x => x.velocity), m.velocity)) * 100);
+        p.score = Math.round(s * 100); if (p.ratio) p.score = Math.round(0.5 * p.score + 50 * Math.min(1, p.ratio / 4)); p.pre = p.pre || Math.round((0.6 * pctRank(all.map(x => x.eng), m.eng) + 0.4 * pctRank(all.map(x => x.velocity), m.velocity)) * 100);
         p.m = { velocity: Math.round(m.velocity), colRate: Math.round(m.colRate * 100), intent: m.intent === null ? null : Math.round(m.intent * 100), fansX: m.fansX === null ? null : Math.round(m.fansX * 10) / 10, age: Math.round(m.age) };
       });
     });
@@ -341,15 +385,15 @@ ${batch.map((p, i) => `【${i + 1}】${pfName(p.platform)}｜${TYPE[p.type] ? TY
   function view() {
     if (!ST.d) return '<div class="empty">加载中…</div>';
     const j = ST.job; const n = Object.values(ST.d.posts).filter(p => p.rule === 'ok' && p.relevant !== false).length;
-    const tabs = [['lib', '爆款库', n], ['board', '被推荐榜', null], ['cfg', '采集设置', null]];
+    const tabs = [['lib', '爆款库', n], ['acct', '对标账号', ST.d.cfg.accounts.length || null], ['board', '被推荐榜', null], ...(ST.studio ? [['studio', '二创工作台', null]] : []), ['cfg', '采集设置', null]];
     return `<div class="section-h" style="margin-top:0"><h2>爆款库</h2><span class="hint">按内容类型 × 场景 × 品类收集小红书/抖音餐饮爆款，自动拆解成可学的卡片</span></div>
     <div class="row" style="margin-bottom:10px">
-      ${j && j.running ? (j.paused ? `<button class="btn primary sm" data-action="lb-resume">继续</button>` : `<button class="btn sm" data-action="lb-pause">暂停</button>`) + `<button class="btn sm danger" data-action="lb-stop">停止</button>` : `<button class="btn primary" data-action="lb-run">立即更新</button>`}
+      ${j && j.running ? (j.paused ? `<button class="btn primary sm" data-action="lb-resume">继续</button>` : `<button class="btn sm" data-action="lb-pause">暂停</button>`) + `<button class="btn sm danger" data-action="lb-stop">停止</button>` : `<button class="btn primary" data-action="lb-run">立即更新</button>${ST.d.cfg.accounts.length ? '<button class="btn sm" data-action="lb-run-acct">只查对标账号</button>' : ''}`}
       <span class="hint grow">本次会搜 ${Math.min(ST.d.cfg.perRun, keywords().length)} 个关键词 × ${ST.d.cfg.platforms.map(pfName).join('+')}${ST.d.lastRun ? ` · 上次更新 ${new Date(ST.d.lastRun).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''}</span>
     </div>
     ${j ? jobView() : ''}
     <nav class="tabs sub" role="tablist">${tabs.map(([k, l, c]) => `<button role="tab" data-action="lb-view" data-v="${k}" aria-selected="${ST.view === k}">${l}${c ? ` <span class="n">${c}</span>` : ''}</button>`).join('')}</nav>
-    <div style="margin-top:12px">${ST.view === 'cfg' ? cfgView() : ST.view === 'board' ? boardView() : libView()}</div>`;
+    <div style="margin-top:12px">${ST.view === 'cfg' ? cfgView() : ST.view === 'board' ? boardView() : ST.view === 'acct' ? acctView() : ST.view === 'studio' && ST.studio ? studioView() : libView()}</div>`;
   }
   function jobView() {
     const j = ST.job;
@@ -371,6 +415,7 @@ ${batch.map((p, i) => `【${i + 1}】${pfName(p.platform)}｜${TYPE[p.type] ? TY
     if (f.pf !== 'all') list = list.filter(p => p.platform === f.pf);
     if (f.hot) list = list.filter(p => (p.score || 0) >= 75);
     if (f.done) list = list.filter(p => p.bd);
+    if (f.when !== 'all') list = list.filter(p => inWhen(p, f.when));
     const key = { score: p => p.score || 0, new: p => p.time || 0, velocity: p => (p.m || {}).velocity || 0, collects: p => n0(p.collects), comments: p => n0(p.comments) }[f.sort] || (p => p.score || 0);
     list.sort((a, b) => key(b) - key(a));
     const total = list.length; list = list.slice(0, 60);
@@ -383,6 +428,7 @@ ${batch.map((p, i) => `【${i + 1}】${pfName(p.platform)}｜${TYPE[p.type] ? TY
         ${c.platforms.length > 1 ? sel('p', 'pf', [['all', '全部平台'], ['xhs', '小红书'], ['douyin', '抖音']]) : ''}
         ${sel('o', 'sort', [['score', '按值得学指数'], ['velocity', '按涨速'], ['collects', '按收藏'], ['comments', '按评论'], ['new', '按发布时间']])}
         <label class="toggle"><input type="checkbox" data-lbf="hot" ${f.hot ? 'checked' : ''}>只看爆款(≥75)</label>
+        ${sel('w', 'when', [['all', '全部时间'], ['1d', '昨天以来'], ['7d', '近 7 天'], ['old', '更早']])}
         <label class="toggle"><input type="checkbox" data-lbf="done" ${f.done ? 'checked' : ''}>只看已拆解</label>
         <span class="hint grow" style="text-align:right">${total} 篇${labelN ? ` · 已标注 ${labelN}` : ''}</span>
       </div>
@@ -397,7 +443,7 @@ ${batch.map((p, i) => `【${i + 1}】${pfName(p.platform)}｜${TYPE[p.type] ? TY
       <div class="lib-top">
         <div class="lib-cover-w">${p.cover ? `<img class="lib-cover" src="${h(p.cover)}" referrerpolicy="no-referrer" loading="lazy" alt="">` : ''}<span>${h((TYPE[p.type] || TYPE.other).name.slice(0, 2))}</span></div>
         <div class="lib-main">
-          <div class="row" style="gap:4px"><span class="pf ${p.platform}">${pfName(p.platform)}</span><span class="chip sm">${h(t.name)}</span>${(p.scenes || []).slice(0, 2).map(s => `<span class="chip sm g">${h(s)}</span>`).join('')}${p.cat && p.cat !== '不明' ? `<span class="chip sm">${h(p.cat)}</span>` : ''}${p.official ? '<span class="chip sm">官方号</span>' : ''}</div>
+          <div class="row" style="gap:4px"><span class="pf ${p.platform}">${pfName(p.platform)}</span><span class="chip sm">${h(t.name)}</span>${(p.scenes || []).slice(0, 2).map(s => `<span class="chip sm g">${h(s)}</span>`).join('')}${p.cat && p.cat !== '不明' ? `<span class="chip sm">${h(p.cat)}</span>` : ''}${p.official ? '<span class="chip sm">官方号</span>' : ''}${p.outlier ? `<span class="chip sm r" title="互动是这个号平时的 ${p.ratio} 倍">本号爆文 ×${p.ratio}</span>` : ''}</div>
           <a class="lib-title" href="${h(p.url)}" target="_blank" rel="noopener">${h(p.title || '(无标题)')}</a>
           <div class="hint">${h(p.author || '')}${p.fans ? ` · ${fmt(p.fans)}粉` : ''} · ${m.age !== undefined ? `${m.age}天前` : ''}</div>
           <div class="lib-nums"><span>赞 <b>${fmt(n0(p.likes))}</b></span><span>藏 <b>${fmt(n0(p.collects))}</b></span><span>评 <b>${fmt(n0(p.comments))}</b></span>${m.intent !== null && m.intent !== undefined ? `<span title="评论里问地址/人均/排队/想去的比例">到店意图 <b>${m.intent}%</b></span>` : ''}${m.fansX ? `<span title="互动 ÷ 粉丝">粉丝倍数 <b>${m.fansX}</b></span>` : ''}</div>
@@ -409,6 +455,7 @@ ${batch.map((p, i) => `【${i + 1}】${pfName(p.platform)}｜${TYPE[p.type] ? TY
         ${bd ? `<button class="btn ghost sm" data-action="lb-open" data-id="${h(p.id)}">${open ? '收起拆解' : '看拆解'}</button>` : ''}
         <button class="btn sm" data-action="lb-tpl" data-id="${h(p.id)}">转模板</button>
         <button class="btn sm" data-action="lb-compose" data-id="${h(p.id)}">仿写</button>
+        <button class="btn sm primary" data-action="lb-studio" data-id="${h(p.id)}">二创</button>
         <span class="grow"></span>
         <button class="btn ghost sm ${p.label === 'good' ? 'on' : ''}" data-action="lb-label" data-v="good" data-id="${h(p.id)}" title="值得学">👍</button>
         <button class="btn ghost sm ${p.label === 'bad' ? 'on' : ''}" data-action="lb-label" data-v="bad" data-id="${h(p.id)}" title="不值得学">👎</button>
@@ -480,7 +527,144 @@ ${batch.map((p, i) => `【${i + 1}】${pfName(p.platform)}｜${TYPE[p.type] ? TY
       </div>
       ${sug.length ? `<div class="panel stack"><b>系统建议的新词</b><span class="hint">来自爆款的话题和标题关键词，点"要"会加入轮换</span>
         ${sug.map(s => `<div class="row kwrow"><span class="grow">${h(s.kw)}</span><span class="hint">${s.n} 篇爆款用过</span><button class="btn sm" data-action="lb-sug" data-v="${h(s.kw)}" data-ok="1">要</button><button class="btn ghost sm" data-action="lb-sug" data-v="${h(s.kw)}" data-ok="0">不要</button></div>`).join('')}</div>` : ''}
+      <div class="panel stack"><b>⑦ 对标账号</b><span class="hint">粘贴博主主页链接（小红书 xiaohongshu.com/user/profile/…，抖音 douyin.com/user/…），一行一个。每次更新会看他们的新作品，标出比这个号平时好很多的爆文。品牌号、本地美食号、做得好的商家号、优秀素人号都可以加。</span>
+        <textarea rows="3" data-lbstate="addAcct" placeholder="https://www.xiaohongshu.com/user/profile/…&#10;https://www.douyin.com/user/…">${h(ST.addAcct)}</textarea>
+        <div class="row"><button class="btn sm" data-action="lb-acct-add">添加</button><label class="toggle"><input type="checkbox" data-lbcheck="monitorOnRun" ${c.monitorOnRun ? 'checked' : ''}>"立即更新"时也检查对标账号</label></div>
+        ${c.accounts.length ? `<div class="list">${c.accounts.map(a => `<div class="item" style="cursor:default"><span class="pf ${a.platform}">${pfName(a.platform)}</span><a class="t" href="${h(a.url)}" target="_blank" rel="noopener">${h(a.name || a.url)}</a><span class="m">${a.fans ? fmt(a.fans) + '粉 · ' : ''}${a.lastCheck ? '已检查' : '未检查'}</span><button class="btn ghost sm" data-action="lb-acct-del" data-v="${h(a.key)}">✕</button></div>`).join('')}</div>` : ''}
+      </div>
       <div class="row"><button class="btn ghost sm" data-action="lb-reset">恢复默认设置</button><span class="hint">设置改动会自动保存</span></div>
+    </div>`;
+  }
+
+  function inWhen(p, w) {
+    const t = p.time || p.firstSeen; const age = (Date.now() - t) / 864e5;
+    return w === '1d' ? age <= 2 : w === '7d' ? age <= 7 : w === 'old' ? age > 7 : true;
+  }
+  function acctView() {
+    const c = ST.d.cfg;
+    if (!c.accounts.length) return `<div class="empty"><b>还没有对标账号</b>在「采集设置 → ⑦ 对标账号」粘贴博主主页链接，插件会定期看他们的新作品，标出本号爆文。<br><button class="btn sm" data-action="lb-view" data-v="cfg" style="margin-top:8px">去添加</button></div>`;
+    const sel = ST.f.acct;
+    let posts = Object.values(ST.d.posts).filter(p => p.acct && (sel === 'all' || p.acct === sel)).sort((a, b) => (b.time || 0) - (a.time || 0));
+    const groups = [['昨天以来', p => inWhen(p, '1d')], ['近 7 天', p => !inWhen(p, '1d') && inWhen(p, '7d')], ['更早', p => inWhen(p, 'old')]];
+    return `<div class="list" style="margin-bottom:10px">${c.accounts.map(a => { const ps = acctPosts(a.key); const out = ps.filter(p => p.outlier).length; const wk = ps.filter(p => inWhen(p, '7d')).length;
+        return `<div class="item" data-action="lb-acct-f" data-v="${h(sel === a.key ? 'all' : a.key)}" aria-selected="${sel === a.key}"><span class="pf ${a.platform}">${pfName(a.platform)}</span><span class="t">${h(a.name || a.url)}</span><span class="m">${a.fans ? fmt(a.fans) + '粉 · ' : ''}${ps.length} 篇 · 近 7 天 ${wk} · 爆文 ${out}${a.newCount ? ` · <b>新 ${a.newCount}</b>` : ''}</span></div>`; }).join('')}</div>
+      ${!posts.length ? '<div class="empty"><b>还没抓到作品</b>点上面的"只查对标账号"。</div>' : groups.map(([name, fn]) => { const ps = posts.filter(fn); return ps.length ? `<div class="section-h"><h2>${name}</h2><span class="hint">${ps.length} 篇${ps.filter(p => p.outlier).length ? ` · 爆文 ${ps.filter(p => p.outlier).length}` : ''}</span></div><div class="lib-grid">${ps.slice(0, 30).map(card).join('')}</div>` : ''; }).join('')}`;
+  }
+
+  // ---------- 二创工作台 ----------
+  const PERSONA_N = { owner: '老板/店长', chef: '厨师', staff: '店员', foodie: '美食博主', local: '本地生活号', customer: '顾客视角' };
+  function draftOf() { const d = (ST.d.drafts = ST.d.drafts || {}); return d[ST.studio] || (d[ST.studio] = { format: ST.d.posts[ST.studio] && ST.d.posts[ST.studio].ptype === 'video' ? 'script' : 'note', accountId: '', focus: '', extra: '', titles: [], title: '', lines: [], tags: [], cover: '' }); }
+  function accounts() { return ((window.Store && Store.state && Store.state.accounts) || []).filter(a => a.status !== 'paused'); }
+  function fullText(d) {
+    if (d.format === 'script') return `${d.title}\n\n${d.lines.map((l, i) => `${i + 1}. 【${l.role}】${l.text}${l.shot ? `\n   镜头：${l.shot}` : ''}`).join('\n')}${d.tags.length ? '\n\n' + d.tags.map(t => '#' + t).join(' ') : ''}`;
+    return `${d.title}\n\n${d.lines.map(l => l.text).join('\n')}${d.tags.length ? '\n\n' + d.tags.map(t => '#' + t).join(' ') : ''}`;
+  }
+  function brandText(d) {
+    const a = accounts().find(x => x.id === d.accountId);
+    const prof = (window.Comments && window.Comments._st && window.Comments._st.data && window.Comments._st.data.profile) || {};
+    const facts = Object.assign({}, a ? a.vars || {} : {}, { 门店地址: prof.address, 营业时间: prof.hours, 人均: prof.price, 招牌菜: prof.signature, 排队: prof.queue });
+    return [a ? `账号：${a.name}（${pfName(a.platform)}），人设：${PERSONA_N[a.persona] || a.persona || '店长'}，语气：${a.tone || '亲切自然'}` : '账号：门店官方号，人设：店长',
+      `门店信息：${Object.entries(facts).filter(([, v]) => String(v || '').trim()).map(([k, v]) => `${k}=${v}`).join('；') || '（没填）'}`].join('\n');
+  }
+  function studioPrompt(p, d) {
+    const b = p.bd || {}; const isScript = d.format === 'script';
+    return `你是餐饮品牌的${isScript ? '短视频编导' : '小红书内容编辑'}。下面是一篇爆款${p.ptype === 'video' ? '视频' : '笔记'}，请照它"火的结构和节奏"，给我们的账号二创一版${isScript ? '口播脚本' : '图文笔记'}。
+
+【原爆款】
+标题：${p.title || ''}
+正文/文案：${String(p.desc || '').slice(0, 1500) || '（只有标题）'}
+${b.why ? `为什么火：${b.why}\n` : ''}${(b.structure || []).length ? `原结构：${b.structure.join(' → ')}\n` : ''}${b.hook ? `开头钩子：${b.hook}\n` : ''}评论区：${b.comments || (p.comments_list || []).slice(0, 10).map(c => c.t).join(' / ').slice(0, 400) || '无'}
+
+【我们】
+${brandText(d)}
+这次主推：${d.focus || '（没指定，从招牌菜里选最合适的）'}
+${d.extra ? `补充要求：${d.extra}\n` : ''}
+要求：
+- 保留原爆款的结构顺序、节奏和情绪，但每一句都要重写，不照抄原句
+- 只用"我们"给出的事实（菜名、价格、地址、营业时间），没给的不要编；不写"最""第一""全网"等绝对化用语；不留联系方式、不引导私信
+- ${isScript ? '口播脚本：8–14 句，每句一行，口语化、短句，第一句 3 秒内抓人；每句给一个镜头建议（拍什么）' : '图文笔记：正文 6–12 段/句，小红书语气，适当分段和表情，末尾一句引导互动'}
+- 每一句标出作用 role（钩子/痛点/铺垫/卖点/证据/转折/价格/场景/引导互动/结尾），orig 写它对应原爆款里的哪一句或哪一步（≤20字）
+
+只输出 JSON：{"titles":["标题1","标题2","标题3"],"lines":[{"role":"钩子","orig":"…","text":"…","shot":"${isScript ? '…' : ''}"}],"tags":["话题1","话题2"],"cover":"封面建议（一句话：拍什么、封面写什么字）"}`;
+  }
+  async function genStudio() {
+    const p = ST.d.posts[ST.studio]; const d = draftOf(); if (!p) return;
+    const cfg = window.Env && Env.aiConfig ? Env.aiConfig() : null;
+    if (!cfg || !cfg.key) { toast('二创需要 AI：先在「设置」里填 API 密钥'); return; }
+    readStudioFields(d);
+    ST.stBusy = 'all'; render();
+    try {
+      const o = await window.AI.json(cfg, studioPrompt(p, d), null, { temperature: 0.8, maxTokens: 4000 });
+      d.titles = (o.titles || []).map(String).slice(0, 3); d.title = d.titles[0] || d.title;
+      d.lines = (o.lines || []).filter(l => l && l.text).map(l => ({ role: String(l.role || ''), orig: String(l.orig || ''), text: String(l.text), shot: String(l.shot || '') }));
+      d.tags = (o.tags || []).map(t => String(t).replace(/^#/, '')).slice(0, 10); d.cover = String(o.cover || ''); d.at = Date.now();
+      await save(); toast('二创写好了，每一句都可以改');
+    } catch (e) { toast('AI 调用失败：' + e.message); }
+    ST.stBusy = null; render();
+  }
+  async function rewriteLine(i) {
+    const p = ST.d.posts[ST.studio]; const d = draftOf(); const l = d.lines[i]; if (!l) return;
+    const cfg = window.Env && Env.aiConfig ? Env.aiConfig() : null;
+    if (!cfg || !cfg.key) { toast('需要先在「设置」里填 AI 密钥'); return; }
+    readStudioFields(d);
+    const hint = ((document.getElementById('lb-st-hint-' + i) || {}).value || '').trim();
+    ST.stBusy = i; render();
+    try {
+      const o = await window.AI.json(cfg, `下面是一篇${d.format === 'script' ? '口播脚本' : '小红书笔记'}，请只重写第 ${i + 1} 句（作用：${l.role}），让它更抓人、更自然，和前后句衔接顺畅。${hint ? `要求：${hint}。` : ''}只用已有的事实，不写绝对化用语。
+${brandText(d)}
+全文：
+${d.lines.map((x, k) => `${k + 1}. 【${x.role}】${x.text}`).join('\n')}
+只输出 JSON：{"text":"新的第 ${i + 1} 句","shot":"${d.format === 'script' ? '镜头建议' : ''}"}`, null, { temperature: 0.9, maxTokens: 600 });
+      if (o && o.text) { l.text = String(o.text); if (o.shot) l.shot = String(o.shot); await save(); }
+    } catch (e) { toast('AI 调用失败：' + e.message); }
+    ST.stBusy = null; render();
+  }
+  function readStudioFields(d) {
+    const v = id => (document.getElementById(id) || {}).value;
+    if (v('lb-st-focus') !== undefined) d.focus = v('lb-st-focus');
+    if (v('lb-st-extra') !== undefined) d.extra = v('lb-st-extra');
+    if (v('lb-st-titlein') !== undefined) d.title = v('lb-st-titlein');
+    d.lines.forEach((l, i) => { const t = v('lb-st-l-' + i); if (t !== undefined) l.text = t; const s = v('lb-st-s-' + i); if (s !== undefined) l.shot = s; });
+  }
+  function studioView() {
+    const p = ST.d.posts[ST.studio]; if (!p) return '<div class="empty">这篇已经不在库里了</div>';
+    const d = draftOf(); const busy = ST.stBusy; const acs = accounts(); const isScript = d.format === 'script';
+    return `<div class="row" style="margin-bottom:8px"><button class="btn ghost sm" data-action="lb-st-close">← 返回爆款库</button><span class="hint grow">照爆款的结构和节奏，给我们的账号重写一版；每一句都能改，也能单独让 AI 重写</span></div>
+    <div class="studio">
+      <div class="panel stack studio-src">
+        <b>原爆款</b>
+        <a href="${h(p.url)}" target="_blank" rel="noopener" style="font-weight:600">${h(p.title || '(无标题)')}</a>
+        <div class="hint">${pfName(p.platform)} · ${h(p.author || '')} · 赞 ${fmt(n0(p.likes))} 藏 ${fmt(n0(p.collects))} 评 ${fmt(n0(p.comments))}</div>
+        ${p.bd && p.bd.why ? `<div class="lib-why">${h(p.bd.why)}</div>` : ''}
+        ${p.bd && (p.bd.structure || []).length ? `<div class="kv2"><span class="hint">结构</span><div>${p.bd.structure.map(h).join(' → ')}</div></div>` : ''}
+        <details ${p.desc ? '' : 'open'}><summary class="hint link">原文</summary><div class="hint" style="white-space:pre-wrap">${h(p.desc || '（还没读正文：在爆款库里更新一次，排名靠前的会自动读）')}</div></details>
+        ${p.ptype === 'video' ? '<span class="hint">视频的口播逐字稿还没接入（下一步做），现在按标题、文案、评论和拆解来二创。</span>' : ''}
+      </div>
+      <div class="panel stack">
+        <div class="grid2">
+          <label class="f"><span>写成</span><select data-lbst="format"><option value="note" ${!isScript ? 'selected' : ''}>图文笔记</option><option value="script" ${isScript ? 'selected' : ''}>口播脚本（带镜头）</option></select></label>
+          <label class="f"><span>发在哪个账号（用它的人设和门店信息）</span><select data-lbst="accountId"><option value="">门店官方号</option>${acs.map(a => `<option value="${h(a.id)}" ${d.accountId === a.id ? 'selected' : ''}>${h(a.name)} · ${pfName(a.platform)}</option>`).join('')}</select></label>
+        </div>
+        <label class="f"><span>这次主推（菜品/卖点/活动）</span><input type="text" id="lb-st-focus" value="${h(d.focus)}" placeholder="如：爆膏奶油虾，人均 100 左右"></label>
+        <label class="f"><span>补充要求（可选）</span><input type="text" id="lb-st-extra" value="${h(d.extra)}" placeholder="如：偏素人口吻、突出夜宵场景、不要提价格"></label>
+        <div class="row"><button class="btn primary" data-action="lb-st-gen" ${busy !== null ? 'disabled' : ''}>${busy === 'all' ? 'AI 正在写…' : d.lines.length ? '重新生成' : '生成二创'}</button><span class="hint">门店信息取自账号库和「评论 → 门店资料」</span></div>
+      </div>
+      ${d.lines.length ? `<div class="panel stack">
+        <b>标题</b>
+        <input type="text" id="lb-st-titlein" value="${h(d.title)}">
+        ${d.titles.length > 1 ? `<div class="chips">${d.titles.map((t, i) => `<button class="chip sm" data-action="lb-st-title" data-i="${i}" aria-pressed="${t === d.title}">${h(t)}</button>`).join('')}</div>` : ''}
+        <b style="margin-top:6px">${isScript ? '口播脚本' : '正文'}</b>
+        <div class="st-lines">${d.lines.map((l, i) => `<div class="st-line">
+          <div class="row" style="gap:6px;flex-wrap:nowrap"><span class="rank">${i + 1}</span><span class="chip sm">${h(l.role || '—')}</span>${l.orig ? `<span class="hint st-orig" title="对应原爆款">↔ ${h(l.orig)}</span>` : ''}<span class="grow"></span>
+            <button class="btn ghost sm" data-action="lb-st-up" data-i="${i}" title="上移">↑</button><button class="btn ghost sm" data-action="lb-st-add" data-i="${i}" title="在下面加一句">＋</button><button class="btn ghost sm" data-action="lb-st-del" data-i="${i}" title="删除">✕</button></div>
+          <textarea id="lb-st-l-${i}" data-lbstl="${i}" rows="2">${h(l.text)}</textarea>
+          ${isScript ? `<input type="text" id="lb-st-s-${i}" data-lbsts="${i}" value="${h(l.shot)}" placeholder="镜头：拍什么">` : ''}
+          <div class="row" style="gap:6px"><input type="text" id="lb-st-hint-${i}" placeholder="想怎么改（可选），如：更口语、加价格" style="flex:1"><button class="btn sm" data-action="lb-st-line" data-i="${i}" ${busy !== null ? 'disabled' : ''}>${busy === i ? '重写中…' : 'AI 重写这句'}</button></div>
+        </div>`).join('')}</div>
+        ${d.tags.length ? `<div class="kv2"><span class="hint">话题</span><div>${d.tags.map(t => '#' + h(t)).join(' ')}</div></div>` : ''}
+        ${d.cover ? `<div class="kv2"><span class="hint">封面建议</span><div>${h(d.cover)}</div></div>` : ''}
+        <div class="row"><button class="btn primary sm" data-action="lb-st-copy">复制全文</button><button class="btn sm" data-action="lb-st-tpl">存为模板</button><span class="hint">改动自动保存，下次打开还在</span></div>
+      </div>` : ''}
     </div>`;
   }
 
@@ -489,6 +673,24 @@ ${batch.map((p, i) => `【${i + 1}】${pfName(p.platform)}｜${TYPE[p.type] ? TY
     const c = ST.d.cfg; const v = el.dataset.v; const p = el.dataset.id ? ST.d.posts[el.dataset.id] : null;
     switch (action) {
       case 'lb-run': run(); break;
+      case 'lb-run-acct': run({ onlyAccounts: true }); break;
+      case 'lb-acct-add': {
+        const got = ST.addAcct.split(/\s+/).map(parseAcct).filter(Boolean); const bad = ST.addAcct.split(/\s+/).filter(x => /^https?:/.test(x) && !parseAcct(x)).length;
+        got.forEach(a => { if (!c.accounts.some(x => x.key === a.key)) c.accounts.push(Object.assign(a, { name: '', fans: null, addedAt: Date.now() })); });
+        ST.addAcct = ''; await save(); toast(got.length ? `已添加 ${got.length} 个账号${bad ? `，${bad} 个链接认不出（要用主页完整链接，不是短链接）` : ''}` : '没认出主页链接：请在电脑浏览器打开博主主页，复制地址栏里的完整链接'); forceRender(); break;
+      }
+      case 'lb-acct-del': c.accounts = c.accounts.filter(a => a.key !== v); await save(); render(); break;
+      case 'lb-acct-f': ST.f.acct = v; render(); break;
+      case 'lb-studio': if (p) { ST.studio = p.id; ST.view = 'studio'; ST.d.drafts = ST.d.drafts || {}; render(); window.scrollTo(0, 0); } break;
+      case 'lb-st-gen': genStudio(); break;
+      case 'lb-st-line': rewriteLine(+el.dataset.i); break;
+      case 'lb-st-del': { const d = draftOf(); d.lines.splice(+el.dataset.i, 1); await save(); render(); break; }
+      case 'lb-st-up': { const d = draftOf(); const i = +el.dataset.i; if (i > 0) { [d.lines[i - 1], d.lines[i]] = [d.lines[i], d.lines[i - 1]]; await save(); render(); } break; }
+      case 'lb-st-add': { const d = draftOf(); d.lines.splice(+el.dataset.i + 1, 0, { role: '补充', orig: '', text: '', shot: '' }); await save(); render(); break; }
+      case 'lb-st-title': { const d = draftOf(); d.title = d.titles[+el.dataset.i] || d.title; await save(); render(); break; }
+      case 'lb-st-copy': { const d = draftOf(); await window.__rmCopy(fullText(d), d.format === 'script' ? '口播脚本' : '笔记'); break; }
+      case 'lb-st-tpl': { const d = draftOf(); const q = ST.d.posts[ST.studio]; window.__rmHotToTemplate && window.__rmHotToTemplate({ kind: 'hot', runId: 'library', runTopic: '二创', industry: (window.Store && Store.state.settings.industry) || 'food', platform: q.platform, post: { id: q.id, title: d.title, desc: d.lines.map(l => l.text).join('\n'), tags: d.tags || [], url: q.url }, city: c.cities[0] || '', exclude: [] }); break; }
+      case 'lb-st-close': ST.studio = null; ST.view = 'lib'; render(); break;
       case 'lb-pause': if (ST.job) { ST.job.paused = true; log('已暂停'); } break;
       case 'lb-resume': if (ST.job) { ST.job.paused = false; ST.job.blocked = null; log('继续'); } break;
       case 'lb-stop': if (ST.job) { ST.job.stop = true; ST.job.paused = false; log('正在停止…'); } break;
@@ -515,7 +717,7 @@ ${batch.map((p, i) => `【${i + 1}】${pfName(p.platform)}｜${TYPE[p.type] ? TY
       case 'lb-kwback': c.removed = c.removed.filter(x => x !== v); await save(); render(); break;
       case 'lb-kwadd': { const k = ST.addKw.trim(); if (!k) return; if (!c.added.includes(k)) c.added.unshift(k); c.removed = c.removed.filter(x => x !== k); ST.addKw = ''; await save(); render(); break; }
       case 'lb-sug': if (el.dataset.ok === '1') { if (!c.accepted.includes(v)) c.accepted.push(v); } else c.rejected.push(v); await save(); render(); break;
-      case 'lb-reset': ST.d.cfg = Object.assign(defaultCfg(), { added: c.added, accepted: c.accepted, rejected: c.rejected }); await save(); toast('已恢复默认（手动加的关键词保留）'); render(); break;
+      case 'lb-reset': ST.d.cfg = Object.assign(defaultCfg(), { added: c.added, accepted: c.accepted, rejected: c.rejected, accounts: c.accounts }); await save(); toast('已恢复默认（手动加的关键词保留）'); render(); break;
     }
   }
   function attach(root) {
@@ -523,6 +725,9 @@ ${batch.map((p, i) => `【${i + 1}】${pfName(p.platform)}｜${TYPE[p.type] ? TY
       const t = e.target; if (!ST.d) return; const c = ST.d.cfg;
       if (t.dataset.lbf) { ST.f[t.dataset.lbf] = t.type === 'checkbox' ? t.checked : t.value; if (e.type === 'change') forceRender(); return; }
       if (t.dataset.lbstate) { ST[t.dataset.lbstate] = t.value; return; }
+      if (t.dataset.lbcheck && e.type === 'change') { c[t.dataset.lbcheck] = t.checked; await save(); return; }
+      if (t.dataset.lbst && e.type === 'change') { const d = draftOf(); readStudioFields(d); d[t.dataset.lbst] = t.value; await save(); forceRender(); return; }
+      if ((t.dataset.lbstl !== undefined || t.dataset.lbsts !== undefined || /^lb-st-(focus|extra|titlein)$/.test(t.id)) && e.type === 'change') { readStudioFields(draftOf()); save(); return; }
       if (t.dataset.lbcfg) { c[t.dataset.lbcfg] = t.value; save(); return; }
       if (t.dataset.lbnum && e.type === 'change') { c[t.dataset.lbnum] = +t.value; await save(); forceRender(); return; }
       if (t.dataset.lbtype && e.type === 'change') { c.types[t.dataset.lbtype] = Object.assign(c.types[t.dataset.lbtype] || { words: [] }, { on: t.checked }); await save(); forceRender(); return; }
