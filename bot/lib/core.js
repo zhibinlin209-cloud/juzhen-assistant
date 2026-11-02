@@ -261,7 +261,7 @@ function replyForText(r) {
 function replyForDaily(list) {
   if (!list || !list.length) return '';
   const w = x => (x === null || x === undefined ? '' : `（较上周同日 ${x >= 0 ? '+' : ''}${x}%）`);
-  return list.slice(0, 15).map(r => `📈 ${r.store} ${r.date.slice(5)}：营业额 ${Math.round(r.total)}${w(r.wow)}${r.dpBad ? `｜点评差评 ${r.dpBad}` : ''}${r.mtBad ? `｜美团差评 ${r.mtBad}` : ''}${r.updated ? '（已覆盖旧记录）' : ''}`).join('\n') + (list.length > 15 ? `\n…共 ${list.length} 份` : '') + '\n已记入「门店营业日报」';
+  return list.slice(0, 15).map(r => `📈 ${r.store} ${r.date.slice(5)}：营业额 ${Math.round(r.total)}${w(r.wow)}${r.dpBad ? `｜点评差评 ${r.dpBad}` : ''}${r.mtBad ? `｜美团差评 ${r.mtBad}` : ''}${r.updated ? '（已覆盖旧记录）' : ''}`).join('\n') + (list.length > 15 ? `\n…共 ${list.length} 份` : '') + '\n已记入你的私密表格（只有你能看）';
 }
 function replyForImage(r) {
   if (!r) return '';
