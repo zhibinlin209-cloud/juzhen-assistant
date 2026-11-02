@@ -209,7 +209,32 @@ function createCore({ cfg, api, log }) {
   }
 
 
-  return { handleText, handleImage, load, _st: st, _match: match };
+  // ---------- 门店营业日报 ----------
+  const D = require('./daily');
+  async function handleDaily(text, source) {
+    const list = D.parseDaily(text); if (!list.length) return null;
+    const app = await appToken(); const name = cfg.dailyTable || '门店营业日报';
+    let t = (await listTables()).find(x => x.name === name);
+    if (!t) { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables`, { table: { name, default_view_name: '全部', fields: D.COLS.map(([field_name, type]) => ({ field_name, type })) } }); t = { table_id: d.table_id }; log('[日报] 新建表：' + name); }
+    else { const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const have = new Set((fd.items || []).map(f => f.field_name)); for (const [c, type] of D.COLS) if (!have.has(c)) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, { field_name: c, type }); }
+    const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { field_names: ['日期', '门店', '总营业额'] }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const keyOf = (ts, store) => `${new Date(ts).toDateString()}|${String(store).trim()}`;
+    const exist = new Map(recs.map(r => [keyOf(r.fields['日期'], val(r.fields['门店'])), r]));
+    const add = [], upd = [], out = [];
+    for (const r of list) {
+      const f = D.toFields(r, source); const ex = exist.get(keyOf(r.ts, r.store));
+      if (ex) upd.push({ record_id: ex.record_id, fields: f }); else add.push({ fields: f });
+      const lw = recs.find(x => keyOf(x.fields['日期'], val(x.fields['门店'])) === keyOf(r.ts - 7 * DAY, r.store));
+      const lwv = lw ? num(lw.fields['总营业额']) : null;
+      out.push(Object.assign({}, r, { updated: !!ex, lastWeek: lwv, wow: lwv ? Math.round((r.total - lwv) / lwv * 1000) / 10 : null }));
+    }
+    for (let i = 0; i < add.length; i += 400) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/batch_create`, { records: add.slice(i, i + 400) });
+    for (let i = 0; i < upd.length; i += 400) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/batch_update`, { records: upd.slice(i, i + 400) });
+    log(`[日报] 新增 ${add.length}，更新 ${upd.length}`);
+    return out;
+  }
+
+  return { handleText, handleImage, handleDaily, load, _st: st, _match: match };
 }
 
 // 回复文案
@@ -220,6 +245,11 @@ function replyForText(r) {
   if (r.dups.length) L.push(`↩️ ${r.dups.length} 条之前登记过，跳过`);
   if (r.noAcct.length) L.push(`⚠️ ${r.noAcct.length} 条没认出是哪个号，请到飞书表里补「账号昵称」`);
   return L.join('\n');
+}
+function replyForDaily(list) {
+  if (!list || !list.length) return '';
+  const w = x => (x === null || x === undefined ? '' : `（较上周同日 ${x >= 0 ? '+' : ''}${x}%）`);
+  return list.slice(0, 15).map(r => `📈 ${r.store} ${r.date.slice(5)}：营业额 ${Math.round(r.total)}${w(r.wow)}${r.dpBad ? `｜点评差评 ${r.dpBad}` : ''}${r.mtBad ? `｜美团差评 ${r.mtBad}` : ''}${r.updated ? '（已覆盖旧记录）' : ''}`).join('\n') + (list.length > 15 ? `\n…共 ${list.length} 份` : '') + '\n已记入「门店营业日报」';
 }
 function replyForImage(r) {
   if (!r) return '';
@@ -237,4 +267,4 @@ function replyForImage(r) {
   return L.join('\n');
 }
 
-module.exports = { createCore, replyForText, replyForImage, val, num, titleOf };
+module.exports = { createCore, replyForText, replyForImage, replyForDaily, val, num, titleOf };

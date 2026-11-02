@@ -5,7 +5,7 @@
  */
 'use strict';
 const fs = require('fs'); const path = require('path'); const readline = require('readline');
-const { createCore, replyForText, replyForImage } = require('./lib/core');
+const { createCore, replyForText, replyForImage, replyForDaily } = require('./lib/core');
 
 const CFG_FILE = path.join(__dirname, 'config.json');
 const LOG_FILE = path.join(__dirname, 'bot.log');
@@ -104,8 +104,13 @@ async function setup() {
     const m = data.message || {}; if (!m.message_id || seen.has(m.message_id)) return; seen.add(m.message_id); if (seen.size > 5000) seen.clear();
     if (m.chat_type !== 'group') return;
     if (cfg.chats && cfg.chats.length && !cfg.chats.includes(m.chat_id)) return;
-    if ((data.sender || {}).sender_type === 'app') return;
     const { text, images } = flatten(m.message_type, m.content);
+    // 门店营业日报（华付数科等机器人发的也收）
+    if (text && /营业日概况|当天总营业额/.test(text)) {
+      try { const r = await core.handleDaily(text, (data.sender || {}).sender_type === 'app' ? '日报机器人' : '群消息'); if (r && r.length) { log(`[日报] ${r.map(x => x.store + ' ' + x.date).join('、')}`); if (cfg.replyDaily !== false) await reply(m.message_id, replyForDaily(r)); } } catch (e) { log('处理日报出错：', e.message); }
+      return;
+    }
+    if ((data.sender || {}).sender_type === 'app') return;
     try {
       if (text && /xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
