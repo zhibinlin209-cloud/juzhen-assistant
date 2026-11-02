@@ -1,0 +1,21 @@
+[Unit]
+Description=禧聚 AI 助手 飞书群机器人
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xijubot
+WorkingDirectory=/opt/xiju-bot/app
+Environment=BOT_DATA_DIR=/opt/xiju-bot/data
+Environment=NODE_ENV=production
+ExecStart=/opt/xiju-bot/node/bin/node /opt/xiju-bot/app/index.js
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/xiju-bot/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -7,13 +7,15 @@
 const fs = require('fs'); const path = require('path'); const readline = require('readline');
 const { createCore, replyForText, replyForImage, replyForDaily } = require('./lib/core');
 
-const CFG_FILE = path.join(__dirname, 'config.json');
-const LOG_FILE = path.join(__dirname, 'bot.log');
+const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
+const CFG_FILE = path.join(DATA_DIR, 'config.json');
+const LOG_FILE = path.join(DATA_DIR, 'bot.log');
 const API = 'https://open.feishu.cn/open-apis';
 function log(...a) { const line = `[${new Date().toLocaleString('zh-CN', { hour12: false })}] ` + a.join(' '); console.log(line); try { fs.appendFileSync(LOG_FILE, line + '\n'); } catch (e) { } }
 
 async function setup() {
   if (fs.existsSync(CFG_FILE)) return JSON.parse(fs.readFileSync(CFG_FILE, 'utf8'));
+  if (!process.stdin.isTTY) { console.log('找不到 ' + CFG_FILE + '（云端运行时请先放好这个文件）'); process.exit(1); }
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout }); const ask = (q, d) => new Promise(r => rl.question(q + (d ? `（直接回车 = ${d}）` : '') + '：', a => r((a || '').trim() || d || '')));
   console.log('\n第一次运行，先填几个信息（只保存在本机 config.json，不会上传）\n');
   const cfg = {
@@ -31,7 +33,7 @@ async function setup() {
 (async () => {
   const cfg = await setup();
   // 私密设置（不含密钥）：营业日报写到哪张私密表格
-  try { const extra = path.join(__dirname, 'private.json'); if (fs.existsSync(extra)) Object.assign(cfg, JSON.parse(fs.readFileSync(extra, 'utf8'))); } catch (e) { log('private.json 读取失败：', e.message); }
+  try { const extra = path.join(DATA_DIR, 'private.json'); if (fs.existsSync(extra)) Object.assign(cfg, JSON.parse(fs.readFileSync(extra, 'utf8'))); } catch (e) { log('private.json 读取失败：', e.message); }
   log(cfg.dailyBaseUrl ? '营业日报 → 私密表格（只写这里）' : '营业日报：还没设置私密表格，收到也不会记录');
   if (!cfg.appSecret) { console.log('没填 App Secret，删掉 config.json 重新运行'); process.exit(1); }
 
