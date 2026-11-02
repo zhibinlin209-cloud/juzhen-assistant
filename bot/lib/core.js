@@ -55,7 +55,7 @@ function createCore({ cfg, api, log }) {
     let fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
     if (await heal(app, t.table_id, fd.items || [])) fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
     const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
-    const rows = recs.map(r => { const f = r.fields || {}; return { id: r.record_id, table: name, title: titleOf(f['标题(供AI读取)'] || f['..标题'] || f['标题']), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, account: String(val(f['账号名称'] || f['账号昵称']) || '').trim() }; }).filter(r => r.title);
+    const rows = recs.map(r => { const f = r.fields || {}; const vlink = String(val(f['视频号链接'] || f['视频号']) || ''), tlink = String(val(f['贴图号']) || ''); return { id: r.record_id, table: name, title: titleOf(f['标题(供AI读取)'] || f['..标题'] || f['标题']), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, account: String(val(f['账号名称'] || f['账号昵称']) || '').trim(), ch: !!(vlink || tlink), kind: tlink ? '贴图' : vlink ? '视频' : '', cur: { views: num(f['播放量']), likes: num(f['点赞量']), comments: num(f['评论量']), shares: num(f['转发量']) } }; }).filter(r => r.title);
     vt[name] = { id: t.table_id, name, fields: (fd.items || []).map(f => f.field_name), rows, at: Date.now() };
     log(`[表] ${name}：${rows.length} 条可对`); return vt[name];
   }
@@ -106,10 +106,10 @@ function createCore({ cfg, api, log }) {
 
   // ---------- 截图 → 更新数据 ----------
   const sim = (a, b) => { if (!a || !b) return 0; if (a === b) return 1; if (a.length >= 6 && b.startsWith(a)) return 0.96; if (a.length >= 6 && b.includes(a)) return 0.9; return P.dice(a, b); };
-  const dateHit = (md, ts) => { if (!ts) return null; const t = String(md || ''); const full = t.match(/(20\d{2})\D+(\d{1,2})\D+(\d{1,2})/); const m = full ? [0, full[2], full[3]] : t.match(/(\d{1,2})\D+(\d{1,2})/); if (!m) return null; const d = new Date(ts); const y = full ? +full[1] : d.getFullYear(); return Math.abs(new Date(y, +m[1] - 1, +m[2]).getTime() - dayStart(ts)) <= 1.5 * DAY; };
-  function match(notes, accHint, rowsIn) {
-    const ROWS = rowsIn || st.rows;
-    const cand = (n, acc) => ROWS.filter(r => r.title && (!r.date || Date.now() - r.date < 240 * DAY)).map(r => { let s = sim(P.norm(n.title), P.norm(r.title)); if (s < 0.45) return null; const d = dateHit(n.date, r.date); if (d === true) s += 0.15; else if (d === false) s -= 0.25; if (acc && r.account) s += P.norm(r.account) === P.norm(acc) ? 0.1 : -0.15; return { r, s }; }).filter(Boolean).sort((x, y) => y.s - x.s);
+  const dateHit = (md, ts, tol) => { if (!ts) return null; const t = String(md || ''); const full = t.match(/(20\d{2})\D+(\d{1,2})\D+(\d{1,2})/); const m = full ? [0, full[2], full[3]] : t.match(/(\d{1,2})\D+(\d{1,2})/); if (!m) return null; const d = new Date(ts); const y = full ? +full[1] : d.getFullYear(); return Math.abs(new Date(y, +m[1] - 1, +m[2]).getTime() - dayStart(ts)) <= (tol || 1.5) * DAY; };
+  function match(notes, accHint, rowsIn, o) {
+    o = o || {}; const ROWS = rowsIn || st.rows;
+    const cand = (n, acc) => ROWS.filter(r => r.title && (!r.date || Date.now() - r.date < 240 * DAY)).map(r => { let s = sim(P.norm(n.title), P.norm(r.title)); if (s < 0.45) return null; const d = dateHit(n.date, r.date, o.tol); if (d === true) s += 0.15; else if (d === false) s -= (o.pen ?? 0.25); if (acc && r.account) s += P.norm(r.account) === P.norm(acc) ? 0.1 : -0.15; return { r, s }; }).filter(Boolean).sort((x, y) => y.s - x.s);
     let acc = accHint || '';
     if (!acc) { const v = {}; notes.forEach(n => { const c = cand(n, ''); if (c[0] && c[0].s >= 0.95 && (!c[1] || c[1].s < c[0].s - 0.1) && c[0].r.account) v[c[0].r.account] = (v[c[0].r.account] || 0) + 1; }); const b = Object.entries(v).sort((x, y) => y[1] - x[1])[0]; if (b && (b[1] >= 2 || notes.length === 1)) acc = b[0]; }
     const used = new Set();
@@ -160,19 +160,39 @@ function createCore({ cfg, api, log }) {
   async function handleVideo(plat, notes, accHint) {
     const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'];
     const Ts = (await Promise.all(names.map(n => loadT(n)))).filter(Boolean);
-    const rows = Ts.flatMap(T => T.rows);
-    const M = match(notes, accHint, rows);
-    const app = await appToken(); const [pre, shareWord] = VCOL[plat];
-    const cols = [[`${pre}播放(自动)`, 2, 'views'], [`${pre}点赞(自动)`, 2, 'likes'], [`${pre}评论(自动)`, 2, 'comments'], [`${pre}${shareWord}(自动)`, 2, 'shares'], [`${pre}收藏(自动)`, 2, 'collects'], [`${pre}更新于`, 5, null]];
-    const now = Date.now();
+    const all = Ts.flatMap(T => T.rows);
+    const O = plat === 'channels' ? { tol: 3, pen: 0.1 } : {}; // 视频号常比抖音晚一两天发
+    // 视频号：优先在「已填视频号/贴图号链接」的行里找；同一模板标题很多号都发过，先投票认出是哪个号
+    const pool = plat === 'channels' && all.some(r => r.ch) ? all.filter(r => r.ch) : all;
+    let acc = accHint || '';
+    if (!acc) {
+      const votes = {};
+      for (const n of notes) { const accs = new Set(pool.filter(r => r.account && sim(P.norm(n.title), P.norm(r.title)) >= 0.85 && dateHit(n.date, r.date, O.tol) !== false).map(r => r.account)); accs.forEach(a => { votes[a] = (votes[a] || 0) + 1; }); }
+      const top = Object.entries(votes).sort((x, y) => y[1] - x[1]); if (top[0] && top[0][1] >= Math.min(2, notes.length) && (!top[1] || top[0][1] > top[1][1])) acc = top[0][0];
+    }
+    let M = match(notes, acc, pool, O);
+    if (pool !== all) { const miss = M.list.filter(x => !x.row).map(x => x.n); if (miss.length) { const M2 = match(miss, acc, all, O); const used = new Set(M.list.filter(x => x.row).map(x => x.row.id)); M.list = M.list.map(x => { if (x.row) return x; const y = M2.list.find(z => z.n === x.n); return y && y.row && !used.has(y.row.id) ? y : x; }); } }
+    M.acc = M.acc || acc;
+    const app = await appToken(); const now = Date.now();
     for (const T of Ts) {
       const mine = M.list.filter(x => x.row && x.row.table === T.name); if (!mine.length) continue;
-      for (const [name, type] of cols) if (!T.fields.includes(name)) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/fields`, { field_name: name, type }); T.fields.push(name); }
-      const recs = mine.map(({ n, row }) => { const f = {}; cols.forEach(([name, , k]) => { if (!k) f[name] = now; else if (n[k] !== null && n[k] !== undefined) f[name] = n[k]; }); return { record_id: row.id, fields: f }; });
-      await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/batch_update`, { records: recs });
+      let recs;
+      if (plat === 'channels' && ['播放量', '点赞量', '评论量', '转发量'].every(c => T.fields.includes(c))) {
+        // 视频号：直接写进表里原有的「视频号数据」几列；数只会涨，表里已有更大的数就不改小
+        const MAP = [['播放量', 'views'], ['点赞量', 'likes'], ['评论量', 'comments'], ['转发量', 'shares']];
+        recs = mine.map(({ n, row }) => { const f = {}; MAP.forEach(([c, k]) => { const v = n[k]; if (v === null || v === undefined) return; const old = row.cur && row.cur[k]; if (old !== null && old !== undefined && old > v) return; f[c] = String(v); }); return { record_id: row.id, fields: f }; }).filter(r => Object.keys(r.fields).length);
+      } else {
+        const [pre, shareWord] = VCOL[plat];
+        const cols = [[`${pre}播放(自动)`, 2, 'views'], [`${pre}点赞(自动)`, 2, 'likes'], [`${pre}评论(自动)`, 2, 'comments'], [`${pre}${shareWord}(自动)`, 2, 'shares'], [`${pre}收藏(自动)`, 2, 'collects'], [`${pre}更新于`, 5, null]];
+        for (const [name, type] of cols) if (!T.fields.includes(name)) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/fields`, { field_name: name, type }); T.fields.push(name); }
+        recs = mine.map(({ n, row }) => { const f = {}; cols.forEach(([name, , k]) => { if (!k) f[name] = now; else if (n[k] !== null && n[k] !== undefined) f[name] = n[k]; }); return { record_id: row.id, fields: f }; });
+      }
+      if (recs.length) await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/batch_update`, { records: recs });
+      vt[T.name] = null; // 下次重读
     }
     return { platform: plat, acc: M.acc, updated: M.list.filter(x => x.row), missed: M.list.filter(x => !x.row) };
   }
+
 
   return { handleText, handleImage, load, _st: st, _match: match };
 }
