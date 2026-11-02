@@ -34,11 +34,11 @@
   async function call(method, path, body, q) {
     const t = await token();
     const url = API + path + (q ? '?' + new URLSearchParams(q).toString() : '');
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       const r = await fetch(url, { method, headers: { authorization: 'Bearer ' + t, 'content-type': 'application/json; charset=utf-8' }, body: body ? JSON.stringify(body) : undefined });
       const j = await r.json().catch(() => ({ code: r.status, msg: 'HTTP ' + r.status }));
       if (j.code === 0) return j.data || {};
-      if (j.code === 1254290 || r.status === 429) { await new Promise(res => setTimeout(res, 1200 * (attempt + 1))); continue; } // 频率限制
+      if (j.code === 1254290 || j.code === 1254607 || r.status === 429) { await new Promise(res => setTimeout(res, (j.code === 1254607 ? 3000 : 1200) * (attempt + 1))); continue; } // 频率限制 / 数据还在计算
       throw new Error((HINT[j.code] || '飞书接口出错') + `（${j.code}：${j.msg || ''}）`);
     }
     throw new Error('飞书接口太忙，稍后再试');
@@ -63,7 +63,16 @@
     return (d.items || []).map(f => ({ id: f.field_id, name: f.field_name, type: f.type }));
   }
   async function listRecords(tid, onPage) {
+    // 用新版「查询记录」接口：链接解析 / 查找引用 / 公式这类自动计算的列也会完整返回；失败再退回旧接口
     let out = [], pt = '';
+    try {
+      do {
+        const d = await call('POST', `/bitable/v1/apps/${ST.appToken}/tables/${tid}/records/search`, { automatic_fields: false }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {}));
+        out = out.concat(d.items || []); pt = d.has_more ? d.page_token : ''; onPage && onPage(out.length, d.total);
+      } while (pt);
+      return out;
+    } catch (e) { if (out.length) throw e; }
+    pt = '';
     do {
       const d = await call('GET', `/bitable/v1/apps/${ST.appToken}/tables/${tid}/records`, null, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {}));
       out = out.concat(d.items || []); pt = d.has_more ? d.page_token : ''; onPage && onPage(out.length, d.total);
