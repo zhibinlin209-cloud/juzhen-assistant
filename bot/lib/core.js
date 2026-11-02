@@ -211,10 +211,22 @@ function createCore({ cfg, api, log }) {
 
   // ---------- 门店营业日报 ----------
   const D = require('./daily');
+  let dailyApp = '';
+  async function dailyAppToken() {
+    if (dailyApp) return dailyApp;
+    const u = cfg.dailyBaseUrl || ''; let m;
+    if (!u) throw new Error('NO_PRIVATE_BASE');
+    if ((m = u.match(/\/base\/([A-Za-z0-9]+)/))) return (dailyApp = m[1]);
+    if ((m = u.match(/\/wiki\/([A-Za-z0-9]+)/))) { const d = await api.call('GET', '/wiki/v2/spaces/get_node', null, { token: m[1], obj_type: 'wiki' }); return (dailyApp = d.node.obj_token); }
+    throw new Error('config.json 里 dailyBaseUrl 不是多维表格链接');
+  }
   async function handleDaily(text, source) {
     const list = D.parseDaily(text); if (!list.length) return null;
-    const app = await appToken(); const name = cfg.dailyTable || '门店营业日报';
-    let t = (await listTables()).find(x => x.name === name);
+    // 经营数据只写进你自己的私密表格（config.json 的 dailyBaseUrl），绝不写进营销部共享的表
+    const app = await dailyAppToken(); if (app === await appToken()) throw new Error('dailyBaseUrl 不能和营销部共享表格是同一个');
+    const name = cfg.dailyTable || '门店营业日报';
+    const tabs = []; { let pt = ''; do { const d = await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, Object.assign({ page_size: 100 }, pt ? { page_token: pt } : {})); tabs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt); }
+    let t = tabs.find(x => x.name === name);
     if (!t) { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables`, { table: { name, default_view_name: '全部', fields: D.COLS.map(([field_name, type]) => ({ field_name, type })) } }); t = { table_id: d.table_id }; log('[日报] 新建表：' + name); }
     else { const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const have = new Set((fd.items || []).map(f => f.field_name)); for (const [c, type] of D.COLS) if (!have.has(c)) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, { field_name: c, type }); }
     const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { field_names: ['日期', '门店', '总营业额'] }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
