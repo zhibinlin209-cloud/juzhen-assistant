@@ -116,7 +116,10 @@ function createCore({ cfg, api, log }) {
     return { acc, list: notes.map(n => { const c = cand(n, acc); const ok = c[0] && c[0].s >= 0.95 && (!c[1] || c[1].s < c[0].s - 0.1) && !used.has(c[0].r.id); if (ok) used.add(c[0].r.id); return { n, row: ok ? c[0].r : null, best: c[0] }; }) };
   }
   const PROMPT = `这是一张内容平台后台的数据截图（小红书「数据中心」、抖音创作者中心/抖音 App 作品数据、或微信视频号助手/视频号「数据中心」）。
-先判断 platform：xhs（小红书）、douyin（抖音）、channels（微信视频号）、other（都不是）。
+先判断 platform：xhs（小红书）、douyin（抖音）、channels（微信视频号）、other（都不是）。区分要点：
+- 小红书「数据中心」：左上角是返回箭头「<」，顶部有「账号概览 / 笔记分析 / 粉丝数据」页签，每条下面有绿色「笔记状态正常」，日期是封面上的「10-20」这种，只有 眼睛/爱心/评论 三个数；
+- 微信视频号「数据中心」：左上角是「×」，每条下面直接写完整日期时间「2026年10月14日 23:01」，有 眼睛/爱心/评论/转发箭头 四个数，常有「昨日新增X次播放」，标题常带 #话题；
+- 抖音：抖音创作者中心或抖音 App 的作品数据页。
 再逐条提取每条作品：title 标题原文（只写看得到的，被截断就写到截断处，去掉省略号）、date 发布日期（截图里写的原样，如 10-20 或 2026年10月14日）、views 播放/观看/眼睛图标后的数字原样（如 4376、2.6万）、likes 点赞/爱心、comments 评论/气泡、shares 转发/分享（有才填）、collects 收藏（有才填，没有 null）。
 只要数字完整可见的作品；"昨日新增"之类的增量数字不要当成总数。account 截图里若显示账号昵称就填。
 只输出 JSON：{"platform":"","account":"","notes":[{"title":"","date":"","views":"","likes":"","comments":"","shares":null,"collects":null}]}`;
@@ -126,7 +129,10 @@ function createCore({ cfg, api, log }) {
     let j; try { j = JSON.parse((txt.match(/\{[\s\S]*\}/) || [txt])[0]); } catch (e) { return { error: '识别结果不是 JSON' }; }
     const notes = (j.notes || []).filter(n => n && n.title).map(n => ({ title: String(n.title), date: String(n.date || ''), views: num(n.views), likes: num(n.likes), comments: num(n.comments), collects: num(n.collects), shares: num(n.shares) }));
     if (!notes.length) return null; // 不是数据中心截图
-    const plat = /douyin|抖音/i.test(j.platform) ? 'douyin' : /channel|视频号|wechat|weixin/i.test(j.platform) ? 'channels' : /xhs|小红书/i.test(j.platform) ? 'xhs' : 'xhs';
+    let plat = /douyin|抖音/i.test(j.platform) ? 'douyin' : /channel|视频号|wechat|weixin/i.test(j.platform) ? 'channels' : 'xhs';
+    // 兜底：小红书数据中心的日期是「10-20」，视频号是「2026年10月14日」；多数条目带年份 + 有转发数 → 视频号
+    const withYear = notes.filter(n => /20\d{2}\s*年/.test(n.date)).length, withShare = notes.filter(n => n.shares !== null).length;
+    if (plat === 'xhs' && withYear >= Math.ceil(notes.length / 2) && withShare >= Math.ceil(notes.length / 2)) plat = 'channels';
     if (plat !== 'xhs') return handleVideo(plat, notes, accHint || j.account || '');
     await load();
     const M = match(notes, accHint || j.account || '');
