@@ -207,7 +207,7 @@ ${accs.map((a, i) => `A${i + 1}｜${a.name}｜平台：${C.PLATFORM_LABEL[a.plat
     const tabs = [
       ...(window.Research ? [['research', '调研', window.Research.count()]] : []),
       ...(window.Library ? [['library', '爆款', window.Library.count()]] : []),
-      ['compose', '内容'], ...(window.Comments ? [['comments', '评论', window.Comments.pending()]] : []), ['templates', '模板'], ['accounts', '账号', S().accounts.length], ['data', '数据', S().records.length], ['settings', '设置']
+      ...(window.Feishu ? [['feishu', '飞书']] : []), ['compose', '内容'], ...(window.Comments ? [['comments', '评论', window.Comments.pending()]] : []), ['templates', '模板'], ['accounts', '账号', S().accounts.length], ['data', '数据', S().records.length], ['settings', '设置']
     ];
     const mode = Store.mode === 'db' ? '团队共享' : Store.mode === 'ext' ? '本机保存' : '仅本浏览器';
     root.innerHTML = `
@@ -222,6 +222,7 @@ ${accs.map((a, i) => `A${i + 1}｜${a.name}｜平台：${C.PLATFORM_LABEL[a.plat
       case 'research': return window.Research ? window.Research.view() : '';
       case 'comments': return window.Comments ? window.Comments.view() : '';
       case 'library': return window.Library ? window.Library.view() : '';
+      case 'feishu': return window.Feishu ? window.Feishu.view() : '';
       case 'templates': return viewTemplates();
       case 'accounts': return viewAccounts();
       case 'data': return viewData();
@@ -677,6 +678,7 @@ ${accs.map((a, i) => `A${i + 1}｜${a.name}｜平台：${C.PLATFORM_LABEL[a.plat
     const id = el.dataset.id;
     if (action.startsWith('rv-')) return window.Reviews && window.Reviews.act(action, el);
     if (action.startsWith('cm-')) return window.Comments && window.Comments.act(action, el);
+    if (action.startsWith('fs-')) return window.Feishu && window.Feishu.act(action, el);
     if (action.startsWith('lb-')) return window.Library && window.Library.act(action, el);
     if (action.startsWith('rs-') || action === 'go-settings') return window.Research && window.Research.act(action, el);
     switch (action) {
@@ -923,4 +925,5 @@ ${accs.map((a, i) => `A${i + 1}｜${a.name}｜平台：${C.PLATFORM_LABEL[a.plat
   if (window.Research) window.Research.attach(root);
   if (window.Comments) window.Comments.attach(root);
   if (window.Library) window.Library.attach(root);
+  if (window.Feishu) window.Feishu.attach(root);
 })();
