@@ -70,7 +70,7 @@ function createCore({ cfg, api, log }) {
     st.fields = (fd.items || []).map(f => ({ name: f.field_name, type: f.type, options: ((f.property || {}).options || []).map(o => o.name) }));
     const recs = []; pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
     st.rows = recs.map(r => { const f = r.fields || {}; const xhs = String(val(f['小红书链接']) || ''); const home = String(val(f['主页链接']) || '');
-      return { id: r.record_id, title: titleOf(f['标题(供AI读取)'] || f['标题']), xhs, key: P.xhsKey(xhs), code: String(val(f['合作码']) || '').trim(), account: String(val(f['账号昵称']) || '').trim(), person: String(val(f['人员']) || '').trim(), home, uid: (home.match(/user\/profile\/([0-9a-f]{24})/) || [])[1] || '', date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, views: num(f['小眼睛']), auto: num(f['小眼睛(自动)']) }; });
+      return { id: r.record_id, title: titleOf(f['标题(供AI读取)'] || f['标题']), xhs, key: P.xhsKey(xhs), code: String(val(f['合作码']) || '').trim(), account: String(val(f['账号昵称']) || '').trim(), person: String(val(f['人员']) || '').trim(), home, uid: (home.match(/user\/profile\/([0-9a-f]{24})/) || [])[1] || '', date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, views: num(f['小眼睛']), auto: num(f['小眼睛(自动)']), table: '__xhs', chWx: /weixin\.qq\.com\/sph|channels\.weixin/.test(String(val(f['微信贴图']) || '')), cur: { views: num(f['视频号播放(自动)']), likes: num(f['视频号点赞(自动)']), comments: num(f['视频号评论(自动)']), shares: num(f['视频号转发(自动)']) } }; });
     const A = {}; st.rows.slice().sort((a, b) => (a.date || 0) - (b.date || 0)).forEach(r => { if (!r.account) return; const a = A[r.account] = A[r.account] || { name: r.account }; if (r.home) a.home = r.home; if (r.uid) a.uid = r.uid; if (r.person) a.person = r.person; });
     st.accts = Object.values(A); st.at = Date.now();
     log(`[表] ${t.name}：${st.rows.length} 条，${st.accts.length} 个账号`);
@@ -113,7 +113,8 @@ function createCore({ cfg, api, log }) {
     let acc = accHint || '';
     if (!acc) { const v = {}; notes.forEach(n => { const c = cand(n, ''); if (c[0] && c[0].s >= 0.95 && (!c[1] || c[1].s < c[0].s - 0.1) && c[0].r.account) v[c[0].r.account] = (v[c[0].r.account] || 0) + 1; }); const b = Object.entries(v).sort((x, y) => y[1] - x[1])[0]; if (b && (b[1] >= 2 || notes.length === 1)) acc = b[0]; }
     const used = new Set();
-    return { acc, list: notes.map(n => { const c = cand(n, acc); const ok = c[0] && c[0].s >= 0.95 && (!c[1] || c[1].s < c[0].s - 0.1) && !used.has(c[0].r.id); if (ok) used.add(c[0].r.id); return { n, row: ok ? c[0].r : null, best: c[0] }; }) };
+    const uniqTitle = (n, c0) => { if (!c0) return false; const t = P.norm(n.title); if (sim(t, P.norm(c0.r.title)) < 0.95) return false; if (c0.r.date && n.date && dateHit(n.date, c0.r.date, 30) === false) return false; return ROWS.filter(r => r.id !== c0.r.id && sim(t, P.norm(r.title)) >= 0.85 && (!acc || !r.account || P.norm(r.account) === P.norm(acc))).length === 0; };
+    return { acc, list: notes.map(n => { const c = cand(n, acc); const ok = c[0] && (c[0].s >= 0.95 && (!c[1] || c[1].s < c[0].s - 0.1) || uniqTitle(n, c[0])) && !used.has(c[0].r.id); if (ok) used.add(c[0].r.id); return { n, row: ok ? c[0].r : null, best: c[0] }; }) };
   }
   const PROMPT = `这是一张内容平台后台的数据截图（小红书「数据中心」、抖音创作者中心/抖音 App 作品数据、或微信视频号助手/视频号「数据中心」）。
 先判断 platform：xhs（小红书）、douyin（抖音）、channels（微信视频号）、other（都不是）。区分要点：
@@ -160,7 +161,8 @@ function createCore({ cfg, api, log }) {
   async function handleVideo(plat, notes, accHint) {
     const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'];
     const Ts = (await Promise.all(names.map(n => loadT(n)))).filter(Boolean);
-    const all = Ts.flatMap(T => T.rows);
+    let all = Ts.flatMap(T => T.rows);
+    if (plat === 'channels') { await load(); all = all.concat(st.rows.filter(r => r.chWx).map(r => Object.assign({}, r, { ch: true, kind: '贴图' }))); }
     const O = plat === 'channels' ? { tol: 3, pen: 0.1 } : {}; // 视频号常比抖音晚一两天发
     // 视频号：优先在「已填视频号/贴图号链接」的行里找；同一模板标题很多号都发过，先投票认出是哪个号
     const pool = plat === 'channels' && all.some(r => r.ch) ? all.filter(r => r.ch) : all;
@@ -174,6 +176,15 @@ function createCore({ cfg, api, log }) {
     if (pool !== all) { const miss = M.list.filter(x => !x.row).map(x => x.n); if (miss.length) { const M2 = match(miss, acc, all, O); const used = new Set(M.list.filter(x => x.row).map(x => x.row.id)); M.list = M.list.map(x => { if (x.row) return x; const y = M2.list.find(z => z.n === x.n); return y && y.row && !used.has(y.row.id) ? y : x; }); } }
     M.acc = M.acc || acc;
     const app = await appToken(); const now = Date.now();
+    // 小红书表里的视频号贴图：写进小红书表的「视频号…(自动)」列（小红书表没有视频号数据列）
+    const xm = M.list.filter(x => x.row && x.row.table === '__xhs');
+    if (xm.length) {
+      const have = new Set((st.fields || []).map(f => f.name));
+      const cols = [['视频号播放(自动)', 'views'], ['视频号点赞(自动)', 'likes'], ['视频号评论(自动)', 'comments'], ['视频号转发(自动)', 'shares']];
+      for (const [c] of cols.concat([['视频号更新于']])) if (!have.has(c)) await api.call('POST', `/bitable/v1/apps/${app}/tables/${st.table.id}/fields`, { field_name: c, type: c === '视频号更新于' ? 5 : 2 });
+      const recs = xm.map(({ n, row }) => { const f = { '视频号更新于': now }; cols.forEach(([c, k]) => { const v = n[k]; if (v === null || v === undefined) return; const old = row.cur && row.cur[k]; if (old !== null && old !== undefined && old > v) return; f[c] = v; }); return { record_id: row.id, fields: f }; });
+      await api.call('POST', `/bitable/v1/apps/${app}/tables/${st.table.id}/records/batch_update`, { records: recs }); st.rows = null; st.fields = null;
+    }
     for (const T of Ts) {
       const mine = M.list.filter(x => x.row && x.row.table === T.name); if (!mine.length) continue;
       let recs;
