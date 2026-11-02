@@ -60,7 +60,7 @@
   }
   async function listFields(tid) {
     const d = await call('GET', `/bitable/v1/apps/${ST.appToken}/tables/${tid}/fields`, null, { page_size: 200 });
-    return (d.items || []).map(f => ({ id: f.field_id, name: f.field_name, type: f.type }));
+    return (d.items || []).map(f => ({ id: f.field_id, name: f.field_name, type: f.type, options: ((f.property || {}).options || []).map(o => o.name) }));
   }
   async function listRecords(tid, onPage) {
     // 用新版「查询记录」接口：链接解析 / 查找引用 / 公式这类自动计算的列也会完整返回；失败再退回旧接口
@@ -285,6 +285,7 @@ ${points(R).join('\n')}
       ${ok ? `<div class="row"><button class="btn primary" data-action="fs-run" ${j && j.running ? 'disabled' : ''}>生成报表并写回飞书</button><button class="btn sm" data-action="fs-preview" ${j && j.running ? 'disabled' : ''}>只在这里预览</button><span class="hint">读全部内容台账（约几千行，1–2 分钟）</span></div>` : ''}
       ${j ? `<div class="hint"><b>${h(j.phase)}</b></div><pre class="small-pre">${h(j.log.join('\n'))}</pre>` : ''}
     </div>
+    ${ok && window.PostSync ? window.PostSync.view() : ''}
     ${ok && window.XhsShot ? window.XhsShot.view() : ''}
     ${R ? report(R) : ''}`;
   }
@@ -310,6 +311,7 @@ ${points(R).join('\n')}
   }
 
   async function act(action, el) {
+    if (action.startsWith('fs-ps')) return window.PostSync && window.PostSync.act(action, el);
     if (action.startsWith('fs-shot')) return window.XhsShot && window.XhsShot.act(action, el);
     switch (action) {
       case 'fs-cfg': ST.showCfg = !ST.showCfg; forceRender(); break;
@@ -323,7 +325,8 @@ ${points(R).join('\n')}
     const on = e => { const t = e.target; if (t.dataset && t.dataset.fs) { ST.cfg[t.dataset.fs] = t.value.trim(); if (t.dataset.fs !== 'appSecret' || e.type === 'change') save(); if (t.dataset.fs === 'baseUrl') ST.appToken = ''; } };
     root.addEventListener('input', on); root.addEventListener('change', on);
     if (window.XhsShot) window.XhsShot.attach(root);
+    if (window.PostSync) window.PostSync.attach(root);
     load().then(render);
   }
-  window.Feishu = { _api: { ST, titleOf, call, listTables, listFields, listRecords, val, num, pick, dateOf }, view, act, attach, connected: () => !!ST.appToken, _analyze: analyze, _toContent: toContent, _st: ST };
+  window.Feishu = { _api: { ST, titleOf, batchCreate, call, listTables, listFields, listRecords, val, num, pick, dateOf }, view, act, attach, connected: () => !!ST.appToken, _analyze: analyze, _toContent: toContent, _st: ST };
 })();

@@ -2,7 +2,7 @@
 import shutil, os, zipfile
 R = os.path.dirname(os.path.abspath(__file__))
 sh = lambda *p: os.path.join(R, 'shared', *p)
-for f in ('core.js', 'industries.js', 'templates-lib.js', 'needs.js', 'insight.js', 'ai.js', 'deep.js', 'xlsx-lite.js', 'store-base.js', 'app.js', 'app.css'):
+for f in ('core.js', 'industries.js', 'templates-lib.js', 'needs.js', 'insight.js', 'ai.js', 'deep.js', 'xlsx-lite.js', 'store-base.js', 'postparse.js', 'app.js', 'app.css'):
     shutil.copy(sh(f), os.path.join(R, 'extension', f))
 shutil.copy(os.path.join(R, 'report', 'pipeline.js'), os.path.join(R, 'extension', 'pipeline.js'))
 read = lambda p: open(p, encoding='utf8').read()
