@@ -122,17 +122,27 @@ function createCore({ cfg, api, log }) {
 - 抖音：抖音创作者中心或抖音 App 的作品数据页。
 再逐条提取每条作品：title 标题原文（只写看得到的，被截断就写到截断处，去掉省略号）、date 发布日期（截图里写的原样，如 10-20 或 2026年10月14日）、views 播放/观看/眼睛图标后的数字原样（如 4376、2.6万）、likes 点赞/爱心、comments 评论/气泡、shares 转发/分享（有才填）、collects 收藏（有才填，没有 null）。
 只要数字完整可见的作品；"昨日新增"之类的增量数字不要当成总数。account 截图里若显示账号昵称就填。
-只输出 JSON：{"platform":"","account":"","notes":[{"title":"","date":"","views":"","likes":"","comments":"","shares":null,"collects":null}]}`;
+另外回答 4 个判断题（只看截图本身，如实回答 true/false）：
+- note_status：每条作品下面有没有绿色对勾「笔记状态正常」？
+- date_has_year：作品日期是不是带年份的完整日期（如「2026年10月14日 23:01」）？封面角上的「10-20」不算。
+- has_share：每条作品是不是有第 4 个数字（转发/分享箭头）？
+- close_x：页面左上角是「×」关闭按钮吗？（返回箭头「<」不算）
+只输出 JSON：{"platform":"","note_status":false,"date_has_year":false,"has_share":false,"close_x":false,"account":"","notes":[{"title":"","date":"","views":"","likes":"","comments":"","shares":null,"collects":null}]}`;
   async function handleImage(dataUrl, accHint) {
     if (!api.vision) return null;
     const txt = await api.vision(PROMPT, dataUrl);
     let j; try { j = JSON.parse((txt.match(/\{[\s\S]*\}/) || [txt])[0]); } catch (e) { return { error: '识别结果不是 JSON' }; }
     const notes = (j.notes || []).filter(n => n && n.title).map(n => ({ title: String(n.title), date: String(n.date || ''), views: num(n.views), likes: num(n.likes), comments: num(n.comments), collects: num(n.collects), shares: num(n.shares) }));
     if (!notes.length) return null; // 不是数据中心截图
-    let plat = /douyin|抖音/i.test(j.platform) ? 'douyin' : /channel|视频号|wechat|weixin/i.test(j.platform) ? 'channels' : 'xhs';
-    // 兜底：小红书数据中心的日期是「10-20」，视频号是「2026年10月14日」；多数条目带年份 + 有转发数 → 视频号
-    const withYear = notes.filter(n => /20\d{2}\s*年/.test(n.date)).length, withShare = notes.filter(n => n.shares !== null).length;
-    if (plat === 'xhs' && withYear >= Math.ceil(notes.length / 2) && withShare >= Math.ceil(notes.length / 2)) plat = 'channels';
+    // 平台由程序判：小红书有「笔记状态正常」、日期不带年份、只有 3 个数；视频号日期带年份、有转发数、左上角是 ×
+    const yes = v => v === true || v === 'true';
+    const withYear = notes.filter(n => /20\d{2}/.test(n.date)).length, withShare = notes.filter(n => n.shares !== null).length, half = Math.ceil(notes.length / 2);
+    let plat;
+    if (/douyin|抖音/i.test(j.platform) && !yes(j.note_status)) plat = 'douyin';
+    else if (yes(j.note_status)) plat = 'xhs';
+    else if (yes(j.date_has_year) || yes(j.close_x) || withYear >= half || (yes(j.has_share) && withShare >= half)) plat = 'channels';
+    else plat = /channel|视频号|wechat|weixin/i.test(j.platform) ? 'channels' : 'xhs';
+    log(`[截图] 判断为 ${plat}（AI 说 ${j.platform}；笔记状态 ${j.note_status}，带年份 ${j.date_has_year}/${withYear}，转发 ${j.has_share}/${withShare}，× ${j.close_x}）`);
     if (plat !== 'xhs') return handleVideo(plat, notes, accHint || j.account || '');
     await load();
     const M = match(notes, accHint || j.account || '');
