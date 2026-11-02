@@ -96,6 +96,13 @@
   const num = v => { const x = val(v); if (typeof x === 'number') return x; const s = String(x).replace(/,/g, '').trim(); if (!s || s === '-') return null; const m = s.match(/([\d.]+)\s*(万|w)?/i); if (!m) return null; return Math.round(parseFloat(m[1]) * (m[2] ? 1e4 : 1)); };
   const dateOf = v => { const x = val(v); if (typeof x === 'number') return x > 1e11 ? x : x * 1000; const m = String(x).match(/(20\d{2})[-/.年](\d{1,2})[-/.月](\d{1,2})/); return m ? new Date(+m[1], +m[2] - 1, +m[3]).getTime() : null; };
   const pick = (f, names) => { for (const n of names) { const k = Object.keys(f).find(x => x === n); if (k !== undefined && val(f[k]) !== '') return f[k]; } for (const n of names) { const k = Object.keys(f).find(x => x.replace(/^\.+/, '') === n.replace(/^\.+/, '')); if (k !== undefined && val(f[k]) !== '') return f[k]; } return undefined; };
+
+  // 「标题」列常见格式：「## 标题\n真正的标题\n\n## 正文 …」，前面可能有空行/空格/加粗符号；也可能就是纯标题
+  function titleOf(v) {
+    const t = String(val(v) || '').replace(/\r/g, '').trim(); if (!t) return '';
+    let m = t.match(/(?:^|\n)[#*\s]*标题[*\s]*[:：]?[ \t]*\n*[ \t]*([^\n#]+)/); if (m && m[1].trim()) return m[1].trim().replace(/\*+$/, '').trim();
+    const line = t.split('\n').map(x => x.replace(/^[#*\s]+/, '').trim()).find(x => x && !/^(标题|正文)[:：]?$/.test(x)); return (line || '').slice(0, 100);
+  }
   const STORES = [['惠州水东街', /水东街/], ['深圳华强北', /华强北/], ['深圳前海HOP', /前海|HOP/i], ['深圳白石洲', /白石洲/], ['广州江南西', /江南西/], ['珠海玖洲道', /玖洲道|玖州道/], ['佛山千灯湖', /千灯湖|灯湖/], ['佛山创产', /创产|创意产业园/], ['东莞33小镇', /33小镇/], ['广州陈家祠', /陈家祠/], ['粤迹花园城', /花园城|蛇口|粤迹|岭南家宴/]];
   function normStore(s, city) { s = String(s || ''); for (const [n, re] of STORES) if (re.test(s)) return n; const c = String(city || s || '').match(/深圳|广州|惠州|珠海|佛山|东莞/); return c ? c[0] + '（未指定门店）' : '未标门店'; }
   function normTpl(s) { s = String(s || '').trim(); if (!s) return '未标类型'; const m = s.match(/^[A-Z]?\s*模[板版]\s*\d+\s*[-－—]\s*(.+)$/); return m ? '模板·' + m[1].trim() : s; }
@@ -107,7 +114,7 @@
     const link = String(val(pick(f, ['小红书链接', '抖音链接', '发布链接', '红薯链接', '链接'])) || '');
     const date = dateOf(pick(f, ['发布日期', '发布时间', '抖音.发布时间']));
     if (!date && views === null) return null;
-    const title = String(val(pick(f, ['标题', '..标题', '抖音.标题'])) || '').replace(/^##\s*标题\s*/, '').split(/\n|##/)[0].trim().slice(0, 80);
+    const title = titleOf(pick(f, ['标题', '..标题', '抖音.标题'])).slice(0, 80);
     const typeRaw = val(pick(f, ['笔记类型', '发布内容', '内容类型', '账号类型']));
     return {
       table: t.name, platform: platformOf(t.name, link), date, link, title,
@@ -309,5 +316,5 @@ ${points(R).join('\n')}
     if (window.XhsShot) window.XhsShot.attach(root);
     load().then(render);
   }
-  window.Feishu = { _api: { ST, call, listTables, listFields, listRecords, val, num, pick, dateOf }, view, act, attach, connected: () => !!ST.appToken, _analyze: analyze, _toContent: toContent, _st: ST };
+  window.Feishu = { _api: { ST, titleOf, call, listTables, listFields, listRecords, val, num, pick, dateOf }, view, act, attach, connected: () => !!ST.appToken, _analyze: analyze, _toContent: toContent, _st: ST };
 })();

@@ -42,10 +42,13 @@
     SS.table = t;
     SS.rows = recs.map(r => {
       const f = r.fields || {};
-      const title = String(val(pick(f, ['标题', '..标题'])) || '').replace(/^##\s*标题\s*/, '').split(/\n|##/)[0].trim();
+      const title = api.titleOf(pick(f, ['标题', '..标题']));
       const link = String(val(pick(f, ['小红书链接', '链接'])) || '');
       return { id: r.record_id, title, n: norm(title), date: dateOf(pick(f, ['发布日期', '发布时间'])), account: String(val(pick(f, ['账号昵称', '账号名称'])) || '').trim(), person: String(val(pick(f, ['人员', '发布人员'])) || '').trim(), link, views: num(pick(f, ['小眼睛'])), auto: num(f['小眼睛(自动)']) };
-    }).filter(r => r.n);
+    });
+    const raw = recs.map(r => (r.fields || {})['标题']).find(v => v !== undefined && v !== null);
+    const noTitle = SS.rows.filter(r => !r.n).length; SS.rows = SS.rows.filter(r => r.n);
+    if (noTitle) log(`有 ${noTitle} 条没读到标题；「标题」列原始格式样例：${JSON.stringify(raw === undefined ? '（这一列没有值）' : raw).slice(0, 120)}`);
     const withDate = SS.rows.filter(r => r.date).map(r => r.date); 
     log(`共 ${SS.rows.length} 条笔记可对${withDate.length ? `（${new Date(Math.min(...withDate)).toLocaleDateString('zh-CN')} – ${new Date(Math.max(...withDate)).toLocaleDateString('zh-CN')}）` : ''}；例：${SS.rows.slice(-2).map(r => r.title.slice(0, 14)).join(' / ')}`);
   }
