@@ -103,7 +103,7 @@
 
   function toContent(t, rec) {
     const f = rec.fields || {};
-    const views = num(pick(f, ['小眼睛', '..播放数', '播放数', '抖音.播放数', '播放量']));
+    const views = Math.max(num(f['小眼睛(自动)']) || 0, num(pick(f, ['小眼睛', '..播放数', '播放数', '抖音.播放数', '播放量'])) || 0) || null; // 截图同步的数和手填的取大（播放只会涨）
     const link = String(val(pick(f, ['小红书链接', '抖音链接', '发布链接', '红薯链接', '链接'])) || '');
     const date = dateOf(pick(f, ['发布日期', '发布时间', '抖音.发布时间']));
     if (!date && views === null) return null;
@@ -116,7 +116,7 @@
       type: normTpl(typeRaw), typeRaw: String(typeRaw || ''),
       store: normStore(val(pick(f, ['笔记门店', '区域定位', '门店', '定位'])), val(pick(f, ['笔记城市', '城市']))),
       ads: /已投/.test(String(val(pick(f, ['投流状态', '本地推', '本地推/聚光'])) || '')),
-      views: views || 0, likes: num(pick(f, ['点赞数', '..点赞数', '抖音.点赞数', '点赞量'])) || 0, comments: num(pick(f, ['评论数', '..评论数', '抖音.评论数', '评论量'])) || 0,
+      views: views || 0, likes: Math.max(num(f['点赞(自动)']) || 0, num(pick(f, ['点赞数', '..点赞数', '抖音.点赞数', '点赞量'])) || 0), comments: Math.max(num(f['评论(自动)']) || 0, num(pick(f, ['评论数', '..评论数', '抖音.评论数', '评论量'])) || 0),
       collects: num(pick(f, ['收藏数', '..收藏数', '抖音.收藏数'])) || 0, shares: num(pick(f, ['分享数', '..分享数', '抖音.分享数', '转发量'])) || 0
     };
   }
@@ -269,6 +269,7 @@ ${points(R).join('\n')}
       ${ok ? `<div class="row"><button class="btn primary" data-action="fs-run" ${j && j.running ? 'disabled' : ''}>生成报表并写回飞书</button><button class="btn sm" data-action="fs-preview" ${j && j.running ? 'disabled' : ''}>只在这里预览</button><span class="hint">读全部内容台账（约几千行，1–2 分钟）</span></div>` : ''}
       ${j ? `<div class="hint"><b>${h(j.phase)}</b></div><pre class="small-pre">${h(j.log.join('\n'))}</pre>` : ''}
     </div>
+    ${ok && window.XhsShot ? window.XhsShot.view() : ''}
     ${R ? report(R) : ''}`;
   }
   function report(R) {
@@ -293,6 +294,7 @@ ${points(R).join('\n')}
   }
 
   async function act(action, el) {
+    if (action.startsWith('fs-shot')) return window.XhsShot && window.XhsShot.act(action, el);
     switch (action) {
       case 'fs-cfg': ST.showCfg = !ST.showCfg; forceRender(); break;
       case 'fs-connect': connect(); break;
@@ -304,7 +306,8 @@ ${points(R).join('\n')}
   function attach(root) {
     const on = e => { const t = e.target; if (t.dataset && t.dataset.fs) { ST.cfg[t.dataset.fs] = t.value.trim(); if (t.dataset.fs !== 'appSecret' || e.type === 'change') save(); if (t.dataset.fs === 'baseUrl') ST.appToken = ''; } };
     root.addEventListener('input', on); root.addEventListener('change', on);
+    if (window.XhsShot) window.XhsShot.attach(root);
     load().then(render);
   }
-  window.Feishu = { view, act, attach, connected: () => !!ST.appToken, _analyze: analyze, _toContent: toContent, _st: ST };
+  window.Feishu = { _api: { ST, call, listTables, listFields, listRecords, val, num, pick, dateOf }, view, act, attach, connected: () => !!ST.appToken, _analyze: analyze, _toContent: toContent, _st: ST };
 })();

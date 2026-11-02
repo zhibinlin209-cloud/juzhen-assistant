@@ -46,8 +46,34 @@
     if (starts.length) { const a = Math.min(...starts); const b = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']')); if (b > a) { try { return JSON.parse(t.slice(a, b + 1)); } catch (e) { /* 失败 */ } } }
     throw new Error('AI 返回的格式不对，请再试一次');
   }
+
+  // 看图（通义千问 VL，阿里云百炼；只在本机调用）
+  const VL_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+  const VL_FALLBACK = ['qwen-vl-max', 'qwen3-vl-plus', 'qwen-vl-plus'];
+  async function vision(cfg, prompt, images, signal, opts) {
+    opts = opts || {};
+    if (!cfg || !cfg.key) throw new Error('还没填通义千问（阿里云百炼）的 API Key');
+    const tried = opts._tried || [];
+    const model = (cfg.model || 'qwen-vl-max').trim();
+    const content = images.map(u => ({ type: 'image_url', image_url: { url: u } })).concat([{ type: 'text', text: prompt }]);
+    const res = await fetch(VL_URL, { method: 'POST', signal, headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.key },
+      body: JSON.stringify({ model, temperature: 0.1, max_tokens: opts.maxTokens || 3000, messages: [{ role: 'user', content }] }) });
+    const txt = await res.text();
+    if (!res.ok) {
+      let msg = txt.slice(0, 200); try { const j = JSON.parse(txt); msg = (j.error && (j.error.message || j.error.code)) || j.message || msg; } catch (e) { /* 非 JSON */ }
+      if ((res.status === 400 || res.status === 404) && /model/i.test(msg)) {
+        const next = VL_FALLBACK.find(m => m !== model && !tried.includes(m));
+        if (next) return vision(Object.assign({}, cfg, { model: next }), prompt, images, signal, Object.assign({}, opts, { _tried: tried.concat(model) }));
+      }
+      if (res.status === 401 || res.status === 403) throw new Error('通义千问 Key 不对或没开通：' + msg);
+      if (res.status === 429) throw new Error('通义千问调用太频繁或额度用完：' + msg);
+      throw new Error(`通义千问出错（${res.status}）：${msg}`);
+    }
+    const j = JSON.parse(txt);
+    return { text: (((j.choices || [])[0] || {}).message || {}).content || '', model };
+  }
   async function json(cfg, prompt, signal, opts) { return parseJSON(await chat(cfg, prompt, signal, opts)); }
-  const api = { PROVIDERS, chat, parseJSON, json };
+  const api = { PROVIDERS, chat, parseJSON, json, vision };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.AI = api;
 })(typeof window !== 'undefined' ? window : globalThis);
