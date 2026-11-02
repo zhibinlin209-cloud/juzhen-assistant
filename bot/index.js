@@ -65,11 +65,24 @@ async function setup() {
       return { id, uid: (seg.match(/"userId":"([0-9a-f]{24})"/) || [])[1] || '', nick: (seg.match(/"nickname":"([^"]{1,40})"/) || [])[1] || '', time: +((seg.match(/"time":(1\d{12})/) || [])[1] || 0) || null };
     } catch (e) { return {}; }
   }
+  const VL = ['qwen-vl-max', 'qwen3-vl-plus', 'qwen-vl-plus', 'qwen-vl-max-latest', 'qwen2.5-vl-72b-instruct'];
+  let vlModel = cfg.qwenModel || 'qwen-vl-max';
   async function vision(prompt, dataUrl) {
-    const r = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.qwenKey },
-      body: JSON.stringify({ model: cfg.qwenModel || 'qwen-vl-max', temperature: 0.1, max_tokens: 3000, messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }, { type: 'text', text: prompt }] }] }) });
-    const j = await r.json(); if (!r.ok) throw new Error('通义千问：' + ((j.error && j.error.message) || r.status)); return ((j.choices || [])[0] || {}).message.content || '';
+    const tried = [];
+    while (true) {
+      const r = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.qwenKey },
+        body: JSON.stringify({ model: vlModel, temperature: 0.1, max_tokens: 3000, messages: [{ role: 'user', content: [{ type: 'image_url', image_url: { url: dataUrl } }, { type: 'text', text: prompt }] }] }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) return ((j.choices || [])[0] || {}).message.content || '';
+      const msg = (j.error && (j.error.message || j.error.code)) || j.message || ('HTTP ' + r.status);
+      if (/model/i.test(msg) && (r.status === 400 || r.status === 404)) { // 模型名这个账号用不了：换下一个
+        tried.push(vlModel); const next = VL.find(m => !tried.includes(m));
+        if (next) { log(`模型 ${vlModel} 用不了，改用 ${next}`); vlModel = next; continue; }
+      }
+      throw new Error('通义千问：' + msg);
+    }
   }
+
 
   const core = createCore({ cfg, api: { call, fetchXhs, vision: cfg.qwenKey ? vision : null }, log });
   await core.load(true);
@@ -99,13 +112,19 @@ async function setup() {
         const r = await core.handleText(text, who);
         if (r) { log(`[登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForText(r)); }
       }
-      for (const key of images) {
-        if (!cfg.qwenKey) { log('收到截图，但 config.json 没填通义千问 Key，跳过'); break; }
-        try {
-          const r = await core.handleImage(await image(m.message_id, key));
-          if (r) { log(`[截图] ${r.acc || ''} 更新 ${r.updated ? r.updated.length : 0}`); await reply(m.message_id, replyForImage(r)); }
-          else log('[截图] 不是数据中心截图，没处理');
-        } catch (e) { log('处理截图出错：', e.message); await reply(m.message_id, '⚠️ 这张截图没处理成功，已记录，稍后修好会再试：' + e.message.slice(0, 60)); }
+      if (images.length) {
+        if (!cfg.qwenKey) log('收到截图，但 config.json 没填通义千问 Key，跳过');
+        else {
+          const lines = [];
+          for (const key of images) {
+            try {
+              const r = await core.handleImage(await image(m.message_id, key));
+              if (r) { log(`[截图] ${r.acc || ''} 更新 ${r.updated ? r.updated.length : 0}`); lines.push(replyForImage(r)); }
+              else log('[截图] 不是数据中心截图，没处理');
+            } catch (e) { log('处理截图出错：', e.message); lines.push('⚠️ 有一张截图没处理成功：' + e.message.slice(0, 60)); }
+          }
+          if (lines.length) await reply(m.message_id, (images.length > 1 ? `共 ${images.length} 张截图\n` : '') + lines.join('\n'));
+        }
       }
     } catch (e) { log('处理消息出错：', e.message); }
   }
