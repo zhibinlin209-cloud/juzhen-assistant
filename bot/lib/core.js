@@ -165,7 +165,8 @@ function createCore({ cfg, api, log }) {
     if (plat === 'channels') { await load(); all = all.concat(st.rows.filter(r => r.chWx).map(r => Object.assign({}, r, { ch: true, kind: '贴图' }))); }
     const O = plat === 'channels' ? { tol: 3, pen: 0.1 } : {}; // 视频号常比抖音晚一两天发
     // 视频号：优先在「已填视频号/贴图号链接」的行里找；同一模板标题很多号都发过，先投票认出是哪个号
-    const pool = plat === 'channels' && all.some(r => r.ch) ? all.filter(r => r.ch) : all;
+    // 视频号截图：只在「填了视频号 / 贴图号 / 微信贴图链接」的行里找；没填链接的行不写，只提醒补链接
+    const pool = plat === 'channels' ? all.filter(r => r.ch) : all;
     let acc = accHint || '';
     if (!acc) {
       const votes = {};
@@ -173,7 +174,10 @@ function createCore({ cfg, api, log }) {
       const top = Object.entries(votes).sort((x, y) => y[1] - x[1]); if (top[0] && top[0][1] >= Math.min(2, notes.length) && (!top[1] || top[0][1] > top[1][1])) acc = top[0][0];
     }
     let M = match(notes, acc, pool, O);
-    if (pool !== all) { const miss = M.list.filter(x => !x.row).map(x => x.n); if (miss.length) { const M2 = match(miss, acc, all, O); const used = new Set(M.list.filter(x => x.row).map(x => x.row.id)); M.list = M.list.map(x => { if (x.row) return x; const y = M2.list.find(z => z.n === x.n); return y && y.row && !used.has(y.row.id) ? y : x; }); } }
+    if (plat === 'channels') { // 没对上的：看看是不是表里有这条、只是没填视频号链接
+      const noCh = all.filter(r => !r.ch);
+      M.list.forEach(x => { if (x.row) return; const t = P.norm(x.n.title); const hit = noCh.filter(r => sim(t, P.norm(r.title)) >= 0.85).sort((a, b) => (dateHit(x.n.date, b.date, 3) === true) - (dateHit(x.n.date, a.date, 3) === true))[0]; if (hit) x.noLink = hit; });
+    }
     M.acc = M.acc || acc;
     const app = await appToken(); const now = Date.now();
     // 小红书表里的视频号贴图：写进小红书表的「视频号…(自动)」列（小红书表没有视频号数据列）
@@ -223,9 +227,11 @@ function replyForImage(r) {
   const P = { xhs: ['小红书', '小眼睛'], douyin: ['抖音', '播放'], channels: ['视频号', '播放'] }[r.platform || 'xhs'];
   const md = t => { if (!t) return ''; const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
   const short = t => String(t || '').replace(/\s*#.*$/, '').slice(0, 14);
-  const unsure = r.missed.filter(x => x.best && x.best.s >= 0.8), none = r.missed.filter(x => !(x.best && x.best.s >= 0.8));
+  const noLink = r.missed.filter(x => x.noLink), rest = r.missed.filter(x => !x.noLink);
+  const unsure = rest.filter(x => x.best && x.best.s >= 0.8), none = rest.filter(x => !(x.best && x.best.s >= 0.8));
   const L = [`📊 ${P[0]}截图${r.acc ? ' · ' + r.acc : ''}：已更新 ${r.updated.length} 条`];
   r.updated.slice(0, 12).forEach(({ n, row }) => L.push(`✅ ${short(n.title)} → ${row.account || '?'} · ${md(row.date)}${row.kind ? ' · ' + row.kind : ''} · ${P[1]} ${n.views ?? '–'}`));
+  if (noLink.length) { L.push(`🔗 表里有、但没填视频号链接 ${noLink.length} 条（补上链接再发截图就能更新）：`); noLink.slice(0, 8).forEach(x => L.push(`· ${short(x.n.title)} → ${x.noLink.table === '__xhs' ? '小红书表' : x.noLink.table} · ${x.noLink.account || '?'} · ${md(x.noLink.date)}`)); }
   if (unsure.length) { L.push(`❓ 拿不准、没写 ${unsure.length} 条（表里有好几条很像，请人工确认）：`); unsure.slice(0, 8).forEach(x => L.push(`· ${short(x.n.title)}（最像：${x.best.r.account || '?'} · ${md(x.best.r.date)}）`)); }
   if (none.length) { L.push(`⚠️ 表里没找到 ${none.length} 条（可能还没登记）：`); none.slice(0, 8).forEach(x => L.push('· ' + short(x.n.title))); }
   return L.join('\n');
