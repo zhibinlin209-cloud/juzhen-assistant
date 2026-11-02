@@ -119,11 +119,11 @@
 
   function toContent(t, rec) {
     const f = rec.fields || {};
-    const views = Math.max(num(f['小眼睛(自动)']) || 0, num(pick(f, ['小眼睛', '..播放数', '播放数', '抖音.播放数', '播放量'])) || 0) || null; // 截图同步的数和手填的取大（播放只会涨）
+    const views = Math.max(num(f['小眼睛(自动)']) || 0, num(pick(f, ['小眼睛', '播放(供AI读取)', '播放数_数值', '..播放数', '..播放数 2', '播放数', '抖音.播放数'])) || 0) || null; // 截图同步的数和手填的取大（播放只会涨）
     const link = String(val(pick(f, ['小红书链接', '抖音链接', '发布链接', '红薯链接', '链接'])) || '');
     const date = dateOf(pick(f, ['发布日期', '发布时间', '抖音.发布时间']));
     if (!date && views === null) return null;
-    const title = titleOf(pick(f, ['标题', '..标题', '抖音.标题'])).slice(0, 80);
+    const title = titleOf(pick(f, ['标题(供AI读取)', '标题', '..标题', '抖音.标题'])).slice(0, 80);
     const typeRaw = val(pick(f, ['笔记类型', '发布内容', '内容类型', '账号类型']));
     return {
       table: t.name, platform: platformOf(t.name, link), date, link, title,
@@ -132,8 +132,8 @@
       type: normTpl(typeRaw), typeRaw: String(typeRaw || ''),
       store: normStore(val(pick(f, ['笔记门店', '区域定位', '门店', '定位'])), val(pick(f, ['笔记城市', '城市']))),
       ads: /已投/.test(String(val(pick(f, ['投流状态', '本地推', '本地推/聚光'])) || '')),
-      views: views || 0, likes: Math.max(num(f['点赞(自动)']) || 0, num(pick(f, ['点赞数', '..点赞数', '抖音.点赞数', '点赞量'])) || 0), comments: Math.max(num(f['评论(自动)']) || 0, num(pick(f, ['评论数', '..评论数', '抖音.评论数', '评论量'])) || 0),
-      collects: num(pick(f, ['收藏数', '..收藏数', '抖音.收藏数'])) || 0, shares: num(pick(f, ['分享数', '..分享数', '抖音.分享数', '转发量'])) || 0
+      views: views || 0, likes: Math.max(num(f['点赞(自动)']) || 0, num(pick(f, ['点赞(供AI读取)', '点赞数', '..点赞数', '抖音.点赞数'])) || 0), comments: Math.max(num(f['评论(自动)']) || 0, num(pick(f, ['评论(供AI读取)', '评论数', '..评论数', '抖音.评论数'])) || 0),
+      collects: num(pick(f, ['收藏(供AI读取)', '收藏数', '..收藏数', '抖音.收藏数'])) || 0, shares: num(pick(f, ['分享(供AI读取)', '分享数', '..分享数', '抖音.分享数'])) || 0
     };
   }
 
