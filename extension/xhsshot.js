@@ -48,7 +48,7 @@
     });
     const raw = recs.map(r => (r.fields || {})['标题(供AI读取)'] || (r.fields || {})['标题']).find(v => v !== undefined && v !== null);
     const noTitle = SS.rows.filter(r => !r.n).length; SS.rows = SS.rows.filter(r => r.n);
-    if (noTitle) log(`有 ${noTitle} 条没读到标题；「标题」列原始格式样例：${JSON.stringify(raw === undefined ? '（这一列没有值）' : raw).slice(0, 120)}`);
+    if (noTitle) log(`有 ${noTitle} 条在飞书里没有标题（链接还没解析出来），这几条只能手动选`);
     const withDate = SS.rows.filter(r => r.date).map(r => r.date); 
     log(`共 ${SS.rows.length} 条笔记可对${withDate.length ? `（${new Date(Math.min(...withDate)).toLocaleDateString('zh-CN')} – ${new Date(Math.max(...withDate)).toLocaleDateString('zh-CN')}）` : ''}；例：${SS.rows.slice(-2).map(r => r.title.slice(0, 14)).join(' / ')}`);
   }
@@ -200,8 +200,8 @@
           <td><input type="checkbox" data-shot="on" data-f="${fi}" data-n="${ni}" ${n.on ? 'checked' : ''} ${n.pick ? '' : 'disabled'}></td>
           <td style="white-space:normal;min-width:150px">${h(n.title)}<div class="hint">#${fi + 1} · ${h(n.date || '无日期')}${n.state === 'none' ? (n.near ? ` · 最接近：${h(n.near)}` : ' · 飞书里可能还没登记') : ''}</div></td>
           <td class="num">${fmt(n.views)}${n.rough ? '<span class="hint">≈</span>' : ''} / ${fmt(n.likes)} / ${fmt(n.comments)}${r && (r.auto || r.views) ? `<div class="hint">表里 ${fmt(r.auto || r.views)}</div>` : ''}</td>
-          <td style="min-width:200px"><select data-shot="pick" data-f="${fi}" data-n="${ni}"><option value="">— 不写入 —</option>${(n.cands || []).map(c => `<option value="${h(c.r.id)}" ${c.r.id === n.pick ? 'selected' : ''}>${h(c.r.account || '?')} · ${d(c.r.date)} · ${h(c.r.title.slice(0, 22))}（${Math.round(Math.min(1, c.s) * 100)}%）</option>`).join('')}</select>
-            ${r && r.link ? `<a class="hint" href="${h(r.link)}" target="_blank" rel="noopener">打开</a>` : ''}</td>
+          <td style="min-width:200px;white-space:normal"><select style="width:100%" data-shot="pick" data-f="${fi}" data-n="${ni}"><option value="">— 不写入 —</option>${(n.cands || []).map(c => `<option value="${h(c.r.id)}" ${c.r.id === n.pick ? 'selected' : ''}>${h(c.r.account || '?')} · ${d(c.r.date)} · ${h(c.r.title.slice(0, 22))}（${Math.round(Math.min(1, c.s) * 100)}%）</option>`).join('')}</select>
+            ${r && r.link ? `<div><a class="hint" href="${h(r.link)}" target="_blank" rel="noopener">打开这条笔记</a></div>` : ''}</td>
           <td>${stateChip(n.state)}</td></tr>`; }).join('')}
       </tbody></table></div>
       <div class="row"><span class="hint grow">勾选的 ${nOn} 条会写进飞书；「待确认」请先在下拉里核对是哪一条再勾选。≈ 表示截图里是"万"，只精确到千位。</span>
