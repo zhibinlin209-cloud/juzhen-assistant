@@ -209,9 +209,14 @@ function replyForText(r) {
 function replyForImage(r) {
   if (!r) return '';
   if (r.error) return '⚠️ 截图没识别成功：' + r.error;
-  const P = { xhs: ['小红书', '笔记的小眼睛'], douyin: ['抖音', '作品的播放'], channels: ['视频号', '作品的播放'] }[r.platform || 'xhs'];
-  const L = [`📊 ${P[0]}${r.acc ? '·' + r.acc : ''}：更新了 ${r.updated.length} 条${P[1]}`];
-  if (r.missed.length) L.push(`⚠️ ${r.missed.length} 条在飞书里没找到：` + r.missed.slice(0, 5).map(x => '\n· ' + x.n.title.slice(0, 20)).join('') + '\n（没登记的话，先把分享发群里登记）');
+  const P = { xhs: ['小红书', '小眼睛'], douyin: ['抖音', '播放'], channels: ['视频号', '播放'] }[r.platform || 'xhs'];
+  const md = t => { if (!t) return ''; const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
+  const short = t => String(t || '').replace(/\s*#.*$/, '').slice(0, 14);
+  const unsure = r.missed.filter(x => x.best && x.best.s >= 0.8), none = r.missed.filter(x => !(x.best && x.best.s >= 0.8));
+  const L = [`📊 ${P[0]}截图${r.acc ? ' · ' + r.acc : ''}：已更新 ${r.updated.length} 条`];
+  r.updated.slice(0, 12).forEach(({ n, row }) => L.push(`✅ ${short(n.title)} → ${row.account || '?'} · ${md(row.date)}${row.kind ? ' · ' + row.kind : ''} · ${P[1]} ${n.views ?? '–'}`));
+  if (unsure.length) { L.push(`❓ 拿不准、没写 ${unsure.length} 条（表里有好几条很像，请人工确认）：`); unsure.slice(0, 8).forEach(x => L.push(`· ${short(x.n.title)}（最像：${x.best.r.account || '?'} · ${md(x.best.r.date)}）`)); }
+  if (none.length) { L.push(`⚠️ 表里没找到 ${none.length} 条（可能还没登记）：`); none.slice(0, 8).forEach(x => L.push('· ' + short(x.n.title))); }
   return L.join('\n');
 }
 
