@@ -14,7 +14,7 @@
   let seq = 0;
 
   // ---------- 文本归一与相似度 ----------
-  const norm = s => String(s || '').toLowerCase().replace(/[.…。]+$/, '').replace(/[^\p{L}\p{N}]/gu, '');
+  const norm = s => String(s || '').normalize('NFKC').toLowerCase().replace(/[.…。]+$/, '').replace(/[^\p{L}\p{N}]/gu, '');
   function bigrams(s) { const m = new Map(); for (let i = 0; i < s.length - 1; i++) { const g = s.slice(i, i + 2); m.set(g, (m.get(g) || 0) + 1); } return m; }
   function dice(a, b) { if (a.length < 2 || b.length < 2) return a === b ? 1 : 0; const A = bigrams(a), B = bigrams(b); let inter = 0; A.forEach((n, g) => { inter += Math.min(n, B.get(g) || 0); }); return (2 * inter) / (a.length - 1 + b.length - 1); }
   function sim(a, b) {
@@ -46,7 +46,8 @@
       const link = String(val(pick(f, ['小红书链接', '链接'])) || '');
       return { id: r.record_id, title, n: norm(title), date: dateOf(pick(f, ['发布日期', '发布时间'])), account: String(val(pick(f, ['账号昵称', '账号名称'])) || '').trim(), person: String(val(pick(f, ['人员', '发布人员'])) || '').trim(), link, views: num(pick(f, ['小眼睛'])), auto: num(f['小眼睛(自动)']) };
     }).filter(r => r.n);
-    log(`共 ${SS.rows.length} 条笔记可对`);
+    const withDate = SS.rows.filter(r => r.date).map(r => r.date); 
+    log(`共 ${SS.rows.length} 条笔记可对${withDate.length ? `（${new Date(Math.min(...withDate)).toLocaleDateString('zh-CN')} – ${new Date(Math.max(...withDate)).toLocaleDateString('zh-CN')}）` : ''}；例：${SS.rows.slice(-2).map(r => r.title.slice(0, 14)).join(' / ')}`);
   }
 
   // ---------- 图片处理 ----------
@@ -116,7 +117,7 @@
       n.cands = candidates(n, acc); const c = n.cands;
       n.pick = c[0] ? c[0].r.id : '';
       n.state = !c[0] ? 'none' : c[0].s >= 0.95 && (!c[1] || c[1].s < c[0].s - 0.1) ? 'ok' : c[0].s >= 0.6 ? 'check' : 'none';
-      if (n.state === 'none') n.pick = '';
+      if (n.state === 'none') { n.pick = ''; const near = SS.rows.map(r => ({ r, s: sim(norm(n.title), r.n) })).sort((x, y) => y.s - x.s)[0]; n.near = near && near.s > 0.3 ? `${near.r.account} · ${near.r.title.slice(0, 16)}（${Math.round(near.s * 100)}%）` : ''; }
       n.on = n.state === 'ok';
     });
     // 同一张图两条对到同一行 → 都要人看
@@ -135,9 +136,9 @@
       const vcfg = { key: cfg.qwenKey, model: cfg.qwenModel || 'qwen-vl-max' };
       const todo = SS.files.filter(f => f.status !== 'done');
       let i = 0;
-      const worker = async () => { while (i < todo.length) { const fi = todo[i++]; SS.phase = `识别截图 ${SS.files.indexOf(fi) + 1}/${SS.files.length}`; forceRender(); try { await recognize(fi, vcfg); } catch (e) { fi.status = 'err'; fi.err = e.message; log(`${fi.name}：${e.message}`); } forceRender(); } };
+      const worker = async () => { while (i < todo.length) { const fi = todo[i++]; SS.phase = `识别截图 ${SS.files.indexOf(fi) + 1}/${SS.files.length}`; forceRender(); try { await recognize(fi, vcfg); matchFile(fi); } catch (e) { fi.status = 'err'; fi.err = e.message; log(`${fi.name}：${e.message}`); } forceRender(); } };
       await Promise.all([worker(), worker()]);
-      SS.files.filter(f => f.status === 'done').forEach(matchFile);
+      SS.files.filter(f => f.status === 'done').forEach(matchFile); // 全部识别完再统一匹配一次（账号提示可能变了）
       const all = SS.files.flatMap(f => f.notes || []);
       log(`识别 ${all.length} 条：自动对上 ${all.filter(n => n.state === 'ok').length}，待确认 ${all.filter(n => n.state === 'check').length}，没对上 ${all.filter(n => n.state === 'none').length}`);
     } catch (e) { log('失败：' + e.message); toast(e.message); }
@@ -171,7 +172,7 @@
     const all = SS.files.flatMap((f, fi) => (f.notes || []).map((n, ni) => ({ f, fi, n, ni })));
     const nOn = all.filter(x => x.n.on && x.n.pick).length;
     const rowOf = id => SS.rows && SS.rows.find(r => r.id === id);
-    const stateChip = s => s === 'ok' ? '<span class="chip sm g">已对上</span>' : s === 'check' ? '<span class="chip sm">待确认</span>' : '<span class="chip sm r">没对上</span>';
+    const stateChip = s => !s ? '<span class="chip sm">等待匹配</span>' : s === 'ok' ? '<span class="chip sm g">已对上</span>' : s === 'check' ? '<span class="chip sm">待确认</span>' : '<span class="chip sm r">没对上</span>';
     return `<div class="section-h"><h2>小红书截图同步</h2><span class="hint">群里的「数据中心」截图 → 小眼睛 / 赞 / 评论自动填进飞书（写在新增的「(自动)」列，不动手填的数）</span></div>
     <div class="panel stack" id="fs-shot">
       ${!ok ? '<p class="hint">先在上面连接飞书。</p>' : ''}
@@ -194,7 +195,7 @@
       ${all.length ? `<div class="tbl-wrap"><table><thead><tr><th></th><th>截图里的笔记</th><th>小眼睛/赞/评</th><th>对到飞书哪一条</th><th>状态</th></tr></thead><tbody>
         ${all.map(({ f, fi, n, ni }) => { const r = rowOf(n.pick); return `<tr>
           <td><input type="checkbox" data-shot="on" data-f="${fi}" data-n="${ni}" ${n.on ? 'checked' : ''} ${n.pick ? '' : 'disabled'}></td>
-          <td style="white-space:normal;min-width:150px">${h(n.title)}<div class="hint">#${fi + 1} · ${h(n.date || '无日期')}</div></td>
+          <td style="white-space:normal;min-width:150px">${h(n.title)}<div class="hint">#${fi + 1} · ${h(n.date || '无日期')}${n.state === 'none' ? (n.near ? ` · 最接近：${h(n.near)}` : ' · 飞书里可能还没登记') : ''}</div></td>
           <td class="num">${fmt(n.views)}${n.rough ? '<span class="hint">≈</span>' : ''} / ${fmt(n.likes)} / ${fmt(n.comments)}${r && (r.auto || r.views) ? `<div class="hint">表里 ${fmt(r.auto || r.views)}</div>` : ''}</td>
           <td style="min-width:200px"><select data-shot="pick" data-f="${fi}" data-n="${ni}"><option value="">— 不写入 —</option>${(n.cands || []).map(c => `<option value="${h(c.r.id)}" ${c.r.id === n.pick ? 'selected' : ''}>${h(c.r.account || '?')} · ${d(c.r.date)} · ${h(c.r.title.slice(0, 22))}（${Math.round(Math.min(1, c.s) * 100)}%）</option>`).join('')}</select>
             ${r && r.link ? `<a class="hint" href="${h(r.link)}" target="_blank" rel="noopener">打开</a>` : ''}</td>
