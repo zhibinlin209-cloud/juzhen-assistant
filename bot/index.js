@@ -51,10 +51,10 @@ async function setup() {
   }
   async function reply(messageId, text) { if (!text) return; try { await call('POST', `/im/v1/messages/${messageId}/reply`, { msg_type: 'text', content: JSON.stringify({ text }) }); } catch (e) { log('回复失败', e.message); } }
   const names = {};
-  async function senderName(openId) { if (!openId) return ''; if (names[openId] !== undefined) return names[openId]; try { const d = await call('GET', `/contact/v3/users/${openId}`, null, { user_id_type: 'open_id' }); names[openId] = (d.user && d.user.name) || ''; } catch (e) { names[openId] = ''; } return names[openId]; }
+  async function senderName(openId) { if (!openId) return ''; if (names[openId] !== undefined) return names[openId]; try { const d = await call('GET', `/contact/v3/users/${openId}`, null, { user_id_type: 'open_id' }); names[openId] = (d.user && d.user.name) || ''; } catch (e) { names[openId] = ''; log('读不到发消息人的名字：', e.message); } return names[openId]; }
   async function image(messageId, key) {
     const r = await fetch(`${API}/im/v1/messages/${messageId}/resources/${key}?type=image`, { headers: { authorization: 'Bearer ' + await token() } });
-    if (!r.ok) throw new Error('下载图片失败 HTTP ' + r.status);
+    if (!r.ok) { const t = await r.text().catch(() => ''); throw new Error('下载图片失败 HTTP ' + r.status + ' ' + t.slice(0, 200)); }
     const buf = Buffer.from(await r.arrayBuffer()); return `data:${r.headers.get('content-type') || 'image/jpeg'};base64,` + buf.toString('base64');
   }
   async function fetchXhs(url) { // 打开小红书短链，拿笔记 ID / 作者 / 发布时间
@@ -100,9 +100,12 @@ async function setup() {
         if (r) { log(`[登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForText(r)); }
       }
       for (const key of images) {
-        if (!cfg.qwenKey) break;
-        const r = await core.handleImage(await image(m.message_id, key));
-        if (r) { log(`[截图] ${r.acc || ''} 更新 ${r.updated ? r.updated.length : 0}`); await reply(m.message_id, replyForImage(r)); }
+        if (!cfg.qwenKey) { log('收到截图，但 config.json 没填通义千问 Key，跳过'); break; }
+        try {
+          const r = await core.handleImage(await image(m.message_id, key));
+          if (r) { log(`[截图] ${r.acc || ''} 更新 ${r.updated ? r.updated.length : 0}`); await reply(m.message_id, replyForImage(r)); }
+          else log('[截图] 不是数据中心截图，没处理');
+        } catch (e) { log('处理截图出错：', e.message); await reply(m.message_id, '⚠️ 这张截图没处理成功，已记录，稍后修好会再试：' + e.message.slice(0, 60)); }
       }
     } catch (e) { log('处理消息出错：', e.message); }
   }
