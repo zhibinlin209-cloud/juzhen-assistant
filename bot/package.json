@@ -1,0 +1,11 @@
+{
+  "name": "xiju-feishu-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "禧聚营销部飞书群机器人：群里发分享自动登记到多维表格，发数据中心截图自动更新小眼睛",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": { "start": "node index.js", "test": "node test.js" },
+  "dependencies": { "@larksuiteoapi/node-sdk": "^1.24.0" },
+  "engines": { "node": ">=18" }
+}
