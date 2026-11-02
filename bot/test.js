@@ -6,7 +6,7 @@ const api = {
   call: async (m, p, b, q) => { calls.push([m, p, b && JSON.stringify(b).slice(0, 300)]);
     if (p.includes('get_node')) return { node: { obj_token: 'app1' } };
     if (p.endsWith('/tables')) return { items: [{ table_id: 't1', name: '小红书矩阵号-数据' }] };
-    if (p.endsWith('/fields') && m === 'GET') return { items: [{ field_name: '人员', type: 3, property: { options: [{ name: '小诗' }, { name: '彭倩' }] } }, { field_name: '笔记城市', type: 3, property: { options: [{ name: '惠州' }, { name: '广州' }] } }, { field_name: '笔记门店', type: 3, property: { options: [{ name: '惠州水东街' }] } }, { field_name: '笔记类型', type: 3, property: { options: [{ name: '逛吃帖' }] } }, { field_name: '投流状态', type: 3, property: { options: [{ name: '未投流' }] } }] };
+    if (p.endsWith('/fields') && m === 'GET') return { items: [{ field_name: '标题(供AI读取)', type: 20 }, { field_name: '人员', type: 3, property: { options: [{ name: '小诗' }, { name: '彭倩' }] } }, { field_name: '笔记城市', type: 3, property: { options: [{ name: '惠州' }, { name: '广州' }] } }, { field_name: '笔记门店', type: 3, property: { options: [{ name: '惠州水东街' }] } }, { field_name: '笔记类型', type: 3, property: { options: [{ name: '逛吃帖' }] } }, { field_name: '投流状态', type: 3, property: { options: [{ name: '未投流' }] } }] };
     if (p.endsWith('/records/search')) return { items: rows };
     return {}; },
   fetchXhs: async () => ({ id: '6a9bd08f0000000012002c39', uid: '6703af6c000000000d0265c2', nick: '豪仔', time: new Date(2026, 9, 31).getTime() }),

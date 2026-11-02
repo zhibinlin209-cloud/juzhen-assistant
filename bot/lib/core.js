@@ -32,13 +32,41 @@ function createCore({ cfg, api, log }) {
     if ((m = u.match(/\/wiki\/([A-Za-z0-9]+)/))) { const d = await api.call('GET', '/wiki/v2/spaces/get_node', null, { token: m[1], obj_type: 'wiki' }); return (st.appToken = d.node.obj_token); }
     throw new Error('config.json 里的 baseUrl 不是多维表格链接');
   }
+  // 「(供AI读取)」公式列：飞书接口读不到链接解析出来的列，靠它们复制一份；被删了就自动补回
+  const HELP = [['标题(供AI读取)', ['标题', '..标题']], ['播放(供AI读取)', ['..播放数', '..播放数 2']], ['点赞(供AI读取)', ['点赞数', '..点赞数']], ['评论(供AI读取)', ['评论数', '..评论数']], ['收藏(供AI读取)', ['收藏数', '..收藏数']], ['分享(供AI读取)', ['分享数', '..分享数']]];
+  async function heal(app, tid, items) {
+    const names = new Set(items.map(f => f.field_name)); let made = 0;
+    for (const [h, srcs] of HELP) {
+      if (names.has(h)) continue; const src = items.find(f => srcs.includes(f.field_name) && f.type === 1); if (!src) continue;
+      try { await api.call('POST', `/bitable/v1/apps/${app}/tables/${tid}/fields`, { field_name: h, type: 20, property: { formula_expression: `bitable::$table[${tid}].$field[${src.field_id}]` }, description: { text: '机器人和插件读取数据用（飞书接口读不到链接解析的列）。可以隐藏，请勿删除。' } }); made++; } catch (e) { log('补建列失败', h, e.message); }
+    }
+    if (made) { log(`[表] 发现 ${made} 列「(供AI读取)」被删了，已自动补回`); await new Promise(r => setTimeout(r, 3000)); }
+    return made;
+  }
+  async function listTables() {
+    const app = await appToken(); const out = []; let pt = '';
+    do { const d = await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, Object.assign({ page_size: 100 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    return out;
+  }
+  const vt = {}; // 抖音 / 视频号用的表
+  async function loadT(name, force) {
+    if (vt[name] && !force && Date.now() - vt[name].at < 5 * 60e3) return vt[name];
+    const app = await appToken(); const t = (await listTables()).find(x => x.name === name); if (!t) { log('[表] 没找到：' + name); return null; }
+    let fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
+    if (await heal(app, t.table_id, fd.items || [])) fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
+    const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const rows = recs.map(r => { const f = r.fields || {}; return { id: r.record_id, table: name, title: titleOf(f['标题(供AI读取)'] || f['..标题'] || f['标题']), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, account: String(val(f['账号名称'] || f['账号昵称']) || '').trim() }; }).filter(r => r.title);
+    vt[name] = { id: t.table_id, name, fields: (fd.items || []).map(f => f.field_name), rows, at: Date.now() };
+    log(`[表] ${name}：${rows.length} 条可对`); return vt[name];
+  }
   async function load(force) {
     if (st.rows && !force && Date.now() - st.at < 5 * 60e3) return;
     const app = await appToken();
     const tables = []; let pt = ''; do { const d = await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, Object.assign({ page_size: 100 }, pt ? { page_token: pt } : {})); tables.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
     const t = tables.find(x => x.name === (cfg.xhsTable || '小红书矩阵号-数据')); if (!t) throw new Error('没找到表：' + cfg.xhsTable);
     st.table = { id: t.table_id, name: t.name };
-    const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
+    let fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
+    if (await heal(app, t.table_id, fd.items || [])) fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
     st.fields = (fd.items || []).map(f => ({ name: f.field_name, type: f.type, options: ((f.property || {}).options || []).map(o => o.name) }));
     const recs = []; pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
     st.rows = recs.map(r => { const f = r.fields || {}; const xhs = String(val(f['小红书链接']) || ''); const home = String(val(f['主页链接']) || '');
@@ -78,21 +106,28 @@ function createCore({ cfg, api, log }) {
 
   // ---------- 截图 → 更新数据 ----------
   const sim = (a, b) => { if (!a || !b) return 0; if (a === b) return 1; if (a.length >= 6 && b.startsWith(a)) return 0.96; if (a.length >= 6 && b.includes(a)) return 0.9; return P.dice(a, b); };
-  const dateHit = (md, ts) => { const m = String(md || '').match(/(\d{1,2})\D+(\d{1,2})/); if (!m || !ts) return null; const d = new Date(ts); return Math.abs(new Date(d.getFullYear(), +m[1] - 1, +m[2]).getTime() - dayStart(ts)) <= 1.5 * DAY; };
-  function match(notes, accHint) {
-    const cand = (n, acc) => st.rows.filter(r => r.title && (!r.date || Date.now() - r.date < 240 * DAY)).map(r => { let s = sim(P.norm(n.title), P.norm(r.title)); if (s < 0.45) return null; const d = dateHit(n.date, r.date); if (d === true) s += 0.15; else if (d === false) s -= 0.25; if (acc && r.account) s += P.norm(r.account) === P.norm(acc) ? 0.1 : -0.15; return { r, s }; }).filter(Boolean).sort((x, y) => y.s - x.s);
+  const dateHit = (md, ts) => { if (!ts) return null; const t = String(md || ''); const full = t.match(/(20\d{2})\D+(\d{1,2})\D+(\d{1,2})/); const m = full ? [0, full[2], full[3]] : t.match(/(\d{1,2})\D+(\d{1,2})/); if (!m) return null; const d = new Date(ts); const y = full ? +full[1] : d.getFullYear(); return Math.abs(new Date(y, +m[1] - 1, +m[2]).getTime() - dayStart(ts)) <= 1.5 * DAY; };
+  function match(notes, accHint, rowsIn) {
+    const ROWS = rowsIn || st.rows;
+    const cand = (n, acc) => ROWS.filter(r => r.title && (!r.date || Date.now() - r.date < 240 * DAY)).map(r => { let s = sim(P.norm(n.title), P.norm(r.title)); if (s < 0.45) return null; const d = dateHit(n.date, r.date); if (d === true) s += 0.15; else if (d === false) s -= 0.25; if (acc && r.account) s += P.norm(r.account) === P.norm(acc) ? 0.1 : -0.15; return { r, s }; }).filter(Boolean).sort((x, y) => y.s - x.s);
     let acc = accHint || '';
     if (!acc) { const v = {}; notes.forEach(n => { const c = cand(n, ''); if (c[0] && c[0].s >= 0.95 && (!c[1] || c[1].s < c[0].s - 0.1) && c[0].r.account) v[c[0].r.account] = (v[c[0].r.account] || 0) + 1; }); const b = Object.entries(v).sort((x, y) => y[1] - x[1])[0]; if (b && (b[1] >= 2 || notes.length === 1)) acc = b[0]; }
     const used = new Set();
     return { acc, list: notes.map(n => { const c = cand(n, acc); const ok = c[0] && c[0].s >= 0.95 && (!c[1] || c[1].s < c[0].s - 0.1) && !used.has(c[0].r.id); if (ok) used.add(c[0].r.id); return { n, row: ok ? c[0].r : null, best: c[0] }; }) };
   }
-  const PROMPT = `这是小红书 App「数据中心 → 笔记分析」或创作者中心笔记列表的截图。逐条提取每条笔记：title 标题原文（只写看得到的，被截断就写到截断处，去掉省略号）、date 封面日期 MM-DD、views 眼睛图标后的数字原样、likes 爱心后的数字、comments 气泡后的数字、collects/shares 截图里有才填否则 null；只要数字完整可见的；account 截图里若显示账号昵称就填。只输出 JSON：{"account":"","notes":[{"title":"","date":"","views":"","likes":"","comments":"","collects":null,"shares":null}]}`;
+  const PROMPT = `这是一张内容平台后台的数据截图（小红书「数据中心」、抖音创作者中心/抖音 App 作品数据、或微信视频号助手/视频号「数据中心」）。
+先判断 platform：xhs（小红书）、douyin（抖音）、channels（微信视频号）、other（都不是）。
+再逐条提取每条作品：title 标题原文（只写看得到的，被截断就写到截断处，去掉省略号）、date 发布日期（截图里写的原样，如 10-20 或 2026年10月14日）、views 播放/观看/眼睛图标后的数字原样（如 4376、2.6万）、likes 点赞/爱心、comments 评论/气泡、shares 转发/分享（有才填）、collects 收藏（有才填，没有 null）。
+只要数字完整可见的作品；"昨日新增"之类的增量数字不要当成总数。account 截图里若显示账号昵称就填。
+只输出 JSON：{"platform":"","account":"","notes":[{"title":"","date":"","views":"","likes":"","comments":"","shares":null,"collects":null}]}`;
   async function handleImage(dataUrl, accHint) {
     if (!api.vision) return null;
     const txt = await api.vision(PROMPT, dataUrl);
     let j; try { j = JSON.parse((txt.match(/\{[\s\S]*\}/) || [txt])[0]); } catch (e) { return { error: '识别结果不是 JSON' }; }
     const notes = (j.notes || []).filter(n => n && n.title).map(n => ({ title: String(n.title), date: String(n.date || ''), views: num(n.views), likes: num(n.likes), comments: num(n.comments), collects: num(n.collects), shares: num(n.shares) }));
     if (!notes.length) return null; // 不是数据中心截图
+    const plat = /douyin|抖音/i.test(j.platform) ? 'douyin' : /channel|视频号|wechat|weixin/i.test(j.platform) ? 'channels' : /xhs|小红书/i.test(j.platform) ? 'xhs' : 'xhs';
+    if (plat !== 'xhs') return handleVideo(plat, notes, accHint || j.account || '');
     await load();
     const M = match(notes, accHint || j.account || '');
     const app = await appToken();
@@ -101,7 +136,26 @@ function createCore({ cfg, api, log }) {
     const now = Date.now();
     const recs = M.list.filter(x => x.row).map(({ n, row }) => { const f = { '数据更新于': now }; if (n.views !== null) f['小眼睛(自动)'] = n.views; if (n.likes !== null) f['点赞(自动)'] = n.likes; if (n.comments !== null) f['评论(自动)'] = n.comments; if (n.collects !== null) f['收藏(自动)'] = n.collects; if (n.shares !== null) f['分享(自动)'] = n.shares; return { record_id: row.id, fields: f }; });
     if (recs.length) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${st.table.id}/records/batch_update`, { records: recs }); st.fields = null; st.rows = null; }
-    return { acc: M.acc, updated: M.list.filter(x => x.row), missed: M.list.filter(x => !x.row) };
+    return { platform: 'xhs', acc: M.acc, updated: M.list.filter(x => x.row), missed: M.list.filter(x => !x.row) };
+  }
+
+  // 抖音 / 视频号截图 → 两张抖音表里按标题对上 → 写「视频号…(自动)」或「抖音…(自动)」列
+  const VCOL = { channels: ['视频号', '转发'], douyin: ['抖音', '分享'] };
+  async function handleVideo(plat, notes, accHint) {
+    const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'];
+    const Ts = (await Promise.all(names.map(n => loadT(n)))).filter(Boolean);
+    const rows = Ts.flatMap(T => T.rows);
+    const M = match(notes, accHint, rows);
+    const app = await appToken(); const [pre, shareWord] = VCOL[plat];
+    const cols = [[`${pre}播放(自动)`, 2, 'views'], [`${pre}点赞(自动)`, 2, 'likes'], [`${pre}评论(自动)`, 2, 'comments'], [`${pre}${shareWord}(自动)`, 2, 'shares'], [`${pre}收藏(自动)`, 2, 'collects'], [`${pre}更新于`, 5, null]];
+    const now = Date.now();
+    for (const T of Ts) {
+      const mine = M.list.filter(x => x.row && x.row.table === T.name); if (!mine.length) continue;
+      for (const [name, type] of cols) if (!T.fields.includes(name)) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/fields`, { field_name: name, type }); T.fields.push(name); }
+      const recs = mine.map(({ n, row }) => { const f = {}; cols.forEach(([name, , k]) => { if (!k) f[name] = now; else if (n[k] !== null && n[k] !== undefined) f[name] = n[k]; }); return { record_id: row.id, fields: f }; });
+      await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/batch_update`, { records: recs });
+    }
+    return { platform: plat, acc: M.acc, updated: M.list.filter(x => x.row), missed: M.list.filter(x => !x.row) };
   }
 
   return { handleText, handleImage, load, _st: st, _match: match };
@@ -119,7 +173,8 @@ function replyForText(r) {
 function replyForImage(r) {
   if (!r) return '';
   if (r.error) return '⚠️ 截图没识别成功：' + r.error;
-  const L = [`📊 ${r.acc || '截图'}：更新了 ${r.updated.length} 条笔记的小眼睛`];
+  const P = { xhs: ['小红书', '笔记的小眼睛'], douyin: ['抖音', '作品的播放'], channels: ['视频号', '作品的播放'] }[r.platform || 'xhs'];
+  const L = [`📊 ${P[0]}${r.acc ? '·' + r.acc : ''}：更新了 ${r.updated.length} 条${P[1]}`];
   if (r.missed.length) L.push(`⚠️ ${r.missed.length} 条在飞书里没找到：` + r.missed.slice(0, 5).map(x => '\n· ' + x.n.title.slice(0, 20)).join('') + '\n（没登记的话，先把分享发群里登记）');
   return L.join('\n');
 }
