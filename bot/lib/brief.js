@@ -149,8 +149,45 @@ ${JSON.stringify(F)}`;
     } catch (e) { log('[简报] AI 出错：' + e.message); return { text: plain(F) + '\n\n（AI 暂时不可用，这次是纯数字版）', by: '纯数字（AI 出错）' }; }
   }
 
-  async function make(now) { const F = await facts(now); const prof = await profile(); const r = await write(F, prof); return Object.assign(r, { facts: F }); }
-  return { facts, profile, plain, write, make, _allowed: allowed };
+  // ---------- 存档 + 待办与决策（驾驶舱「今天你要做的事」从这里读） ----------
+  const SCHEMA = {
+    '简报存档': [['日期', 5], ['类型', 3, ['日报', '周报', '半月报', '月报']], ['正文', 1], ['数据', 1], ['生成方式', 1], ['生成时间', 5]],
+    '待办与决策': [['事项', 1], ['类型', 3, ['投放建议', '营业异常', '口碑', '其他']], ['状态', 3, ['待定', '已同意', '已执行', '不做']], ['详情', 1], ['来源', 1], ['首次出现', 5], ['最近出现', 5], ['唯一键', 1]]
+  };
+  const ensured = {};
+  async function ensure(name) {
+    if (ensured[name]) return ensured[name];
+    const app = await appOf(cfg.dailyBaseUrl); const all = await tables(app);
+    let t = all.find(x => x.name === name);
+    const fieldDef = ([field_name, type, opts]) => Object.assign({ field_name, type }, opts ? { property: { options: opts.map(n => ({ name: n })) } } : {});
+    if (!t) { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables`, { table: { name, default_view_name: '全部', fields: SCHEMA[name].map(fieldDef) } }); t = { table_id: d.table_id }; log('[简报] 新建表：' + name); }
+    else { const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const have = new Set((fd.items || []).map(f => f.field_name)); for (const f of SCHEMA[name]) if (!have.has(f[0])) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, fieldDef(f)); }
+    return (ensured[name] = { app, tid: t.table_id });
+  }
+  function todos(F) {
+    const out = [];
+    F.suggest.forEach(h => out.push({ key: `投放|${h.plat}|${h.acc}|${h.title.slice(0, 30)}`, type: '投放建议', title: `${h.plat}·${h.acc}「${h.title.slice(0, 20)}」值得投放`, detail: `${h.date} 发布，${fmt(h.views)}（账号常态 ${h.times} 倍），互动率 ${h.engRate}%，还没投流` }));
+    F.alerts.forEach(a => out.push({ key: `${F.date}|${a}`, type: /差评|评分/.test(a) ? '口碑' : '营业异常', title: a, detail: `${F.date} 经营数据` }));
+    return out;
+  }
+  async function archive(F, r, kind) {
+    if (!cfg.dailyBaseUrl) return;
+    try {
+      const A = await ensure('简报存档');
+      await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records`, { fields: { 日期: (bjDay(Date.now()) - 1) * DAY - TZ, 类型: kind || '日报', 正文: r.text, 数据: JSON.stringify(F).slice(0, 90000), 生成方式: r.by, 生成时间: Date.now() } });
+      const T = await ensure('待办与决策'); const list = todos(F); if (!list.length) return;
+      const ex = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); ex.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+      const byKey = {}; ex.forEach(x => { const k = val((x.fields || {})['唯一键']); if (k) byKey[k] = x; });
+      const now = Date.now(), add = [], upd = [];
+      list.forEach(t => { const e = byKey[t.key]; if (e) upd.push({ record_id: e.record_id, fields: { 最近出现: now, 详情: t.detail } }); else add.push({ fields: { 事项: t.title, 类型: t.type, 状态: '待定', 详情: t.detail, 来源: `${F.date} 简报`, 首次出现: now, 最近出现: now, 唯一键: t.key } }); });
+      if (add.length) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/batch_create`, { records: add });
+      if (upd.length) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/batch_update`, { records: upd });
+      log(`[简报] 已存档；待办新增 ${add.length}、更新 ${upd.length}`);
+    } catch (e) { log('[简报] 存档失败：' + e.message); }
+  }
+
+  async function make(now, o) { const F = await facts(now); const prof = await profile(); const r = await write(F, prof); if (!(o && o.noArchive)) await archive(F, r, (o && o.kind) || '日报'); return Object.assign(r, { facts: F }); }
+  return { facts, profile, plain, write, make, archive, _allowed: allowed };
 }
 
 module.exports = { createBrief, bjDay };
