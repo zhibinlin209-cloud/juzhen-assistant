@@ -123,6 +123,7 @@ async function setup() {
   await core.load(true);
   for (const n of (cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'])) { try { await core.loadT(n, true); } catch (e) { log('[表] 读不到 ' + n + '：', e.message); } }
 
+  setTimeout(async () => { try { for (const x of await core.sphSurvey()) log('[视频号盘点] ' + JSON.stringify(x)); } catch (e) { log('[视频号盘点] 出错 ' + e.message); } }, 20e3);
   // ---------- 收消息 ----------
   const seen = new Set(); let markDaily = null;
   function flatten(type, content) { // 文本 / 富文本 → 文字 + 图片

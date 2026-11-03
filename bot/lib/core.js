@@ -258,9 +258,9 @@ function createCore({ cfg, api, log }) {
       const t = P.norm(x.n.title); let row = T.rows.filter(r => r.title && !used.has(r.id)).map(r => ({ r, s: sim(t, P.norm(r.title)) })).filter(o => o.s >= 0.85).sort((a, b) => b.s - a.s)[0];
       let fillTitle = false;
       if (!row) {
-        const cand = T.rows.filter(r => !r.title && !used.has(r.id) && (!sender || !r.person || r.person === sender) && (r.date === null || dateHit(x.n.date, r.date, 1) !== false));
+        const cand = T.rows.filter(r => r.link && !r.title && !used.has(r.id) && (!sender || !r.person || r.person === sender) && (r.date === null || dateHit(x.n.date, r.date, 1) !== false));
         // 链接和截图一起发（15 分钟内同一人登记的空标题行），补登旧内容时日期对不上也认
-        const recent = T.rows.filter(r => !r.title && !used.has(r.id) && r.reg && now - r.reg < 15 * 60e3 && (!sender || !r.person || r.person === sender));
+        const recent = T.rows.filter(r => r.link && !r.title && !used.has(r.id) && r.reg && now - r.reg < 15 * 60e3 && (!sender || !r.person || r.person === sender));
         const pick = cand.length ? cand : recent;
         if (pick.length === 1) { row = { r: pick[0] }; fillTitle = true; } else if (pick.length > 1) { x.sphAmbig = pick.map(c => c.link); continue; } else continue;
       }
@@ -341,7 +341,22 @@ function createCore({ cfg, api, log }) {
     return out;
   }
 
-  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, load, loadT, _st: st, _match: match };
+  // 只读盘点：哪些表里有视频号内容（不改任何表）
+  async function sphSurvey() {
+    const app = await appToken(); const all = await listTables(); const out = [];
+    for (const t of all.filter(x => /视频号|抖音/.test(x.name))) {
+      try {
+        const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
+        const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+        const wx = recs.filter(r => /weixin\.qq\.com|channels\.weixin/.test(JSON.stringify(r.fields || {})));
+        const cols = {}; wx.forEach(r => Object.entries(r.fields || {}).forEach(([k, v]) => { if (/weixin\.qq\.com|channels\.weixin/.test(JSON.stringify(v))) cols[k] = (cols[k] || 0) + 1; }));
+        const sample = wx[0] ? Object.fromEntries(Object.entries(wx[0].fields).map(([k, v]) => [k, String(JSON.stringify(v)).slice(0, 80)])) : null;
+        out.push({ name: t.name, id: t.table_id, rows: recs.length, wx: wx.length, wxCols: cols, fields: (fd.items || []).map(f => f.field_name + ':' + f.type).join(','), sample });
+      } catch (e) { out.push({ name: t.name, err: e.message }); }
+    }
+    return out;
+  }
+  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案
