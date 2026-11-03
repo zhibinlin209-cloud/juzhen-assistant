@@ -137,7 +137,7 @@ function createCore({ cfg, api, log }) {
 - has_share：每条作品是不是有第 4 个数字（转发/分享箭头）？
 - close_x：页面左上角是「×」关闭按钮吗？（返回箭头「<」不算）
 只输出 JSON：{"platform":"","note_status":false,"date_has_year":false,"has_share":false,"close_x":false,"account":"","notes":[{"title":"","date":"","views":"","likes":"","comments":"","shares":null,"collects":null}]}`;
-  async function handleImage(dataUrl, accHint) {
+  async function handleImage(dataUrl, accHint, sender) {
     if (!api.vision) return null;
     const txt = await api.vision(PROMPT, dataUrl);
     let j; try { j = JSON.parse((txt.match(/\{[\s\S]*\}/) || [txt])[0]); } catch (e) { return { error: '识别结果不是 JSON' }; }
@@ -152,7 +152,7 @@ function createCore({ cfg, api, log }) {
     else if (yes(j.date_has_year) || yes(j.close_x) || withYear >= half || (yes(j.has_share) && withShare >= half)) plat = 'channels';
     else plat = /channel|视频号|wechat|weixin/i.test(j.platform) ? 'channels' : 'xhs';
     log(`[截图] 判断为 ${plat}（AI 说 ${j.platform}；笔记状态 ${j.note_status}，带年份 ${j.date_has_year}/${withYear}，转发 ${j.has_share}/${withShare}，× ${j.close_x}）`);
-    if (plat !== 'xhs') return handleVideo(plat, notes, accHint || j.account || '');
+    if (plat !== 'xhs') return handleVideo(plat, notes, accHint || j.account || '', sender);
     await load();
     const M = match(notes, accHint || j.account || '');
     const app = await appToken();
@@ -166,7 +166,7 @@ function createCore({ cfg, api, log }) {
 
   // 抖音 / 视频号截图 → 两张抖音表里按标题对上 → 写「视频号…(自动)」或「抖音…(自动)」列
   const VCOL = { channels: ['视频号', '转发'], douyin: ['抖音', '分享'] };
-  async function handleVideo(plat, notes, accHint) {
+  async function handleVideo(plat, notes, accHint, sender) {
     const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'];
     const Ts = (await Promise.all(names.map(n => loadT(n)))).filter(Boolean);
     let all = Ts.flatMap(T => T.rows);
@@ -213,7 +213,50 @@ function createCore({ cfg, api, log }) {
       if (recs.length) await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/batch_update`, { records: recs });
       vt[T.name] = null; // 下次重读
     }
+    if (plat === 'channels') { try { await sphFill(M.list.filter(x => !x.row && !x.noLink), sender); } catch (e) { log('[视频号] 写入视频号表出错：' + e.message); } }
     return { platform: plat, acc: M.acc, updated: M.list.filter(x => x.row), missed: M.list.filter(x => !x.row) };
+  }
+
+  // ---------- 视频号-数据：发链接先登记，一周后发截图补标题和数据 ----------
+  const SPH_NAME = cfg.sphTable || '视频号-数据';
+  const SPH_COLS = [['标题', 1], ['发布日期', 5], ['发布人员', 1], ['账号名称', 1], ['视频号链接', 15], ['播放', 2], ['点赞', 2], ['评论', 2], ['转发', 2], ['收藏', 2], ['数据更新于', 5], ['登记时间', 5]];
+  const sphKey = u => { const m = String(u || '').match(/(?:sph\/|id=|feed\/|export\/)([A-Za-z0-9_-]{6,})/); return m ? m[1] : String(u || '').trim(); };
+  async function sphTable() {
+    const app = await appToken(); const t = (await listTables()).find(x => x.name === SPH_NAME); if (!t) throw new Error('NO_SPH_TABLE');
+    const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const have = new Set((fd.items || []).map(f => f.field_name));
+    for (const [name, type] of SPH_COLS) if (!have.has(name)) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, { field_name: name, type }); log('[视频号] 补建列：' + name); }
+    const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const rows = recs.map(r => { const f = r.fields || {}; return { id: r.record_id, title: titleOf(f['标题']), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, person: String(val(f['发布人员']) || '').trim(), link: String(val(f['视频号链接']) || ''), reg: typeof f['登记时间'] === 'number' ? f['登记时间'] : 0, cur: { views: num(f['播放']), likes: num(f['点赞']), comments: num(f['评论']), shares: num(f['转发']) } }; });
+    return { app, id: t.table_id, rows };
+  }
+  async function handleChannelsLink(text, sender) {
+    const links = [...new Set((String(text).match(/https?:\/\/(?:weixin\.qq\.com\/sph\/[A-Za-z0-9_-]+|channels\.weixin\.qq\.com\/[^\s，。)）]+)/g) || []))];
+    if (!links.length) return null;
+    const T = await sphTable(); const out = { created: [], dups: [] }; const add = []; const now = Date.now();
+    for (const u of links) { if (T.rows.some(r => sphKey(r.link) === sphKey(u))) { out.dups.push(u); continue; } const f = { 视频号链接: { link: u, text: u }, 发布日期: dayStart(now), 登记时间: now }; if (sender) f['发布人员'] = sender; add.push({ fields: f }); out.created.push(u); }
+    if (add.length) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_create`, { records: add });
+    return out;
+  }
+  // 视频号截图里没在抖音/小红书表对上的：先按标题找视频号表，再找「同一人发、日期对得上、标题还空着」的登记行
+  async function sphFill(list, sender) {
+    if (!list.length) return; let T; try { T = await sphTable(); } catch (e) { if (e.message === 'NO_SPH_TABLE') return; throw e; }
+    const recs = []; const now = Date.now(); const used = new Set();
+    for (const x of list) {
+      const t = P.norm(x.n.title); let row = T.rows.filter(r => r.title && !used.has(r.id)).map(r => ({ r, s: sim(t, P.norm(r.title)) })).filter(o => o.s >= 0.85).sort((a, b) => b.s - a.s)[0];
+      let fillTitle = false;
+      if (!row) {
+        const cand = T.rows.filter(r => !r.title && !used.has(r.id) && (!sender || !r.person || r.person === sender) && (r.date === null || dateHit(x.n.date, r.date, 1) !== false));
+        // 链接和截图一起发（15 分钟内同一人登记的空标题行），补登旧内容时日期对不上也认
+        const recent = T.rows.filter(r => !r.title && !used.has(r.id) && r.reg && now - r.reg < 15 * 60e3 && (!sender || !r.person || r.person === sender));
+        const pick = cand.length ? cand : recent;
+        if (pick.length === 1) { row = { r: pick[0] }; fillTitle = true; } else if (pick.length > 1) { x.sphAmbig = pick.map(c => c.link); continue; } else continue;
+      }
+      used.add(row.r.id); const f = { 数据更新于: now };
+      if (fillTitle) { f['标题'] = x.n.title.replace(/\.{3}$|…$/, ''); const dm = String(x.n.date).match(/(20\d{2})\D+(\d{1,2})\D+(\d{1,2})/); if (dm) f['发布日期'] = new Date(+dm[1], +dm[2] - 1, +dm[3]).getTime(); }
+      [['播放', 'views'], ['点赞', 'likes'], ['评论', 'comments'], ['转发', 'shares'], ['收藏', 'collects']].forEach(([c, k]) => { const v = x.n[k]; if (v === null || v === undefined) return; const old = row.r.cur && row.r.cur[k]; if (old !== null && old !== undefined && old > v) return; f[c] = v; });
+      recs.push({ record_id: row.r.id, fields: f }); x.row = { table: SPH_NAME, account: row.r.person || '视频号表', date: row.r.date, kind: fillTitle ? '新补标题' : '' };
+    }
+    if (recs.length) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_update`, { records: recs });
   }
 
 
@@ -285,7 +328,7 @@ function createCore({ cfg, api, log }) {
     return out;
   }
 
-  return { handleText, handleImage, handleDaily, handleDouyin, load, loadT, _st: st, _match: match };
+  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案
@@ -309,16 +352,23 @@ function replyForImage(r) {
   const md = t => { if (!t) return ''; const d = new Date(t); return `${d.getMonth() + 1}/${d.getDate()}`; };
   const short = t => String(t || '').replace(/\s*#.*$/, '').slice(0, 14);
   const noLink = r.missed.filter(x => x.noLink), rest = r.missed.filter(x => !x.noLink);
-  const unsure = rest.filter(x => x.best && x.best.s >= 0.8), none = rest.filter(x => !(x.best && x.best.s >= 0.8));
+  const unsure = rest.filter(x => !x.sphAmbig && x.best && x.best.s >= 0.8), none = rest.filter(x => !x.sphAmbig && !(x.best && x.best.s >= 0.8));
   const L = [`📊 ${P[0]}截图${r.acc ? ' · ' + r.acc : ''}：已更新 ${r.updated.length} 条`];
   r.updated.slice(0, 12).forEach(({ n, row }) => L.push(`✅ ${short(n.title)} → ${row.account || '?'} · ${md(row.date)}${row.kind ? ' · ' + row.kind : ''} · ${P[1]} ${n.views ?? '–'}`));
   if (noLink.length) { L.push(`🔗 表里有、但没填视频号链接 ${noLink.length} 条（补上链接再发截图就能更新）：`); noLink.slice(0, 8).forEach(x => L.push(`· ${short(x.n.title)} → ${x.noLink.table === '__xhs' ? '小红书表' : x.noLink.table} · ${x.noLink.account || '?'} · ${md(x.noLink.date)}`)); }
   if (unsure.length) { L.push(`❓ 拿不准、没写 ${unsure.length} 条（表里有好几条很像，请人工确认）：`); unsure.slice(0, 8).forEach(x => L.push(`· ${short(x.n.title)}（最像：${x.best.r.account || '?'} · ${md(x.best.r.date)}）`)); }
-  if (none.length) { L.push(`⚠️ 表里没找到 ${none.length} 条（可能还没登记）：`); none.slice(0, 8).forEach(x => L.push('· ' + short(x.n.title))); }
+  const amb = r.missed.filter(x => x.sphAmbig); if (amb.length) { L.push(`❓ 视频号表里同一天有好几条还没标题，分不清是哪条：`); amb.forEach(x => L.push(`· ${short(x.n.title)} → 候选：${x.sphAmbig.slice(0, 4).join('  ')}（请回复是哪个链接）`)); }
+  if (none.length) { L.push(`⚠️ 表里没找到 ${none.length} 条（视频号请先发链接登记）：`); none.slice(0, 8).forEach(x => L.push('· ' + short(x.n.title))); }
   return L.join('\n');
 }
 
 
+function replyForChannels(r) {
+  if (!r) return ''; const L = [];
+  if (r.created.length) L.push(`✅ 视频号已登记 ${r.created.length} 条（标题先空着，一周后发数据截图会自动补上标题和播放）`);
+  if (r.dups.length) L.push(`↩️ ${r.dups.length} 条视频号之前登记过了，没重复登记`);
+  return L.join('\n');
+}
 function replyForDouyin(r) {
   const short = t => (t || '').length > 18 ? t.slice(0, 18) + '…' : (t || '（无标题）');
   const L = [];
@@ -329,4 +379,4 @@ function replyForDouyin(r) {
   return L.join('\n');
 }
 
-module.exports = { createCore, replyForDouyin, replyForText, replyForImage, replyForDaily, val, num, titleOf };
+module.exports = { createCore, replyForChannels, replyForDouyin, replyForText, replyForImage, replyForDaily, val, num, titleOf };

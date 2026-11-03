@@ -5,7 +5,7 @@
  */
 'use strict';
 const fs = require('fs'); const path = require('path'); const readline = require('readline');
-const { createCore, replyForText, replyForImage, replyForDaily, replyForDouyin } = require('./lib/core');
+const { createCore, replyForText, replyForImage, replyForDaily, replyForDouyin, replyForChannels } = require('./lib/core');
 const { fetchDouyin } = require('./lib/douyin');
 const { createBrief, bjDay } = require('./lib/brief');
 const { createWeb } = require('./lib/web');
@@ -165,6 +165,10 @@ async function setup() {
         const r = await core.handleText(text, who);
         if (r) { log(`[登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForText(r)); }
       }
+      if (text && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !/xhslink|xiaohongshu\.com|dpurl|v\.douyin\.com/.test(text)) {
+        const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
+        try { const r = await core.handleChannelsLink(text, who); if (r) { log(`[登记] 视频号 ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForChannels(r)); } } catch (e) { if (e.message === 'NO_SPH_TABLE') await reply(m.message_id, '⚠️ 营销部多维表格里还没有「视频号-数据」这张表，请先建一张空表（名字一字不差），机器人会自动补齐列'); else { log('视频号登记出错：', e.message); await reply(m.message_id, '⚠️ 视频号链接没登记成功：' + e.message.slice(0, 60)); } }
+      }
       if (text && /v\.douyin\.com|iesdouyin\.com|douyin\.com\/(video|note)/.test(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
         try { const r = await core.handleDouyin(text, who); if (r) { log(`[抖音登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}，没找到账号 ${r.noAcct.length}`); await reply(m.message_id, replyForDouyin(r)); } } catch (e) { log('抖音登记出错：', e.message); await reply(m.message_id, '⚠️ 抖音链接没登记成功：' + e.message.slice(0, 60)); }
@@ -175,7 +179,7 @@ async function setup() {
           const lines = [];
           for (const key of images) {
             try {
-              const r = await core.handleImage(await image(m.message_id, key));
+              const r = await core.handleImage(await image(m.message_id, key), '', await senderName(((data.sender || {}).sender_id || {}).open_id));
               if (r) { log(`[截图] ${r.acc || ''} 更新 ${r.updated ? r.updated.length : 0}`); lines.push(replyForImage(r)); }
               else log('[截图] 不是数据中心截图，没处理');
             } catch (e) { log('处理截图出错：', e.message); lines.push('⚠️ 有一张截图没处理成功：' + e.message.slice(0, 60)); }
