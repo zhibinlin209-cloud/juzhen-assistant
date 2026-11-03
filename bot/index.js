@@ -10,6 +10,7 @@ const { fetchDouyin } = require('./lib/douyin');
 const { createBrief, bjDay } = require('./lib/brief');
 const { createWeb } = require('./lib/web');
 const { createTgt, replyForTgt } = require('./lib/tgt');
+const { createDraft, replyForDraft } = require('./lib/draft');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
@@ -80,6 +81,12 @@ async function setup() {
     if (!r.ok) { const t = await r.text().catch(() => ''); throw new Error('下载文件失败 HTTP ' + r.status + ' ' + t.slice(0, 200)); }
     return Buffer.from(await r.arrayBuffer());
   }
+  async function imgBuf(messageId, key) { const r = await fetch(`${API}/im/v1/messages/${messageId}/resources/${key}?type=image`, { headers: { authorization: 'Bearer ' + await token() } }); if (!r.ok) throw new Error('下载图片失败 HTTP ' + r.status); return Buffer.from(await r.arrayBuffer()); }
+  async function upload(buf, name, parentType, parentNode) { // 传到多维表格（附件列用）
+    const fd = new FormData(); fd.append('file_name', name); fd.append('parent_type', parentType); fd.append('parent_node', parentNode); fd.append('size', String(buf.length)); fd.append('file', new Blob([buf]), name);
+    const j = await fetch(`${API}/drive/v1/medias/upload_all`, { method: 'POST', headers: { authorization: 'Bearer ' + await token() }, body: fd }).then(r => r.json());
+    if (j.code !== 0) throw new Error(`上传素材失败（${j.code}：${j.msg}）`); return j.data.file_token;
+  }
   async function fetchXhs(url) { // 打开小红书短链，拿笔记 ID / 作者 / 发布时间
     try {
       const r = await fetch(url, { redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36' }, signal: AbortSignal.timeout(12000) });
@@ -121,6 +128,7 @@ async function setup() {
   const tgt = createTgt({ cfg, api: { call }, log });
   const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log });
   await core.load(true);
+  const draft = createDraft({ api: { call }, core, upload, log }); const lastVideo = new Map();
   for (const n of (cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'])) { try { await core.loadT(n, true); } catch (e) { log('[表] 读不到 ' + n + '：', e.message); } }
 
   // 视频号历史数据一次性导入（做过就不再做；按链接去重）
@@ -147,8 +155,15 @@ async function setup() {
     if (m.chat_type !== 'group') return;
     if (cfg.chats && cfg.chats.length && !cfg.chats.includes(m.chat_id)) return;
     const { text, images } = flatten(m.message_type, m.content);
-    if (m.message_type === 'file') {
+    const sid = ((data.sender || {}).sender_id || {}).open_id || '';
+    if (m.message_type === 'media' || m.message_type === 'file') {
       let c = {}; try { c = JSON.parse(m.content || '{}'); } catch (e) { }
+      if (draft.active(sid) && /\.(mp4|m4v|mov)$/i.test(c.file_name || '')) {
+        try { const buf = await fileBuf(m.message_id, c.file_key); const p = await draft.addMedia(sid, [{ buf, name: c.file_name, video: true }]); if (p) await reply(m.message_id, `🎬 视频已归到「${p.code}」（素材共 ${p.n} 个）`); } catch (e) { log('[收稿] 视频处理失败：' + e.message); await reply(m.message_id, '⚠️ 视频没存进稿件库：' + e.message.slice(0, 60)); }
+        return;
+      }
+      if (/\.(mp4|m4v|mov)$/i.test(c.file_name || '')) { lastVideo.set(sid, { mid: m.message_id, key: c.file_key, name: c.file_name, at: Date.now() }); return; }
+      if (m.message_type === 'media') return;
       if (/\.xlsx$/i.test(c.file_name || '')) {
         try { const r = await tgt.ingest(await fileBuf(m.message_id, c.file_key)); if (r) { await reply(m.message_id, replyForTgt(r)); if (r.rows) brief.ads().catch(e => log('[投放分析] 出错 ' + e.message)); } } catch (e) { if (e.message === 'NO_PRIVATE_BASE') return; log('[推广通] 处理出错：', e.message); await reply(m.message_id, '⚠️ 推广通报表没处理成功：' + e.message.slice(0, 60)); }
       }
@@ -166,6 +181,16 @@ async function setup() {
       return;
     }
     if ((data.sender || {}).sender_type === 'app') return;
+    // 收稿：编号 + 标题 + 正文；之后 15 分钟内同一个人发的图片都算这篇的素材
+    const lv = lastVideo.get(sid); const vid = lv && Date.now() - lv.at < 15 * 60e3 ? lv : null;
+    if (text && draft.isDraft(text, vid)) {
+      try { const who = await senderName(sid); let video = null; if (vid && !/(^|\n)\s*标题\s*[:：]/.test(text)) { lastVideo.delete(sid); try { video = { buf: await fileBuf(vid.mid, vid.key), name: vid.name }; } catch (e) { log('[收稿] 视频下载失败：' + e.message); } } const imgs = []; for (const k of images) { try { imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); } catch (e) { } } const d = await draft.save(text, who, sid, imgs, video); await reply(m.message_id, replyForDraft(d) + (imgs.length ? `\n已存 ${imgs.length} 张图` : '') + (video ? `\n已存视频 ${video.name}` : '')); } catch (e) { log('[收稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 稿件没存进去：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); }
+      return;
+    }
+    if (!text && images.length && draft.active(sid)) {
+      try { const imgs = []; for (const k of images) imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); const p = await draft.addMedia(sid, imgs); if (p && (p.n === imgs.length || p.n % 3 === 0)) await reply(m.message_id, `🖼 图片已归到「${p.code}」（素材共 ${p.n} 个）`); } catch (e) { log('[收稿] 图片处理失败：' + e.message); }
+      return;
+    }
     try {
       if (text && /xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
