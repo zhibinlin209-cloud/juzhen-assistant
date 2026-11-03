@@ -48,7 +48,7 @@ function createBrief({ cfg, api, log, llm }) {
   async function facts(now) {
     now = now || Date.now();
     const today = bjDay(now), y = today - 1, ly = y - 7;
-    const F = { rules: { 营业额跌幅标红: '-15%', 差评标红条数: RULE.badRed, 评分下降提醒: RULE.scoreDrop, 起量统计天数: RULE.hotDays, 起量倍数: RULE.hotTimes, 小红书起量最低小眼睛: RULE.minXhs, 抖音起量最低播放: RULE.minDy, 小红书互动率门槛: '5%', 抖音互动率门槛: '3%' }, date: dayStr(y), weekday: '日一二三四五六'[new Date(y * DAY).getUTCDay()], stores: [], missing: [], alerts: [], content: {}, hot: [], suggest: [], top7: [], notes: [] };
+    const F = { rules: { 营业额跌幅标红: '-15%', 差评标红条数: RULE.badRed, 评分规则: '点评只看掉分；美团、外卖、抖音低于 4.5 提醒；任一平台比前一天降 0.1 提醒', 起量统计天数: RULE.hotDays, 起量倍数: RULE.hotTimes, 小红书起量最低小眼睛: RULE.minXhs, 抖音起量最低播放: RULE.minDy, 小红书互动率门槛: '5%', 抖音互动率门槛: '3%' }, date: dayStr(y), weekday: '日一二三四五六'[new Date(y * DAY).getUTCDay()], stores: [], missing: [], alerts: [], content: {}, hot: [], suggest: [], top7: [], notes: [] };
     // 营业日报（私密表格）
     if (cfg.dailyBaseUrl) {
       const priv = await appOf(cfg.dailyBaseUrl);
@@ -65,7 +65,7 @@ function createBrief({ cfg, api, log, llm }) {
         F.stores.push(row);
         if (row.wow !== null && row.wow <= RULE.dropPct) F.alerts.push(`${s} 营业额 ${fmt(rev)}，比上周同日 ${pct(row.wow)}`);
         const bad = row.dpBad + row.mtBad + row.wmBad + row.dyBad; if (bad >= RULE.badRed) F.alerts.push(`${s} 昨天差评 ${bad} 条（点评 ${row.dpBad}、美团 ${row.mtBad}、外卖 ${row.wmBad}、抖音 ${row.dyBad}）`);
-        [['点评', 'dpScore', 'dpScorePrev'], ['美团', 'mtScore', 'mtScorePrev'], ['外卖', 'wmScore', 'wmScorePrev'], ['抖音', 'dyScore', 'dyScorePrev']].forEach(([n, k, kp]) => { if (row[k] !== null && row[kp] !== null && row[kp] - row[k] >= RULE.scoreDrop - 1e-9) F.alerts.push(`${s} ${n}评分 ${row[kp]} → ${row[k]}`); });
+        [['点评', 'dpScore', 'dpScorePrev', null], ['美团', 'mtScore', 'mtScorePrev', 4.5], ['外卖', 'wmScore', 'wmScorePrev', 4.5], ['抖音', 'dyScore', 'dyScorePrev', 4.5]].forEach(([n, k, kp, min]) => { if (row[k] !== null && row[kp] !== null && row[kp] - row[k] >= RULE.scoreDrop - 1e-9) F.alerts.push(`${s} ${n}评分 ${row[kp]} → ${row[k]}`); else if (min && row[k] !== null && row[k] < min) F.alerts.push(`${s} ${n}评分 ${row[k]}，低于 ${min}`); });
       }
       const expected = (cfg.stores || STORES).filter(n => !CLOSED.some(c => n.includes(c)));
       expected.forEach(n => { if (!F.stores.some(r => r.store === n) && !F.missing.includes(n)) F.missing.push(n); });
