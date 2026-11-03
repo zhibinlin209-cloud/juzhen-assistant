@@ -136,6 +136,7 @@ async function setup() {
     const { text, images } = flatten(m.message_type, m.content);
     if ((data.sender || {}).sender_type === 'user' && m.chat_id === dailyChatNow()) rememberBoss(((data.sender || {}).sender_id || {}).open_id);
     if (text && /^\s*(简报|日报简报|今日简报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendBrief({ replyTo: m.message_id, manual: true }); return; }
+    if (text && /^\s*(重新识别日报|重读日报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { rereadDaily(m.message_id); return; }
     if (text && /^\s*驾驶舱\s*$/.test(text) && m.chat_id === dailyChatNow()) { const link = web.loginLink(); if (link && boss) { try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: `🖥 驾驶舱登录链接（7 天内有效，登录后 30 天免登录，别转发给别人）：\n${link}` }) }, { receive_id_type: 'open_id' }); await reply(m.message_id, '✅ 登录链接已私聊发给你'); } catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 60)); } } return; }
     // 门店营业日报（华付数科等机器人发的也收）
     if (text && /营业日概况|当天总营业额/.test(text)) {
@@ -208,6 +209,22 @@ async function setup() {
       }
       if (found.length) saveSeen();
     } catch (e) { log('补收日报失败：', e.message); }
+  }
+  // 用最新的识别规则，把日报群最近 7 天的日报全部重读一遍（只更新数字，不重复回复）
+  async function rereadDaily(replyTo) {
+    try {
+      const chat = await findDailyChat(); if (!chat) return;
+      const start = Math.floor(Date.now() / 1000) - 7 * 86400; let pt = ''; const msgs = [];
+      do { const d = await call('GET', '/im/v1/messages', null, Object.assign({ container_id_type: 'chat', container_id: chat, start_time: String(start), sort_type: 'ByCreateTimeAsc', page_size: 50 }, pt ? { page_token: pt } : {})); msgs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+      const done = [], bad = [];
+      for (const x of msgs) {
+        const { text } = flatten(x.msg_type, (x.body || {}).content);
+        if (!text || !/营业日概况|当天(?:总)?营业额/.test(text)) continue;
+        try { const r = await core.handleDaily(text, (x.sender || {}).sender_type === 'app' ? '日报机器人' : '群消息'); (r || []).forEach(y => (y.total == null ? bad : done).push(`${y.store.replace(/^(深圳|广州|佛山|珠海|东莞|惠州)/, '')} ${y.date.slice(5)}`)); } catch (e) { log('重读日报出错：', e.message); }
+      }
+      log(`[日报] 重读完成：${done.length} 份，营业额仍读不出 ${bad.length} 份`);
+      await reply(replyTo, `🔄 已用最新规则重读最近 7 天的日报：${done.length} 份已更新${bad.length ? `\n⚠️ 营业额还是读不出：${[...new Set(bad)].join('、')}（请把原文发给管理员）` : ''}`);
+    } catch (e) { log('重读日报失败：', e.message); await reply(replyTo, '⚠️ 重读失败：' + e.message.slice(0, 60)); }
   }
   setTimeout(pollDaily, 15e3); setInterval(pollDaily, 10 * 60e3);
 
