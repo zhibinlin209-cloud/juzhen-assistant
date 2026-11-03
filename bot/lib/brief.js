@@ -252,8 +252,8 @@ ${JSON.stringify(F)}`;
   }
   async function latest() {
     if (!cfg.dailyBaseUrl) return null;
-    const A = await ensure('简报存档'); const d = await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '类型', operator: 'isNot', value: ['投放分析'] }] }, sort: [{ field_name: '生成时间', desc: true }] }, { page_size: 1 });
-    const f = ((d.items || [])[0] || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null;
+    const A = await ensure('简报存档'); const d = await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records/search`, { sort: [{ field_name: '生成时间', desc: true }] }, { page_size: 20 });
+    const f = ((d.items || []).find(x => val((x.fields || {})['类型']) !== '投放分析') || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null;
   }
 
   // ---------- 投放分析（AI 写，给驾驶舱和周一私聊）：只基于程序算好的推广通数据 ----------
@@ -295,8 +295,8 @@ ${JSON.stringify(D)}`;
   }
   async function latestAds() {
     if (!cfg.dailyBaseUrl) return null;
-    const A = await ensure('简报存档'); const d = await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '类型', operator: 'is', value: ['投放分析'] }] }, sort: [{ field_name: '生成时间', desc: true }] }, { page_size: 1 });
-    const f = ((d.items || [])[0] || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null;
+    const A = await ensure('简报存档'); const d = await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records/search`, { sort: [{ field_name: '生成时间', desc: true }] }, { page_size: 20 });
+    const f = ((d.items || []).find(x => val((x.fields || {})['类型']) === '投放分析') || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null;
   }
 
   async function make(now, o) { const F = await facts(now); const prof = await profile(); const r = await write(F, prof); if (!(o && o.noArchive)) await archive(F, r, (o && o.kind) || '日报'); return Object.assign(r, { facts: F }); }
