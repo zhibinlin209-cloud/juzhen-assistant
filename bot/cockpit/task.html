@@ -59,7 +59,7 @@ function render() {
   const d = D, main = d.platforms[0];
   $('#app').innerHTML = `
   <div class="card">
-    <div class="hd"><h1>${d.type === '视频' ? '🎬 今日视频' : '📮 今日稿件'} · @${esc(d.who || '—')}</h1><div class="sub">${esc([d.code, d.account && '账号 ' + d.account, d.store, d.date].filter(Boolean).join(' · '))}</div></div>
+    <div class="hd"><h1>${d.type === '视频' ? '🎬 今日视频' : '📮 今日稿件'} · @${esc(d.account || d.who || '—')}</h1><div class="sub">${esc([d.code, d.account && d.who && '发布人 ' + d.who, d.store, d.date].filter(Boolean).join(' · '))}</div></div>
     <div class="sec"><div class="lab">要发的平台</div><div class="chips">${d.platforms.map((p, i) => `<span class="chip ${i ? '' : 'main'}">${esc(p)}${i ? '' : '（主发）'}</span>`).join('')}</div></div>
     <div class="sec"><div class="lab"><span>标题</span><button data-c="title">复制标题</button></div><div class="txt" style="font-weight:600">${esc(d.title || '—')}</div></div>
     ${d.body && d.body !== d.title ? `<div class="sec"><div class="lab"><span>正文</span><button data-c="body">复制正文</button></div><div class="txt clip" id="body">${esc(d.body)}</div><button style="margin-top:6px;border:0;padding:0;min-height:0" id="more">展开全文</button></div>` : ''}

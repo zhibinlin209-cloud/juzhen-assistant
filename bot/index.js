@@ -10,7 +10,7 @@ const { fetchDouyin } = require('./lib/douyin');
 const { createBrief, bjDay } = require('./lib/brief');
 const { createWeb } = require('./lib/web');
 const { createTgt, replyForTgt } = require('./lib/tgt');
-const { createDraft, replyForDraft, createDispatch, isInstr, parseInstr } = require('./lib/draft');
+const { createDraft, replyForDraft, createDispatch, isInstr, parseInstr, createAccounts } = require('./lib/draft');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
@@ -141,6 +141,16 @@ async function setup() {
   const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log });
   await core.load(true);
   const draft = createDraft({ api: { call }, core, upload, log }); const lastVideo = new Map(), lastInstr = new Map(), draftMsg = new Map();
+  const accounts = createAccounts({ api: { call }, core, log });
+  async function fillAccounts() { // 派稿记录里有发布人员、没账号名称的 → 按分发类别补上账号
+    const T = await draft.tbl(); const rows = []; let pt = '';
+    do { const d = await call('POST', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/search`, {}, Object.assign({ page_size: 200 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const v = x => Array.isArray(x) ? x.map(y => y.text || y).join('') : (x && x.text) || x || '';
+    const upd = []; for (const r of rows) { const f = r.fields || {}; const who = String(v(f['发布人员'])).trim(); if (!who || String(v(f['账号名称'])).trim()) continue; const p = await accounts.pick(who, String(v(f['分发类别']))); if (p.acc) upd.push({ record_id: r.record_id, fields: { 账号名称: p.acc } }); }
+    if (upd.length) { await call('POST', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/batch_update`, { records: upd }); log(`[账号] 派稿记录补上账号名称 ${upd.length} 条`); }
+    return upd.length;
+  }
+  setTimeout(async () => { try { const m = await accounts.map(true); const out = {}; Object.entries(m).forEach(([w, o]) => { out[w] = {}; ['xhs', 'dy', 'sr'].forEach(k => { const b = accounts.best(o[k]); if (b.length) out[w][k] = b.slice(0, 3).map(x => x[0] + '×' + x[1]).join(' / '); }); }); log('[账号对照] ' + JSON.stringify(out)); await fillAccounts(); } catch (e) { log('[账号] 出错 ' + e.message); } }, 45e3);
   const rawIO = { download: dl, imKey, imFile }; const dispatch = createDispatch({ api: { call }, core, raw: rawIO, log });
   for (const n of (cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'])) { try { await core.loadT(n, true); } catch (e) { log('[表] 读不到 ' + n + '：', e.message); } }
 
@@ -189,10 +199,11 @@ async function setup() {
     if (text && /^\s*(派稿|发稿|今日派稿)\s*$/.test(text) && m.chat_id !== dailyChatNow()) {
       if (boss && sid !== boss) return;
       try {
+        try { await fillAccounts(); } catch (e) { log('[账号] 补账号出错 ' + e.message); }
         const list = await dispatch.today(); if (!list.length) { await reply(m.message_id, '今天没有「派稿日期 = 今天、状态 = 待发布」的稿件'); return; }
         const members = {}; try { let pt = ''; do { const d = await call('GET', `/im/v1/chats/${m.chat_id}/members`, null, Object.assign({ member_id_type: 'open_id', page_size: 100 }, pt ? { page_token: pt } : {})); (d.items || []).forEach(x => { if (x.name) members[x.name.trim()] = x.member_id; }); pt = d.has_more ? d.page_token : ''; } while (pt); } catch (e) { log('[领稿] 读不到群成员（@ 不了人）：' + e.message); }
         const DF = path.join(DATA_DIR, 'dispatched.json'); let dsp = {}; try { dsp = JSON.parse(fs.readFileSync(DF, 'utf8')); } catch (e) { }
-        let n = 0, noAt = []; for (const r of list) { dsp[r.id] = { chat: m.chat_id, day: Math.floor((Date.now() + 8 * 3600e3) / 864e5), at: r.at || '' }; const who = String((r.f['发布人员'] && (r.f['发布人员'].text || r.f['发布人员'])) || '').trim(); r.at = members[who] || ''; if (!r.at && who) noAt.push(who); await dispatch.send(r, { type: 'chat_id', id: m.chat_id }); n++; }
+        let n = 0, noAt = []; for (const r of list) { dsp[r.id] = { chat: m.chat_id, day: Math.floor((Date.now() + 8 * 3600e3) / 864e5), at: r.at || '' }; const vv = x => Array.isArray(x) ? x.map(y => y.text || y).join('') : (x && x.text) || x || ''; const who = String(vv(r.f['发布人员'])).trim(), acc = String(vv(r.f['账号名称'])).trim(); r.at = members[acc] || members[who] || ''; if (!r.at && who) noAt.push(who); await dispatch.send(r, { type: 'chat_id', id: m.chat_id }); n++; }
         try { fs.writeFileSync(path.join(DATA_DIR, 'publish-chat.txt'), m.chat_id); fs.writeFileSync(DF, JSON.stringify(dsp)); } catch (e) { }
         log(`[领稿] 派到群 ${n} 张`); if (noAt.length) await reply(m.message_id, `已派 ${n} 张。这些发布人员不在本群或名字对不上，没能 @ 到：${[...new Set(noAt)].join('、')}`);
       } catch (e) { log('[领稿] 派稿出错：' + e.message); await reply(m.message_id, '⚠️ 派稿没发出去：' + e.message.replace(/\/bitable\S*/g, '').slice(-120)); }
@@ -200,7 +211,7 @@ async function setup() {
     }
     if (text && /^\s*(进度|派稿进度|发布进度)\s*$/.test(text)) { try { await reply(m.message_id, await progress(m.chat_id, false)); } catch (e) { log('[领稿] 进度出错：' + e.message); } return; }
     if (text && /^\s*(派稿预览|领稿预览)\s*$/.test(text) && m.chat_id === dailyChatNow()) {
-      try { const list = await dispatch.today(); if (!list.length) { await reply(m.message_id, '今天没有「派稿日期 = 今天、状态 = 待发布」的稿件'); return; } if (!boss) { await reply(m.message_id, '还不知道你的飞书账号，先在这个群里随便说句话'); return; } for (const r of list) await dispatch.send(r, { type: 'open_id', id: boss }); await reply(m.message_id, `✅ ${list.length} 张领稿卡片已私聊发给你（样卡）`); } catch (e) { log('[领稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 样卡没发出去：' + e.message.replace(/\/bitable\S*/g, '').slice(-120)); }
+      try { try { await fillAccounts(); } catch (e) { } const list = await dispatch.today(); if (!list.length) { await reply(m.message_id, '今天没有「派稿日期 = 今天、状态 = 待发布」的稿件'); return; } if (!boss) { await reply(m.message_id, '还不知道你的飞书账号，先在这个群里随便说句话'); return; } for (const r of list) await dispatch.send(r, { type: 'open_id', id: boss }); await reply(m.message_id, `✅ ${list.length} 张领稿卡片已私聊发给你（样卡）`); } catch (e) { log('[领稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 样卡没发出去：' + e.message.replace(/\/bitable\S*/g, '').slice(-120)); }
       return;
     }
     if (text && /^\s*(投放分析|推广通分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendAds({ replyTo: m.message_id }); return; }

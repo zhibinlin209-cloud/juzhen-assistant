@@ -128,6 +128,36 @@ function replyForDraft(d) {
 }
 module.exports = { createDraft, parseDraft, isDraft, replyForDraft, PLATFORMS, isInstr, parseInstr };
 
+// ---------- 发布人员 → 各平台账号（从小红书/抖音数据表里统计，近 90 天谁用哪个号发得最多） ----------
+function createAccounts({ api, core, log }) {
+  const val = v => Array.isArray(v) ? v.map(x => (x && typeof x === 'object') ? (x.text || x.name || '') : String(x)).join('') : (v && typeof v === 'object') ? (v.text || v.name || '') : (v ?? '');
+  let cache = null;
+  async function map(force) {
+    if (cache && !force && Date.now() - cache.at < 30 * 60e3) return cache.m;
+    const app = await core.appToken(); const tabs = []; let pt = '';
+    do { const d = await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, Object.assign({ page_size: 100 }, pt ? { page_token: pt } : {})); tabs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const SRC = [['xhs', '小红书矩阵号-数据', ['人员', '发布人员'], ['账号昵称', '账号名称']], ['dy', '抖音-矩阵号-数据', ['发布人员'], ['账号名称']], ['sr', '抖音-素人号-数据', ['发布人员'], ['账号名称']]];
+    const m = {}; const since = Date.now() - 90 * 864e5;
+    for (const [k, name, pf, af] of SRC) {
+      const t = tabs.find(x => x.name === name); if (!t) continue; let p2 = '';
+      do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { field_names: pf.concat(af, ['发布日期']) }, Object.assign({ page_size: 500 }, p2 ? { page_token: p2 } : {}));
+        for (const r of d.items || []) { const f = r.fields || {}; const who = String(val(pf.map(x => f[x]).find(Boolean)) || '').trim(); const acc = String(val(af.map(x => f[x]).find(Boolean)) || '').trim(); if (!who || !acc) continue; const recent = typeof f['发布日期'] === 'number' && f['发布日期'] >= since; const o = ((m[who] = m[who] || {})[k] = m[who][k] || {}); o[acc] = (o[acc] || 0) + (recent ? 3 : 1); }
+        p2 = d.has_more ? d.page_token : ''; } while (p2);
+    }
+    cache = { at: Date.now(), m }; return m;
+  }
+  const best = o => Object.entries(o || {}).sort((a, b) => b[1] - a[1]);
+  // 按分发类别挑账号：小红书矩阵号 → 小红书号；抖音矩阵号 → 抖音矩阵号；抖音素人号 → 素人号（没有就退到另一个抖音表）
+  async function pick(who, kind) {
+    const m = await map(); const o = m[String(who || '').trim()]; if (!o) return { acc: '', alts: [] };
+    const k = /小红书/.test(kind) ? ['xhs'] : /素人/.test(kind) ? ['sr', 'dy'] : ['dy', 'sr'];
+    for (const x of k) { const b = best(o[x]); if (b.length) return { acc: b[0][0], alts: b.slice(1).map(y => y[0]) }; }
+    return { acc: '', alts: [] };
+  }
+  return { map, pick, best };
+}
+module.exports.createAccounts = createAccounts;
+
 // ---------- 领稿卡片：派稿日期 = 今天、状态 = 待发布 的稿件 → 卡片 + 可复制的文案 + 素材 ----------
 function createDispatch({ api, core, raw, log }) {
   const val = v => Array.isArray(v) ? v.map(x => (x && typeof x === 'object') ? (x.text || x.name || '') : String(x)).join('') : (v && typeof v === 'object') ? (v.text || v.name || v.link || '') : (v ?? '');
@@ -154,7 +184,7 @@ function createDispatch({ api, core, raw, log }) {
     if (r.cover) el.push({ tag: 'img', img_key: r.cover, alt: { tag: 'plain_text', content: '素材预览' }, mode: 'fit_horizontal', preview: true });
     if (r.link) el.push({ tag: 'action', layout: 'bisected', actions: [{ tag: 'button', type: 'primary', text: { tag: 'plain_text', content: '📋 打开领稿页（一键复制 · 下载素材）' }, url: r.link }, { tag: 'button', type: 'default', text: { tag: 'plain_text', content: '✅ 我发好了，贴链接' }, url: r.link + '#done' }] });
     el.push({ tag: 'note', elements: [{ tag: 'plain_text', content: `领稿页里可以一键复制标题/正文/话题、下载${type === '视频' ? '视频' : '全部图片'}；发完在页面里贴链接，自动登记。${type === '视频' ? '视频自带声音，不用加配乐。' : ''}` }] });
-    return { config: { wide_screen_mode: true }, header: { template: type === '视频' ? 'indigo' : 'blue', title: { tag: 'plain_text', content: `${type === '视频' ? '🎬 今日视频' : '📮 今日稿件'} · @${who}` } }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: `${s('稿件编号') || s('文本')}${s('账号名称') ? ' · 账号 ' + s('账号名称') : ''}${s('门店') ? ' · ' + s('门店') : ''}${typeof f['派稿日期'] === 'number' ? ' · ' + new Date(f['派稿日期'] + 8 * 3600e3).toISOString().slice(5, 10).replace('-', '/') : ''}` } }].concat(el) };
+    return { config: { wide_screen_mode: true }, header: { template: type === '视频' ? 'indigo' : 'blue', title: { tag: 'plain_text', content: `${type === '视频' ? '🎬 今日视频' : '📮 今日稿件'} · @${s('账号名称') || who}` } }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: `${s('稿件编号') || s('文本')}${s('账号名称') && s('发布人员') ? ' · 发布人 ' + s('发布人员') : ''}${s('门店') ? ' · ' + s('门店') : ''}${typeof f['派稿日期'] === 'number' ? ' · ' + new Date(f['派稿日期'] + 8 * 3600e3).toISOString().slice(5, 10).replace('-', '/') : ''}` } }].concat(el) };
   }
   // 发给某人/某群：卡片 → 文案+图片（富文本，长按可复制/保存）→ 视频文件
   async function send(r, receive) {
