@@ -5,7 +5,7 @@
 'use strict';
 const { readXlsx } = require('./xlsx');
 const NAME = '人员账号对照';
-const COLS = [['真实姓名', 1], ['收款人', 1], ['微信名', 1], ['抖音账号', 1], ['小红书账号', 1], ['数据表叫法', 1], ['备注', 1], ['更新时间', 5]];
+const COLS = [['真实姓名', 1], ['收款人', 1], ['微信名', 1], ['抖音账号', 1], ['小红书账号', 1], ['数据表叫法', 1], ['账号别名', 1], ['备注', 1], ['更新时间', 5]];
 const norm = s => String(s || '').normalize('NFKC').toLowerCase().replace(/[\s​-‏️'"“”‘’`·.。，,!！?？~～^（）()\[\]【】/\\|_\-—]+/g, '').replace(/l/g, 'i');
 const val = v => Array.isArray(v) ? v.map(x => (x && typeof x === 'object') ? (x.text || x.name || '') : String(x)).join('') : (v && typeof v === 'object') ? (v.text || v.name || '') : (v ?? '');
 

@@ -418,7 +418,13 @@ async function setup() {
       if (hh === 21 && mm >= 30 && pst.sum !== day) { pst.sum = day; fs.writeFileSync(PST, JSON.stringify(pst)); const t = await progress(chat, false); if (!/还没有派过稿/.test(t)) await call('POST', '/im/v1/messages', { receive_id: chat, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'chat_id' }); }
     } catch (e) { log('[领稿] 定时提醒出错：' + e.message); }
   }, 60e3);
-  setTimeout(async () => { const f = path.join(DATA_DIR, 'settle-2026-10.json'); if (fs.existsSync(f)) return; try { const t = await runSettle('2026-10'); fs.writeFileSync(f, JSON.stringify({ at: Date.now() })); log('[结算] 10 月试算完成'); } catch (e) { log('[结算] 10 月试算出错：' + e.message); } }, 80e3); // 一次性：用 10 月数据和腾讯文档对账
+  setTimeout(async () => { const f = path.join(DATA_DIR, 'alias-seed.json'); if (fs.existsSync(f)) return; try { // 一次性：账号改过名的，补上旧名（按数据表推断）
+      const ps = await people.list(true); const A = String(cfg.dailyBaseUrl).match(/\/base\/([A-Za-z0-9]+)/)[1]; const tabs = await call('GET', `/bitable/v1/apps/${A}/tables`, null, { page_size: 100 }); const t = (tabs.items || []).find(x => x.name === '人员账号对照');
+      const seed = [[p => p['小红书账号'] === '饭桌C位Jack', 'c位Noli、饭桌c位fury'], [p => p['小红书账号'] === '七七八八八', '77888']]; const upd = [];
+      for (const [fn, al] of seed) { const p = ps.find(fn); if (p && !p['账号别名']) upd.push({ record_id: p.id, fields: { 账号别名: al } }); }
+      if (t && upd.length) await call('POST', `/bitable/v1/apps/${A}/tables/${t.table_id}/records/batch_update`, { records: upd }); fs.writeFileSync(f, JSON.stringify({ n: upd.length })); log('[人员] 补账号别名 ' + upd.length);
+    } catch (e) { log('[人员] 补别名出错 ' + e.message); } }, 60e3);
+  setTimeout(async () => { const f = path.join(DATA_DIR, 'settle-2026-10b.json'); if (fs.existsSync(f)) return; try { const t = await runSettle('2026-10'); fs.writeFileSync(f, JSON.stringify({ at: Date.now() })); log('[结算] 10 月试算完成'); } catch (e) { log('[结算] 10 月试算出错：' + e.message); } }, 80e3); // 一次性：用 10 月数据和腾讯文档对账
   setInterval(async () => { // 每月 1 号 10:30：算上个月结算草稿，私聊老板
     const bj = new Date(Date.now() + 8 * 3600e3); if (bj.getUTCDate() !== 1 || bj.getUTCHours() !== 10 || bj.getUTCMinutes() < 30) return; const mon = lastMonth(); if (pst.settle === mon || !boss) return; pst.settle = mon; try { fs.writeFileSync(PST, JSON.stringify(pst)); } catch (e) { }
     try { const t = await runSettle(mon); await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'open_id' }); } catch (e) { log('[结算] 自动结算出错：' + e.message); }

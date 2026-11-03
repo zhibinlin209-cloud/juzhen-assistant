@@ -28,16 +28,27 @@ function createSettle({ cfg, api, core, people, log }) {
     const dy = {}, xhs = {}; const add = (o, k, f) => { (o[k] = o[k] || { 抖音: 0, 视频号: 0, 小红书: 0, 大众点评: 0, 携程: 0, 微信贴图: 0 }); return o[k]; };
     for (const f of (await get('抖音-矩阵号-数据')).concat(await get('抖音-素人号-数据'))) {
       if (!inMonth(f)) continue; const k = norm(val(f['账号名称'])); if (!k) continue; const o = add(dy, k);
-      if (has(f['抖音链接'])) o.抖音++; if (has(f['视频号链接']) || has(f['视频号'])) o.视频号++; if (has(f['贴图号'])) o.微信贴图++;
+      if (has(f['抖音链接'])) o.抖音++; if (has(f['视频号链接']) || has(f['视频号']) || has(f['贴图号'])) o.视频号++; // 素人号的「贴图号」是视频号图文，结算算视频号
     }
     for (const f of await get('小红书矩阵号-数据')) {
       if (!inMonth(f)) continue; const k = norm(val(f['账号昵称'])); if (!k) continue; const o = add(xhs, k);
       if (has(f['小红书链接'])) o.小红书++; if (has(f['点评链接'])) o.大众点评++; if (has(f['携程链接'])) o.携程++; if (has(f['微信贴图'])) o.微信贴图++;
     }
     const price = +(cfg.settlePrice || 5); const ps = await people.list(true); const out = []; const usedD = new Set(), usedX = new Set();
+    // 账号名对不上时的兜底：别名列 → 名字里括号备注 → 互相包含 → 只差一个字
+    const lev = (a, b) => { if (Math.abs(a.length - b.length) > 1) return 9; const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j; for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); return d[a.length][b.length]; };
+    const exactD = new Set(ps.map(p => norm(p['抖音账号'])).filter(Boolean)), exactX = new Set(ps.map(p => norm(p['小红书账号'])).filter(Boolean));
+    function find(dict, acc, p, exactKeys) {
+      const aliases = String(p['账号别名'] || '').split(/[、,，]/).map(norm).filter(Boolean); const keys = [];
+      if (acc && dict[norm(acc)]) keys.push(norm(acc));
+      aliases.forEach(a => { if (dict[a] && !keys.includes(a)) keys.push(a); });
+      if (!keys.length) { const note = norm(((String(p['真实姓名'] || '').match(/[（(]([^）)]+)[）)]/) || [])[1]) || ''); if (note && dict[note]) keys.push(note); }
+      if (!keys.length && acc) { const n = norm(acc); const cand = Object.keys(dict).filter(k => !exactKeys.has(k) && ((k.length >= 2 && n.includes(k)) || (n.length >= 2 && k.includes(n)) || (n.length >= 4 && lev(n, k) <= 1))); if (cand.length === 1) keys.push(cand[0]); }
+      if (!keys.length) return null; const o = { 抖音: 0, 视频号: 0, 小红书: 0, 大众点评: 0, 携程: 0, 微信贴图: 0 }; keys.forEach(k => Object.keys(o).forEach(x => { o[x] += dict[k][x]; })); o.keys = keys; return o;
+    }
     for (const p of ps) {
-      const a = p['抖音账号'] ? dy[norm(p['抖音账号'])] : null, b = p['小红书账号'] ? xhs[norm(p['小红书账号'])] : null;
-      if (a) usedD.add(norm(p['抖音账号'])); if (b) usedX.add(norm(p['小红书账号']));
+      const a = (p['抖音账号'] || p['账号别名']) ? find(dy, p['抖音账号'], p, exactD) : null, b = (p['小红书账号'] || p['账号别名']) ? find(xhs, p['小红书账号'], p, exactX) : null;
+      if (a) a.keys.forEach(k => usedD.add(k)); if (b) b.keys.forEach(k => usedX.add(k));
       const r = { 月份: month, 真实姓名: p['真实姓名'], 收款人: p['收款人'] || p['真实姓名'], 微信名: p['微信名'] || '', 抖音账号: p['抖音账号'] || '', 小红书账号: p['小红书账号'] || '', 抖音: a ? a.抖音 : 0, 视频号: a ? a.视频号 : 0, 小红书: b ? b.小红书 : 0, 大众点评: b ? b.大众点评 : 0, 携程: b ? b.携程 : 0, 微信贴图: (b ? b.微信贴图 : 0) + (a ? a.微信贴图 : 0) };
       r.合计条数 = r.抖音 + r.视频号 + r.小红书 + r.大众点评 + r.携程 + r.微信贴图; r.单价 = price; r.金额 = r.合计条数 * price; out.push(r);
     }
