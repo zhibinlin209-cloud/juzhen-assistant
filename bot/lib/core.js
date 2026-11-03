@@ -433,7 +433,7 @@ function createCore({ cfg, api, log }) {
     try {
       const all = await listTables(); const opts = new Map();
       for (const n of ['抖音-矩阵号-数据', '抖音-素人号-数据', '小红书矩阵号-数据', '视频号-数据']) { const x = all.find(y => y.name === n); if (!x) continue; const f = await api.call('GET', `/bitable/v1/apps/${app}/tables/${x.table_id}/fields`, null, { page_size: 200 }); for (const it of f.items || []) if ((it.field_name === '发布人员' || it.field_name === '人员') && it.type === 3) for (const o of (it.property || {}).options || []) if (o.name && !opts.has(o.name)) opts.set(o.name, o.color); }
-      const pf = (fd.items || []).find(f => f.field_name === '发布人员'); const cur = new Set(((pf && pf.property) || {}).options ? pf.property.options.map(o => o.name) : []);
+      const fd2 = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const pf = (fd2.items || []).find(f => f.field_name === '发布人员'); const cur = new Set(((pf && pf.property) || {}).options ? pf.property.options.map(o => o.name) : []);
       const merged = (((pf && pf.property) || {}).options || []).map(o => ({ name: o.name, color: o.color })).concat([...opts].filter(([n]) => !cur.has(n)).map(([name, color]) => ({ name, color })));
       if (pf && merged.length > cur.size) { await api.call('PUT', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields/${pf.field_id}`, { field_name: '发布人员', type: 3, property: { options: merged } }); log(`[派稿] 发布人员下拉同步 ${merged.length} 人`); }
     } catch (e) { log('[派稿] 同步发布人员下拉失败 ' + e.message); }
