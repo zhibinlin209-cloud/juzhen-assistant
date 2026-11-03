@@ -7,30 +7,30 @@ const r2 = x => (x === null || x === undefined || !isFinite(x) ? null : Math.rou
 
 function parseOne(t) {
   const g = re => { const m = t.match(re); return m ? m[1] : null; };
-  const date = g(/日期[:：]\s*(\d{4}-\d{1,2}-\d{1,2})/); const store = (g(/门店[:：]\s*([^\n*]+)/) || '').trim();
+  const dm = t.match(/日期[:：]\s*(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})/); const date = dm ? `${dm[1]}-${dm[2].padStart(2, '0')}-${dm[3].padStart(2, '0')}` : null; const store = (g(/门店[:：]\s*([^\n*]+)/) || '').replace(/\s+/g, '').trim();
   if (!date || !store) return null;
   const d = date.split('-').map(Number);
   const staffM = t.match(/共计上班人数[:：]\s*(\d+)\s*人\s*[（(]\s*楼面[:：]\s*(\d+)\s*人[，,]\s*厨房[:：]\s*(\d+)\s*人/);
-  const plat = (name) => { const m = t.match(new RegExp(name + '[:：]\\s*评分\\s*([\\d.]+)[，,]\\s*好评\\s*(\\d+)\\s*条[，,]\\s*差评\\s*(\\d+)\\s*条')); return m ? { score: n(m[1]), good: n(m[2]), bad: n(m[3]) } : {}; };
+  const plat = (name) => { const m = t.match(new RegExp('(?:^|\\n)\\s*' + name + '\\s*[:：]\\s*评分\\s*([\\d.]+)\\s*[，,]\\s*好评\\s*(\\d+)\\s*条\\s*[，,]\\s*差评\\s*(\\d+)\\s*条')); return m ? { score: n(m[1]), good: n(m[2]), bad: n(m[3]) } : {}; };
   const dp = plat('大众点评'), mt = plat('美团'), wm = plat('美团外卖'), dy = plat('抖音');
-  const total = n(g(/当天总营业额[:：]\s*([\d.,]+)/));
-  const purchase = n(g(/采购总金额\s*([\d.,]+)/));
+  const total = n(g(/当天(?:总)?营业额[:：][¥￥\s]*([\d.,]+)/));
+  const purchase = n(g(/采购总金额[:：]?[¥￥\s]*([\d.,]+)/));
   const staff = staffM ? n(staffM[1]) : n(g(/共计上班人数[:：]\s*(\d+)/));
   return {
     date, ts: new Date(d[0], d[1] - 1, d[2]).getTime(), store,
-    total, lunch: n(g(/午市营业额[:：]\s*([\d.,]+)/)), dinner: n(g(/晚市营业额[:：]\s*([\d.,]+)/)),
-    dineIn: n(g(/顾客到店消费\s*([\d.,]+)/)), delivery: n(g(/外卖下单\s*([\d.,]+)/)), loss: n(g(/报损金额[:：]\s*([\d.,]+)/)),
+    total, lunch: n(g(/午市营业额[:：][¥￥\s]*([\d.,]+)/)), dinner: n(g(/晚市营业额[:：][¥￥\s]*([\d.,]+)/)),
+    dineIn: n(g(/顾客到店消费\s*([\d.,]+)/)), delivery: n(g(/外卖下单\s*([\d.,]+)/)), loss: n(g(/报损金额[:：][¥￥\s]*([\d.,]+)/)),
     purchase, purchaseRatio: total && purchase !== null ? r2(purchase / total * 100) : null,
-    central: n(g(/总仓订货[:：]\s*([\d.,]+)/)), seafood: n(g(/海鲜采购[:：]\s*([\d.,]+)/)), meat: n(g(/鲜肉采购[:：]\s*([\d.,]+)/)), veg: n(g(/蔬菜采购[:：]\s*([\d.,]+)/)), misc: n(g(/其它杂项[:：]\s*([\d.,]+)/)),
+    central: n(g(/总仓订货[:：][¥￥\s]*([\d.,]+)/)), seafood: n(g(/海鲜采购[:：][¥￥\s]*([\d.,]+)/)), meat: n(g(/鲜肉采购[:：][¥￥\s]*([\d.,]+)/)), veg: n(g(/蔬菜采购[:：][¥￥\s]*([\d.,]+)/)), misc: n(g(/其它杂项[:：][¥￥\s]*([\d.,]+)/)),
     staff, floor: staffM ? n(staffM[2]) : null, kitchen: staffM ? n(staffM[3]) : null, perCapita: total && staff ? r2(total / staff) : null, leave: n(g(/休假人数[:：]\s*(\d+)/)),
     dpScore: dp.score ?? null, dpGood: dp.good ?? null, dpBad: dp.bad ?? null, mtScore: mt.score ?? null, mtGood: mt.good ?? null, mtBad: mt.bad ?? null, dyScore: dy.score ?? null, dyGood: dy.good ?? null, dyBad: dy.bad ?? null, wmScore: wm.score ?? null, wmGood: wm.good ?? null, wmBad: wm.bad ?? null,
     checkins: n(g(/收藏打卡人数[:：]\s*(\d+)/))
   };
 }
 function parseDaily(text) {
-  const src = String(text || '').replace(/\r/g, '');
-  if (!/营业日概况|当天总营业额/.test(src)) return [];
-  const parts = src.split(/(?=以下为营业日概况)/).filter(p => /当天总营业额/.test(p));
+  const src = String(text || '').replace(/\r/g, '').replace(/\*\*/g, '').replace(/\n\s*\n/g, '\n');
+  if (!/营业日概况|当天(?:总)?营业额/.test(src)) return [];
+  const parts = src.split(/(?=以下为营业日概况)/).filter(p => /当天(?:总)?营业额/.test(p));
   return (parts.length ? parts : [src]).map(parseOne).filter(Boolean);
 }
 
