@@ -43,7 +43,7 @@ function createBrief({ cfg, api, log, llm }) {
   async function facts(now) {
     now = now || Date.now();
     const today = bjDay(now), y = today - 1, ly = y - 7;
-    const F = { date: dayStr(y), weekday: '日一二三四五六'[new Date(y * DAY).getUTCDay()], stores: [], missing: [], alerts: [], content: {}, hot: [], suggest: [], notes: [] };
+    const F = { rules: { 营业额跌幅标红: '-15%', 差评标红条数: RULE.badRed, 评分下降提醒: RULE.scoreDrop, 起量统计天数: RULE.hotDays, 起量倍数: RULE.hotTimes, 小红书起量最低小眼睛: RULE.minXhs, 抖音起量最低播放: RULE.minDy, 小红书互动率门槛: '5%', 抖音互动率门槛: '3%' }, date: dayStr(y), weekday: '日一二三四五六'[new Date(y * DAY).getUTCDay()], stores: [], missing: [], alerts: [], content: {}, hot: [], suggest: [], notes: [] };
     // 营业日报（私密表格）
     if (cfg.dailyBaseUrl) {
       const priv = await appOf(cfg.dailyBaseUrl);
@@ -113,6 +113,9 @@ function createBrief({ cfg, api, log, llm }) {
     if (F.alerts.length) { L.push('\n⚠️ 需要关注'); F.alerts.forEach(a => L.push('· ' + a)); }
     const c = Object.entries(F.content); if (c.length) { L.push('\n📝 内容发布（昨天 / 近7天）'); c.forEach(([p, v]) => L.push(`· ${p} ${v.yesterday} / ${v.last7}`)); }
     if (F.suggest.length) { L.push('\n🚀 值得投放、还没投'); F.suggest.forEach(h => L.push(`· ${h.plat}·${h.acc}「${h.title.slice(0, 16)}」${h.date} ${fmt(h.views)}（账号常态 ${h.times} 倍，互动 ${h.engRate}%）`)); }
+    const near = F.hot.filter(h => !h.boosted && !F.suggest.includes(h)).slice(0, 5);
+    if (near.length) { L.push('\n👀 数据好但互动不够（暂不建议投）'); near.forEach(h => L.push(`· ${h.plat}·${h.acc}「${h.title.slice(0, 16)}」${fmt(h.views)}（常态 ${h.times} 倍，互动 ${h.engRate}%）`)); }
+    if (!F.suggest.length && !near.length) L.push('\n🚀 近 14 天没有达到起量标准的内容');
     if (F.notes.length) L.push('\n' + F.notes.map(n => 'ℹ️ ' + n).join('\n'));
     return L.join('\n');
   }
@@ -129,10 +132,11 @@ function createBrief({ cfg, api, log, llm }) {
     if (!llm) return { text: plain(F), by: '纯数字（没配 AI）' };
     const prompt = `你是林智斌（禧聚餐饮创始人）的经营助理。根据下面「程序算好的数据」和「老板档案」，写一份今早的经营简报，私聊发给他看。
 要求：
-1. 只能使用数据里出现的数字，不许自己计算新数字、不许编造；数据里没有的就说「数据缺」。
-2. 先给 1–2 句结论，再分「营业」「口碑」「内容与投放」「需要你拍板」几块，手机一屏读完（500 字以内），用简单的 emoji 小标题。
-3. 「内容与投放」重点写：哪些内容跑出了好数据、值得投放但还没投（写账号+标题前几个字+为什么），按老板档案的复投标准。
-4. 不确定的原因用「可能」，给出可执行的建议。不要客套话。
+1. 只能使用数据里出现的数字（包括 rules 里的判断标准），不许自己计算新数字、不许编造；数据里没有的就说「数据缺」。
+2. 日期：简报说的是「昨天（${F.date}）」的情况，不要写成今天。
+3. 格式：飞书纯文本，不要用 # 标题、不要用 ** 加粗、不要用表格。用 emoji 小标题分块：先 1–2 句结论，再「💰营业」「⭐口碑」「📝内容与投放」「🙋需要你拍板」。手机一屏读完（450 字以内）。
+4. 「建议投放」只能从 suggest 列表里选（写账号+标题前几个字+为什么）；suggest 为空就明确说「今天没有完全达标的投放候选」。hot 里没进 suggest 的，只能写成「数据好但互动不够，暂不建议投」，并说出差在哪个标准。
+5. missing 里的门店写「还没收到日报」；不确定的原因用「可能」，给可执行的建议。不要客套话，不要「请审阅」之类的结尾。
 【老板档案】
 ${prof || '（还没有档案）'}
 【程序算好的数据（JSON）】
