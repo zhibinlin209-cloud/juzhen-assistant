@@ -25,7 +25,8 @@ function createPeople({ cfg, api, log }) {
   async function table() {
     if (tid) return tid; const A = app(); const all = []; let pt = '';
     do { const d = await api.call('GET', `/bitable/v1/apps/${A}/tables`, null, Object.assign({ page_size: 100 }, pt ? { page_token: pt } : {})); all.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
-    const t = all.find(x => x.name === NAME); if (t) return (tid = t.table_id);
+    const t = all.find(x => x.name === NAME);
+    if (t) { const fd = await api.call('GET', `/bitable/v1/apps/${A}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const have = new Set((fd.items || []).map(f => f.field_name)); for (const [field_name, type] of COLS) if (!have.has(field_name)) { await api.call('POST', `/bitable/v1/apps/${A}/tables/${t.table_id}/fields`, { field_name, type }); log('[人员] 补建列 ' + field_name); } return (tid = t.table_id); }
     const d = await api.call('POST', `/bitable/v1/apps/${A}/tables`, { table: { name: NAME, default_view_name: '全部', fields: COLS.map(([field_name, type]) => ({ field_name, type })) } });
     log('[人员] 新建表：' + NAME); return (tid = d.table_id);
   }
