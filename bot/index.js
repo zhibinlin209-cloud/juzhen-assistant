@@ -9,6 +9,7 @@ const { createCore, replyForText, replyForImage, replyForDaily, replyForDouyin }
 const { fetchDouyin } = require('./lib/douyin');
 const { createBrief, bjDay } = require('./lib/brief');
 const { createWeb } = require('./lib/web');
+const { createTgt, replyForTgt } = require('./lib/tgt');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
@@ -18,7 +19,7 @@ const API = 'https://open.feishu.cn/open-apis';
 const ACT = { ev: {}, day: -1, n: {}, patrols: 0 };
 const bjd = () => Math.floor((Date.now() + 8 * 3600e3) / 864e5);
 function track(line) {
-  const k = /\[日报/.test(line) ? 'biz' : /\[(登记|抖音登记|截图)\]/.test(line) ? 'content' : /\[简报\].*发送/.test(line) ? 'ceo' : null; if (!k) return;
+  const k = /\[日报/.test(line) ? 'biz' : /\[(登记|抖音登记|截图)\]/.test(line) ? 'content' : /\[简报\].*发送/.test(line) ? 'ceo' : /\[推广通\]/.test(line) ? 'ads' : null; if (!k) return;
   if (ACT.day !== bjd()) { ACT.day = bjd(); ACT.n = {}; ACT.patrols = 0; }
   ACT.n[k] = (ACT.n[k] || 0) + 1; ACT.ev[k] = { at: Date.now(), what: line.replace(/^.*?\]\s*/, '').replace(/^\[[^\]]+\]\s*/, '').slice(0, 24) };
 }
@@ -74,6 +75,11 @@ async function setup() {
     if (!r.ok) { const t = await r.text().catch(() => ''); throw new Error('下载图片失败 HTTP ' + r.status + ' ' + t.slice(0, 200)); }
     const buf = Buffer.from(await r.arrayBuffer()); return `data:${r.headers.get('content-type') || 'image/jpeg'};base64,` + buf.toString('base64');
   }
+  async function fileBuf(messageId, key) {
+    const r = await fetch(`${API}/im/v1/messages/${messageId}/resources/${key}?type=file`, { headers: { authorization: 'Bearer ' + await token() } });
+    if (!r.ok) { const t = await r.text().catch(() => ''); throw new Error('下载文件失败 HTTP ' + r.status + ' ' + t.slice(0, 200)); }
+    return Buffer.from(await r.arrayBuffer());
+  }
   async function fetchXhs(url) { // 打开小红书短链，拿笔记 ID / 作者 / 发布时间
     try {
       const r = await fetch(url, { redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36' }, signal: AbortSignal.timeout(12000) });
@@ -112,6 +118,7 @@ async function setup() {
     }
     throw new Error(last);
   }
+  const tgt = createTgt({ cfg, api: { call }, log });
   const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log });
   await core.load(true);
   for (const n of (cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'])) { try { await core.loadT(n, true); } catch (e) { log('[表] 读不到 ' + n + '：', e.message); } }
@@ -134,6 +141,13 @@ async function setup() {
     if (m.chat_type !== 'group') return;
     if (cfg.chats && cfg.chats.length && !cfg.chats.includes(m.chat_id)) return;
     const { text, images } = flatten(m.message_type, m.content);
+    if (m.message_type === 'file') {
+      let c = {}; try { c = JSON.parse(m.content || '{}'); } catch (e) { }
+      if (/\.xlsx$/i.test(c.file_name || '')) {
+        try { const r = await tgt.ingest(await fileBuf(m.message_id, c.file_key)); if (r) { await reply(m.message_id, replyForTgt(r)); } } catch (e) { if (e.message === 'NO_PRIVATE_BASE') return; log('[推广通] 处理出错：', e.message); await reply(m.message_id, '⚠️ 推广通报表没处理成功：' + e.message.slice(0, 60)); }
+      }
+      return;
+    }
     if ((data.sender || {}).sender_type === 'user' && m.chat_id === dailyChatNow()) rememberBoss(((data.sender || {}).sender_id || {}).open_id);
     if (text && /^\s*(简报|日报简报|今日简报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendBrief({ replyTo: m.message_id, manual: true }); return; }
     if (text && /^\s*(重新识别日报|重读日报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { rereadDaily(m.message_id); return; }

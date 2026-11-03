@@ -40,7 +40,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port }) {
           sub: [['近 7 天', `${c7} 条`], ['起量内容', `${F.hot.length} 条`], ['今天处理', `${A.count('content')} 次`]],
           kids: Object.entries(C).map(([p, x]) => ({ name: p, note: `近7天 ${x.last7} 条`, val: `${x.yesterday}`, tone: x.yesterday ? 'ok' : 'warn' })) },
         { key: 'ads', name: '投放 Agent', hue: 'green', status: F.suggest.length ? 'wait' : 'ok', big: String(F.suggest.length), unit: '条 · 建议投放', last: `${hm(A.last('ceo').at)} 筛选`, next: `明天 ${cfg.briefTime || '09:00'}`, up: `建议 ${F.suggest.length} 条`, down: '按档案标准筛选',
-          sub: [['推广通', '等报表接入'], ['聚光', '接口待申请'], ['本地推', '接口待申请']],
+          sub: [['推广通 近7天', F.tgt ? `${fmt(F.tgt.spend7)} 元 / ${F.tgt.orders7} 单` : '等报表接入'], ['聚光', '接口待申请'], ['本地推', '接口待申请']],
           kids: F.suggest.concat(F.hot.filter(h => !F.suggest.includes(h) && !h.boosted)).slice(0, 5).map(h => ({ name: `${h.acc}`, note: `${h.plat} · ${F.suggest.includes(h) ? '建议投' : (h.why || '')}`, val: fmt(h.views), tone: F.suggest.includes(h) ? 'ok' : 'warn' })) },
         { key: 'rep', name: '口碑 Agent', hue: 'rose', status: bad ? 'wait' : 'ok', big: String(bad), unit: '条 · 昨天差评', last: `${hm(A.last('biz').at)} 读日报`, next: '每 10 分钟', up: `差评 ${bad} 条`, down: '评分随日报更新',
           sub: [['评分下降', `${F.alerts.filter(a => /评分/.test(a)).length} 家`], ['外卖评分', F.stores.some(r => r.wmScore != null) ? '已接入' : '日报待加'], ['抖音评分', F.stores.some(r => r.dyScore != null) ? '已接入' : '日报待加']],
@@ -49,7 +49,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port }) {
       todos: todos.filter(t => t.status === '待定' || Date.now() - t.last < 3 * DAY).slice(0, 20),
       stores: F.stores.map(r => ({ store: r.store, revenue: r.revenue, wow: r.wow, bad: r.dpBad + r.mtBad + (r.wmBad || 0) + (r.dyBad || 0), dp: r.dpScore, mt: r.mtScore, wm: r.wmScore ?? null, dy: r.dyScore ?? null, dpBad: r.dpBad, mtBad: r.mtBad, wmBad: r.wmBad || 0, dyBad: r.dyBad || 0, dpPrev: r.dpScorePrev, mtPrev: r.mtScorePrev })),
       rules: { scoreMin: 4.5, minBy: Object.assign({ dp: null, mt: 4.5, wm: 4.5, dy: 4.5 }, cfg.scoreMinBy || {}), engXhs: 5, engDy: 3, minXhs: 1000, minDy: 3000, hotTimes: 2 },
-      content: F.content, top7: F.top7 || [], hot: F.hot,
+      content: F.content, top7: F.top7 || [], hot: F.hot, tgt: F.tgt || null,
       missing: F.missing, brief: last ? last.text : '', briefAt: last ? last.at : 0,
       suggest: F.suggest, near: F.hot.filter(h => !F.suggest.includes(h) && !h.boosted).slice(0, 6), spend: [], notes: F.notes
     };

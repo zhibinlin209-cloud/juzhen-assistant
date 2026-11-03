@@ -74,6 +74,19 @@ function createBrief({ cfg, api, log, llm }) {
       F.stores.sort((p, q) => (q.revenue || 0) - (p.revenue || 0));
       F.total = F.stores.reduce((t, r) => t + (r.revenue || 0), 0);
       const both = F.stores.filter(r => r.lastWeek); if (both.length) { const a = both.reduce((t, r) => t + r.revenue, 0), b = both.reduce((t, r) => t + r.lastWeek, 0); F.totalWow = (a - b) / b; }
+      // 推广通（Debbie 每天发报表 → 私密表格「推广通数据」）
+      try {
+        const T = (await table(priv, '推广通数据')) || [];
+        if (T.length) {
+          const rows = T.map(f => ({ d: typeof f['日期'] === 'number' ? bjDay(f['日期']) : null, store: canon(val(f['门店'])), spend: num(f['花费']) || 0, orders: num(f['团购订单量']) || 0, views: num(f['商户浏览量']) || 0 })).filter(r => r.d !== null);
+          const last = Math.max(...rows.map(r => r.d)); const sum = (a, b, k) => rows.filter(r => r.d > a && r.d <= b).reduce((t, r) => t + r[k], 0);
+          const by = {}; rows.filter(r => r.d > last - 7).forEach(r => { const o = by[r.store] = by[r.store] || { store: r.store, spend7: 0, orders7: 0, views7: 0, spendLast: 0 }; o.spend7 += r.spend; o.orders7 += r.orders; o.views7 += r.views; if (r.d === last) o.spendLast += r.spend; });
+          rows.filter(r => r.d > last - 14 && r.d <= last - 7).forEach(r => { const o = by[r.store]; if (o) { o.spendPrev7 = (o.spendPrev7 || 0) + r.spend; o.ordersPrev7 = (o.ordersPrev7 || 0) + r.orders; } });
+          const flags = []; Object.values(by).forEach(o => { const prev = [7, 14, 21].map(k => rows.filter(r => r.store === o.store && r.d === last - k).reduce((t, r) => t + r.spend, 0)); const avg = prev.reduce((a, b) => a + b, 0) / 3; if (avg >= 50 && o.spendLast < avg * 0.5) flags.push(`${o.store} 推广通花费 ${Math.round(o.spendLast)}，前几周同一天平均 ${Math.round(avg)}，可能余额不足或计划被停`); });
+          F.tgt = { last: dayStr(last), stale: today - 1 - last, spend7: Math.round(sum(last - 7, last, 'spend')), orders7: Math.round(sum(last - 7, last, 'orders')), spendPrev7: Math.round(sum(last - 14, last - 7, 'spend')), ordersPrev7: Math.round(sum(last - 14, last - 7, 'orders')), stores: Object.values(by).map(o => Object.assign(o, { spend7: Math.round(o.spend7), cpo: o.orders7 ? Math.round(o.spend7 / o.orders7) : null })).filter(o => o.spend7 > 0 || o.spendPrev7 > 0).sort((a, b) => b.spend7 - a.spend7), flags };
+          flags.forEach(x => F.alerts.push(x));
+        }
+      } catch (e) { F.notes.push('推广通数据读取失败'); }
     } else F.notes.push('还没设置营业日报私密表格');
     // 内容（营销部共享表格）
     if (cfg.baseUrl) {
