@@ -52,7 +52,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
   let cache = null;
   async function state() {
     if (cache && Date.now() - cache.at < 3 * 60e3) return cache.v;
-    const [F, todos, last, adsA] = await Promise.all([brief.facts(), brief.listTodos().catch(() => []), brief.latest().catch(() => null), brief.latestAds ? brief.latestAds().catch(() => null) : null]);
+    const [F, todos, last, adsA, pipe] = await Promise.all([brief.facts(), brief.listTodos().catch(() => []), brief.latest().catch(() => null), brief.latestAds ? brief.latestAds().catch(() => null) : null, dispatch && dispatch.pipeline ? dispatch.pipeline().catch(() => null) : null]);
     const A = activity();
     const fmt = n => n == null ? '—' : Math.round(n).toLocaleString('en-US');
     const pct = x => x == null ? '—' : (x > 0 ? '+' : '') + Math.round(x * 1000) / 10 + '%';
@@ -69,7 +69,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
           sub: [['日报已收', known ? `${reported} / ${known} 家` : '—'], ['比上周同日', pct(F.totalWow)], ['未收到', F.missing.slice(0, 3).join('、') || '无']],
           kids: F.stores.slice(0, 6).map(r => ({ name: r.store.replace(/^(深圳|广州|佛山|珠海|东莞|惠州)/, ''), note: r.wow != null ? '比上周 ' + pct(r.wow) : '无上周数据', val: fmt(r.revenue), tone: r.wow != null && r.wow < -0.15 ? 'bad' : 'ok' })) },
         { key: 'content', name: '内容 Agent', hue: 'cyan', status: 'ok', big: String(cy), unit: '条 · 昨天发布', last: `${hm(A.last('content').at)} ${A.last('content').what || '—'}`, next: '随群消息', up: `登记 今天 ${A.count('content')} 次`, down: '截图/分享 随到随办',
-          sub: [['近 7 天', `${c7} 条`], ['起量内容', `${F.hot.length} 条`], ['今天处理', `${A.count('content')} 次`]],
+          sub: [['近 7 天', `${c7} 条`], ['今日派稿', pipe ? `${pipe.done} / ${pipe.today} 已发` : '—'], ['稿件库待派', pipe ? `${pipe.unassigned} 篇` : '—']],
           kids: Object.entries(C).map(([p, x]) => ({ name: p, note: `近7天 ${x.last7} 条`, val: `${x.yesterday}`, tone: x.yesterday ? 'ok' : 'warn' })) },
         { key: 'ads', name: '投放 Agent', hue: 'green', status: F.suggest.length ? 'wait' : 'ok', big: String(F.suggest.length), unit: '条 · 建议投放', last: `${hm(A.last('ceo').at)} 筛选`, next: `明天 ${cfg.briefTime || '09:00'}`, up: `建议 ${F.suggest.length} 条`, down: '按档案标准筛选',
           sub: [['推广通 近7天', F.tgt ? `${fmt(F.tgt.spend7)} 元 / ${F.tgt.orders7} 单（${F.tgt.dOrders}）` : '等报表接入'], ['推广通建议', F.tgt ? (['可加投', '要调整', '检查'].map(k => [k, F.tgt.stores.filter(o => o.verdict === k).length]).filter(x => x[1]).map(x => x[0] + ' ' + x[1]).join(' · ') || '都维持') : '—'], ['聚光', '接口待申请'], ['本地推', '接口待申请']],
@@ -81,7 +81,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
       todos: todos.filter(t => t.status === '待定' || Date.now() - t.last < 3 * DAY).slice(0, 20),
       stores: F.stores.map(r => ({ store: r.store, revenue: r.revenue, wow: r.wow, bad: r.dpBad + r.mtBad + (r.wmBad || 0) + (r.dyBad || 0), dp: r.dpScore, mt: r.mtScore, wm: r.wmScore ?? null, dy: r.dyScore ?? null, dpBad: r.dpBad, mtBad: r.mtBad, wmBad: r.wmBad || 0, dyBad: r.dyBad || 0, dpPrev: r.dpScorePrev, mtPrev: r.mtScorePrev })),
       rules: { scoreMin: 4.5, minBy: Object.assign({ dp: null, mt: 4.5, wm: 4.5, dy: 4.5 }, cfg.scoreMinBy || {}), engXhs: 5, engDy: 3, minXhs: 1000, minDy: 3000, hotTimes: 2 },
-      content: F.content, top7: F.top7 || [], hot: F.hot, tgt: F.tgt || null, ads: adsA ? { text: adsA.text, at: adsA.at, by: adsA.by } : null,
+      content: F.content, top7: F.top7 || [], hot: F.hot, tgt: F.tgt || null, ads: adsA ? { text: adsA.text, at: adsA.at, by: adsA.by } : null, pipe: pipe || null,
       missing: F.missing, brief: last ? last.text : '', briefAt: last ? last.at : 0,
       suggest: F.suggest, near: F.hot.filter(h => !F.suggest.includes(h) && !h.boosted).slice(0, 6), spend: [], notes: F.notes
     };

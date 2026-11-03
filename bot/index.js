@@ -405,9 +405,9 @@ async function setup() {
     const today = Math.floor((Date.now() + 8 * 3600e3) / 864e5); const ids = Object.keys(dsp).filter(k => dsp[k].day === today && (!chatId || dsp[k].chat === chatId));
     if (!ids.length) return remind ? '' : '今天这个群还没有派过稿（在群里发「派稿」才会记录进度）';
     const rows = []; for (const id of ids) { try { const r = await dispatch.getRec(id); rows.push({ id, v: dispatch.view(r, ''), at: dsp[id].at }); } catch (e) { } }
-    const done = rows.filter(x => x.v.status === '已发布'), todo = rows.filter(x => x.v.status !== '已发布');
+    const live = rows.filter(x => x.v.status !== '取消'); const done = live.filter(x => x.v.status === '已发布'), todo = live.filter(x => x.v.status !== '已发布');
     if (remind) return todo.length ? '⏰ 今天的稿件还没发的提醒一下，发完在领稿页贴链接就行：\n' + todo.map(x => (x.at ? `<at user_id="${x.at}"></at>` : '@' + (x.v.who || '?')) + ` ${x.v.code}`).join('\n') : '';
-    return `📋 今日派稿进度：派出 ${rows.length} 条，已发布 ${done.length} 条，还没发 ${todo.length} 条` + (todo.length ? '\n\n还没发：\n' + todo.map(x => `· ${x.v.who || '?'} · ${x.v.code}`).join('\n') : '\n\n🎉 全部发完了') + (done.length ? '\n\n已发布：\n' + done.map(x => `· ${x.v.who || '?'} · ${x.v.code}`).join('\n') : '');
+    return `📋 今日派稿进度：派出 ${live.length} 条，已发布 ${done.length} 条，还没发 ${todo.length} 条` + (todo.length ? '\n\n还没发：\n' + todo.map(x => `· ${x.v.who || '?'} · ${x.v.code}`).join('\n') : '\n\n🎉 全部发完了') + (done.length ? '\n\n已发布：\n' + done.map(x => `· ${x.v.who || '?'} · ${x.v.code}`).join('\n') : '');
   }
   const PST = path.join(DATA_DIR, 'publish-state.json'); let pst = {}; try { pst = JSON.parse(fs.readFileSync(PST, 'utf8')); } catch (e) { }
   setInterval(async () => { // 20:00 群里 @ 还没发的人；21:30 群里发当天进度

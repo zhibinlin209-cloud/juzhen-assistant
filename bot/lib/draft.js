@@ -232,6 +232,16 @@ function createDispatch({ api, core, raw, log }) {
     if (Object.keys(f).length) await api.call('PUT', `/bitable/v1/apps/${app}/tables/${tid}/records/${id}`, { fields: f });
     return !!f['状态'];
   }
-  return { today, card, send, getRec, view, markDone };
+  // 驾驶舱用：稿件库 / 今日派稿进度
+  async function pipeline() {
+    const app = await core.appToken(); const tid = await core.ensurePaigao(); const out = []; let pt = '';
+    do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${tid}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const D = bjDay(Date.now()); const rs = out.map(r => r.fields || {}).filter(f => String(val(f['稿件编号']) || val(f['文本']) || '').trim());
+    const s = (f, k) => String(val(f[k]) || '').trim();
+    const today = rs.filter(f => typeof f['派稿日期'] === 'number' && bjDay(f['派稿日期']) === D && s(f, '状态') !== '取消');
+    const item = f => ({ code: s(f, '稿件编号') || s(f, '文本'), who: s(f, '发布人员'), acc: s(f, '账号名称'), kind: s(f, '分发类别'), status: s(f, '状态') || '待发布' });
+    return { total: rs.length, unassigned: rs.filter(f => !f['派稿日期'] && s(f, '状态') !== '取消').length, today: today.length, done: today.filter(f => s(f, '状态') === '已发布').length, todo: today.filter(f => s(f, '状态') !== '已发布').map(item), list: today.map(item) };
+  }
+  return { today, card, send, getRec, view, markDone, pipeline };
 }
 module.exports.createDispatch = createDispatch;
