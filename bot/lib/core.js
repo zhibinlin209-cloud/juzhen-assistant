@@ -426,9 +426,17 @@ function createCore({ cfg, api, log }) {
   const PG_COLS = [['标题', 1], ['派稿日期', 5], ['内容类型', 3, { options: [{ name: '图文', color: 0 }, { name: '视频', color: 1 }] }], ['发布平台', 4, { options: ['小红书', '抖音', '视频号', '微信贴图', '大众点评', '携程'].map((name, color) => ({ name, color })) }], ['门店', 3, { options: ['深圳华强北燕南店', '深圳前海HOP店', '深圳白石洲店', '深圳蛇口招商花园城店', '广州江南西店', '珠海玖洲道店', '惠州水东街店', '东莞东城33小镇店', '佛山创意产业园店', '佛山保利西街店', '粤迹·岭南家宴'].map((name, color) => ({ name, color: color % 10 })) }], ['发布人员', 3], ['账号名称', 1], ['稿件编号', 1], ['文案正文', 1], ['话题标签', 1], ['定位', 1], ['点评定位', 1], ['素材', 17], ['状态', 3, { options: [{ name: '待发布', color: 2 }, { name: '已发布', color: 4 }, { name: '取消', color: 7 }] }], ['小红书链接', 15], ['抖音链接', 15], ['视频号链接', 15], ['派稿人', 1], ['备注', 1]];
   async function ensurePaigao() {
     const app = await appToken(); const t = (await listTables()).find(x => x.name === PG_NAME);
-    if (!t) { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables`, { table: { name: PG_NAME, default_view_name: '全部', fields: PG_COLS.map(([field_name, type, property]) => Object.assign({ field_name, type }, property ? { property } : {})) } }); log('[派稿] 新建表：' + PG_NAME); return d.table_id; }
+    if (!t) { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables`, { table: { name: PG_NAME, default_view_name: '全部', fields: PG_COLS.map(([field_name, type, property]) => Object.assign({ field_name, type }, property ? { property } : {})) } }); log('[派稿] 新建表：' + PG_NAME); return ensurePaigao(); }
     const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const have = new Set((fd.items || []).map(f => f.field_name));
     for (const [field_name, type, property] of PG_COLS) if (!have.has(field_name)) { try { await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, Object.assign({ field_name, type }, property ? { property } : {})); log('[派稿] 补建列 ' + field_name); } catch (e) { log('[派稿] 补建列失败 ' + field_name + '：' + e.message); } }
+    // 发布人员下拉：和抖音/小红书表同一套名字和颜色，PR 派稿时直接选人（微信里 @ 的是昵称，对不上）
+    try {
+      const all = await listTables(); const opts = new Map();
+      for (const n of ['抖音-矩阵号-数据', '抖音-素人号-数据', '小红书矩阵号-数据', '视频号-数据']) { const x = all.find(y => y.name === n); if (!x) continue; const f = await api.call('GET', `/bitable/v1/apps/${app}/tables/${x.table_id}/fields`, null, { page_size: 200 }); for (const it of f.items || []) if ((it.field_name === '发布人员' || it.field_name === '人员') && it.type === 3) for (const o of (it.property || {}).options || []) if (o.name && !opts.has(o.name)) opts.set(o.name, o.color); }
+      const pf = (fd.items || []).find(f => f.field_name === '发布人员'); const cur = new Set(((pf && pf.property) || {}).options ? pf.property.options.map(o => o.name) : []);
+      const merged = (((pf && pf.property) || {}).options || []).map(o => ({ name: o.name, color: o.color })).concat([...opts].filter(([n]) => !cur.has(n)).map(([name, color]) => ({ name, color })));
+      if (pf && merged.length > cur.size) { await api.call('PUT', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields/${pf.field_id}`, { field_name: '发布人员', type: 3, property: { options: merged } }); log(`[派稿] 发布人员下拉同步 ${merged.length} 人`); }
+    } catch (e) { log('[派稿] 同步发布人员下拉失败 ' + e.message); }
     return t.table_id;
   }
   // 只读盘点：哪些表里有视频号内容（不改任何表）
