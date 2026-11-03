@@ -82,7 +82,16 @@ async function setup() {
     return Buffer.from(await r.arrayBuffer());
   }
   async function imgBuf(messageId, key) { const r = await fetch(`${API}/im/v1/messages/${messageId}/resources/${key}?type=image`, { headers: { authorization: 'Bearer ' + await token() } }); if (!r.ok) throw new Error('下载图片失败 HTTP ' + r.status); return Buffer.from(await r.arrayBuffer()); }
-  async function upload(buf, name, parentType, parentNode) { // 传到多维表格（附件列用）
+  async function upload(buf, name, parentType, parentNode) { // 传到多维表格（附件列用）；超过 20MB 分片传
+    if (buf.length > 20 * 1024 * 1024) {
+      const H = { authorization: 'Bearer ' + await token() };
+      const pre = await fetch(`${API}/drive/v1/medias/upload_prepare`, { method: 'POST', headers: Object.assign({ 'content-type': 'application/json; charset=utf-8' }, H), body: JSON.stringify({ file_name: name, parent_type: parentType, parent_node: parentNode, size: buf.length }) }).then(r => r.json());
+      if (pre.code !== 0) throw new Error(`上传素材失败（${pre.code}：${pre.msg}）`);
+      const { upload_id, block_size, block_num } = pre.data;
+      for (let i = 0; i < block_num; i++) { const part = buf.subarray(i * block_size, Math.min(buf.length, (i + 1) * block_size)); const fd = new FormData(); fd.append('upload_id', upload_id); fd.append('seq', String(i)); fd.append('size', String(part.length)); fd.append('file', new Blob([part]), name); const j = await fetch(`${API}/drive/v1/medias/upload_part`, { method: 'POST', headers: H, body: fd }).then(r => r.json()); if (j.code !== 0) throw new Error(`上传分片失败（${j.code}：${j.msg}）`); }
+      const fin = await fetch(`${API}/drive/v1/medias/upload_finish`, { method: 'POST', headers: Object.assign({ 'content-type': 'application/json; charset=utf-8' }, H), body: JSON.stringify({ upload_id, block_num }) }).then(r => r.json());
+      if (fin.code !== 0) throw new Error(`上传素材失败（${fin.code}：${fin.msg}）`); return fin.data.file_token;
+    }
     const fd = new FormData(); fd.append('file_name', name); fd.append('parent_type', parentType); fd.append('parent_node', parentNode); fd.append('size', String(buf.length)); fd.append('file', new Blob([buf]), name);
     const j = await fetch(`${API}/drive/v1/medias/upload_all`, { method: 'POST', headers: { authorization: 'Bearer ' + await token() }, body: fd }).then(r => r.json());
     if (j.code !== 0) throw new Error(`上传素材失败（${j.code}：${j.msg}）`); return j.data.file_token;
