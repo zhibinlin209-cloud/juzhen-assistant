@@ -98,3 +98,46 @@ function replyForDraft(d) {
   return `📥 已收进稿件库：${d.code}${d.writer ? '（写手 ' + d.writer + '）' : ''}${d.account ? '（账号 ' + d.account + '）' : ''}\n标题：${d.title || '⚠️ 没读到标题'}\n类别：${d.kind} · ${d.type} → ${d.platforms.join(' + ')}\n门店：${d.store || '⚠️ 没认出门店'}${d.area ? ' · 定位 ' + d.area : ''}${d.dp ? ' · 点评定位 ' + d.dp : ''}\n接下来 15 分钟内发的图片/视频会自动归到这篇。`;
 }
 module.exports = { createDraft, parseDraft, isDraft, replyForDraft, PLATFORMS };
+
+// ---------- 领稿卡片：派稿日期 = 今天、状态 = 待发布 的稿件 → 卡片 + 可复制的文案 + 素材 ----------
+function createDispatch({ api, core, raw, log }) {
+  const val = v => Array.isArray(v) ? v.map(x => (x && typeof x === 'object') ? (x.text || x.name || '') : String(x)).join('') : (v && typeof v === 'object') ? (v.text || v.name || v.link || '') : (v ?? '');
+  const bjDay = t => Math.floor((t + 8 * 3600e3) / 864e5);
+  async function today(day) {
+    const app = await core.appToken(); const tid = await core.ensurePaigao(); const out = []; let pt = '';
+    do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${tid}/records/search`, {}, Object.assign({ page_size: 200 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const D = day ?? bjDay(Date.now());
+    return out.map(r => ({ id: r.record_id, f: r.fields || {} })).filter(r => typeof r.f['派稿日期'] === 'number' && bjDay(r.f['派稿日期']) === D && String(val(r.f['状态']) || '待发布') === '待发布');
+  }
+  function card(r) {
+    const f = r.f, s = k => String(val(f[k]) || '').trim();
+    const plats = (Array.isArray(f['发布平台']) ? f['发布平台'] : []).map(String);
+    const files = f['素材'] || []; const nImg = files.filter(x => /^image\//.test(x.type || '') || /\.(jpe?g|png|webp|gif)$/i.test(x.name || '')).length; const nVid = files.length - nImg;
+    const who = s('发布人员') || '（还没选发布人员）'; const type = s('内容类型') || '图文';
+    const loc = [s('定位') && `📍 ${/抖音/.test(plats.join()) && type === '视频' ? '定位' : '小红书/携程定位'}：${s('定位')}`, s('点评定位') && plats.includes('大众点评') && `📍 点评定位：${s('点评定位')}`].filter(Boolean).join('\n');
+    const el = [
+      { tag: 'div', text: { tag: 'lark_md', content: `**要发的平台**\n${plats.map((p, i) => i === 0 ? `**${p}（主发）**` : p).join(' · ') || '—'}` } },
+      { tag: 'div', text: { tag: 'lark_md', content: `**标题**\n${s('标题') || '—'}` } },
+      { tag: 'div', text: { tag: 'lark_md', content: `**素材**\n${nImg ? `图片 ${nImg} 张（按顺序发）` : ''}${nImg && nVid ? '，' : ''}${nVid ? `视频 ${nVid} 个` : ''}${!files.length ? '⚠️ 还没有素材' : ''}` } }
+    ];
+    if (loc) el.push({ tag: 'div', text: { tag: 'lark_md', content: loc } });
+    el.push({ tag: 'hr' }, { tag: 'note', elements: [{ tag: 'plain_text', content: `👇 下面一条是完整文案和素材：长按复制、保存。发完把各平台链接回复在这张卡片下面，机器人自动登记。${type === '视频' ? '视频自带声音，不用加配乐。' : ''}` }] });
+    return { config: { wide_screen_mode: true }, header: { template: type === '视频' ? 'indigo' : 'blue', title: { tag: 'plain_text', content: `${type === '视频' ? '🎬 今日视频' : '📮 今日稿件'} · @${who}` } }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: `${s('稿件编号') || s('文本')}${s('账号名称') ? ' · 账号 ' + s('账号名称') : ''}${s('门店') ? ' · ' + s('门店') : ''}${typeof f['派稿日期'] === 'number' ? ' · ' + new Date(f['派稿日期'] + 8 * 3600e3).toISOString().slice(5, 10).replace('-', '/') : ''}` } }].concat(el) };
+  }
+  // 发给某人/某群：卡片 → 文案+图片（富文本，长按可复制/保存）→ 视频文件
+  async function send(r, receive) {
+    const f = r.f, s = k => String(val(f[k]) || '').trim();
+    const q = { receive_id_type: receive.type };
+    const sent = await api.call('POST', '/im/v1/messages', { receive_id: receive.id, msg_type: 'interactive', content: JSON.stringify(card(r)) }, q);
+    const files = f['素材'] || []; const imgs = [], vids = [];
+    for (const x of files) { try { const buf = await raw.download(x.url); if (/^video\//.test(x.type || '') || /\.(mp4|m4v|mov)$/i.test(x.name || '')) vids.push({ buf, name: x.name }); else imgs.push(await raw.imKey(buf)); } catch (e) { log('[领稿] 素材下载失败：' + e.message); } }
+    const text = [s('标题'), '', s('文案正文'), '', s('话题标签')].join('\n').replace(/\n{3,}/g, '\n\n').trim();
+    const content = [[{ tag: 'text', text }]].concat(imgs.map(k => [{ tag: 'img', image_key: k }]));
+    await api.call('POST', `/im/v1/messages/${sent.message_id}/reply`, { msg_type: 'post', content: JSON.stringify({ zh_cn: { title: '文案（长按复制）', content } }) });
+    for (const v of vids) { try { const key = await raw.imFile(v.buf, v.name); await api.call('POST', `/im/v1/messages/${sent.message_id}/reply`, { msg_type: 'file', content: JSON.stringify({ file_key: key }) }); } catch (e) { log('[领稿] 视频发送失败：' + e.message); } }
+    log(`[领稿] 已发：${s('稿件编号')} → ${s('发布人员') || '?'}`);
+    return { imgs: imgs.length, vids: vids.length };
+  }
+  return { today, card, send };
+}
+module.exports.createDispatch = createDispatch;

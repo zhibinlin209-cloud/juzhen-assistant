@@ -10,7 +10,7 @@ const { fetchDouyin } = require('./lib/douyin');
 const { createBrief, bjDay } = require('./lib/brief');
 const { createWeb } = require('./lib/web');
 const { createTgt, replyForTgt } = require('./lib/tgt');
-const { createDraft, replyForDraft } = require('./lib/draft');
+const { createDraft, replyForDraft, createDispatch } = require('./lib/draft');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
@@ -96,6 +96,9 @@ async function setup() {
     const j = await fetch(`${API}/drive/v1/medias/upload_all`, { method: 'POST', headers: { authorization: 'Bearer ' + await token() }, body: fd }).then(r => r.json());
     if (j.code !== 0) throw new Error(`上传素材失败（${j.code}：${j.msg}）`); return j.data.file_token;
   }
+  async function dl(url) { const r = await fetch(url, { headers: { authorization: 'Bearer ' + await token() } }); if (!r.ok) throw new Error('下载失败 HTTP ' + r.status); return Buffer.from(await r.arrayBuffer()); }
+  async function imKey(buf) { const fd = new FormData(); fd.append('image_type', 'message'); fd.append('image', new Blob([buf]), 'a.jpg'); const j = await fetch(`${API}/im/v1/images`, { method: 'POST', headers: { authorization: 'Bearer ' + await token() }, body: fd }).then(r => r.json()); if (j.code !== 0) throw new Error(`传图失败（${j.code}：${j.msg}）`); return j.data.image_key; }
+  async function imFile(buf, name) { const fd = new FormData(); fd.append('file_type', /\.mp4$/i.test(name) ? 'mp4' : 'stream'); fd.append('file_name', name); fd.append('file', new Blob([buf]), name); const j = await fetch(`${API}/im/v1/files`, { method: 'POST', headers: { authorization: 'Bearer ' + await token() }, body: fd }).then(r => r.json()); if (j.code !== 0) throw new Error(`传文件失败（${j.code}：${j.msg}）`); return j.data.file_key; }
   async function fetchXhs(url) { // 打开小红书短链，拿笔记 ID / 作者 / 发布时间
     try {
       const r = await fetch(url, { redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36' }, signal: AbortSignal.timeout(12000) });
@@ -138,6 +141,7 @@ async function setup() {
   const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log });
   await core.load(true);
   const draft = createDraft({ api: { call }, core, upload, log }); const lastVideo = new Map();
+  const dispatch = createDispatch({ api: { call }, core, raw: { download: dl, imKey, imFile }, log });
   for (const n of (cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'])) { try { await core.loadT(n, true); } catch (e) { log('[表] 读不到 ' + n + '：', e.message); } }
 
   // 视频号历史数据一次性导入（做过就不再做；按链接去重）
@@ -181,6 +185,10 @@ async function setup() {
     }
     if ((data.sender || {}).sender_type === 'user' && m.chat_id === dailyChatNow()) rememberBoss(((data.sender || {}).sender_id || {}).open_id);
     if (text && /^\s*(简报|日报简报|今日简报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendBrief({ replyTo: m.message_id, manual: true }); return; }
+    if (text && /^\s*(派稿预览|领稿预览)\s*$/.test(text) && m.chat_id === dailyChatNow()) {
+      try { const list = await dispatch.today(); if (!list.length) { await reply(m.message_id, '今天没有「派稿日期 = 今天、状态 = 待发布」的稿件'); return; } if (!boss) { await reply(m.message_id, '还不知道你的飞书账号，先在这个群里随便说句话'); return; } for (const r of list) await dispatch.send(r, { type: 'open_id', id: boss }); await reply(m.message_id, `✅ ${list.length} 张领稿卡片已私聊发给你（样卡）`); } catch (e) { log('[领稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 样卡没发出去：' + e.message.replace(/\/bitable\S*/g, '').slice(-120)); }
+      return;
+    }
     if (text && /^\s*(投放分析|推广通分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendAds({ replyTo: m.message_id }); return; }
     if (text && /^\s*(重新识别日报|重读日报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { rereadDaily(m.message_id); return; }
     if (text && /^\s*驾驶舱\s*$/.test(text) && m.chat_id === dailyChatNow()) { const link = web.loginLink(); if (link && boss) { try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: `🖥 驾驶舱登录链接（7 天内有效，登录后 30 天免登录，别转发给别人）：\n${link}` }) }, { receive_id_type: 'open_id' }); await reply(m.message_id, '✅ 登录链接已私聊发给你'); } catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 60)); } } return; }
