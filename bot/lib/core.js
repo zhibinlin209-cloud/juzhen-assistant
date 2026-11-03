@@ -49,6 +49,7 @@ function createCore({ cfg, api, log }) {
     return out;
   }
   const vt = {}; // 抖音 / 视频号用的表
+  const dyKey = u => { const t = String(u || ''); const a = t.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/); if (a) return 's:' + a[1]; const b = t.match(/(?:video|note)\/(\d{8,})/); return b ? 'i:' + b[1] : ''; };
   async function loadT(name, force) {
     if (vt[name] && !force && Date.now() - vt[name].at < 5 * 60e3) return vt[name];
     const app = await appToken(); const t = (await listTables()).find(x => x.name === name); if (!t) { log('[表] 没找到：' + name); return null; }
@@ -56,8 +57,15 @@ function createCore({ cfg, api, log }) {
     if (await heal(app, t.table_id, fd.items || [])) fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
     const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
     const rows = recs.map(r => { const f = r.fields || {}; const vlink = String(val(f['视频号链接'] || f['视频号']) || ''), tlink = String(val(f['贴图号']) || ''); return { id: r.record_id, table: name, title: titleOf(f['标题(供AI读取)'] || f['..标题'] || f['标题']), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, account: String(val(f['账号名称'] || f['账号昵称']) || '').trim(), ch: !!(vlink || tlink), kind: tlink ? '贴图' : vlink ? '视频' : '', cur: { views: num(f['播放量']), likes: num(f['点赞量']), comments: num(f['评论量']), shares: num(f['转发量']) } }; }).filter(r => r.title);
-    vt[name] = { id: t.table_id, name, fields: (fd.items || []).map(f => f.field_name), rows, at: Date.now() };
-    log(`[表] ${name}：${rows.length} 条可对`); return vt[name];
+    const meta = (fd.items || []).map(f => ({ name: f.field_name, type: f.type, options: ((f.property || {}).options || []).map(o => o.name) }));
+    // 抖音作品链接列：优先名字里带「抖音」的链接列，其次「作品链接 / 视频链接 / 链接」（排除视频号、贴图号、主页）
+    const linkCands = meta.filter(f => [1, 15].includes(f.type) && /链接|link/i.test(f.name) && !/视频号|贴图|主页|微信|小红书|点评|携程/.test(f.name));
+    const linkCol = (linkCands.find(f => /抖音/.test(f.name)) || linkCands.find(f => /作品|视频/.test(f.name)) || linkCands[0] || {}).name || '';
+    const accCol = ['账号名称', '账号昵称', '账号'].find(c => meta.some(f => f.name === c)) || '';
+    const links = new Set(), accts = new Set();
+    recs.forEach(r => { const f = r.fields || {}; const l = linkCol ? String(val(f[linkCol]) || '') : ''; const k = dyKey(l); if (k) links.add(k); const a = accCol ? String(val(f[accCol]) || '').trim() : ''; if (a) accts.add(a); });
+    vt[name] = { id: t.table_id, name, fields: meta.map(f => f.name), meta, linkCol, accCol, links, accts, rows, at: Date.now() };
+    log(`[表] ${name}：${rows.length} 条可对，${accts.size} 个账号，链接列「${linkCol || '没找到'}」，账号列「${accCol || '没找到'}」`); return vt[name];
   }
   async function load(force) {
     if (st.rows && !force && Date.now() - st.at < 5 * 60e3) return;
@@ -246,7 +254,38 @@ function createCore({ cfg, api, log }) {
     return out;
   }
 
-  return { handleText, handleImage, handleDaily, load, _st: st, _match: match };
+
+  // ---------- 抖音分享 → 先在矩阵号表找账号，找不到再去素人号表；找到就在那张表登记新作品 ----------
+  const DY = require('./douyin');
+  async function handleDouyin(text, senderName) {
+    const posts = DY.parseDouyin(text); if (!posts.length) return null;
+    const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'];
+    const Ts = []; for (const n of names) { const T = await loadT(n, true); if (T) Ts.push(T); }
+    const out = { created: [], dups: [], noAcct: [], noCol: [] }; const add = {};
+    for (const p of posts) {
+      const info = api.fetchDouyin ? await api.fetchDouyin(p.url) : {};
+      if (info.title && (p.truncated || info.title.length > p.title.length)) p.title = info.title;
+      p.nick = info.nick || p.nick; p.time = info.time || null; p.id = info.id || '';
+      const keys = [dyKey(p.url), p.id ? 'i:' + p.id : ''].filter(Boolean);
+      const dupT = Ts.find(T => keys.some(k => T.links.has(k)) || (P.norm(p.title).length >= 8 && T.rows.some(r => (!p.nick || !r.account || P.norm(r.account) === P.norm(p.nick)) && sim(P.norm(p.title), P.norm(r.title)) >= 0.95)));
+      if (dupT) { out.dups.push(Object.assign(p, { table: dupT.name })); continue; }
+      const T = p.nick && Ts.find(T => [...T.accts].some(a => P.norm(a) === P.norm(p.nick)));
+      if (!T) { out.noAcct.push(p); continue; }
+      if (!T.linkCol) { out.noCol.push(Object.assign(p, { table: T.name })); continue; }
+      const lf = T.meta.find(f => f.name === T.linkCol); const f = {};
+      f[T.linkCol] = lf.type === 15 ? { link: p.url, text: p.url } : p.url;
+      const af = T.meta.find(x => x.name === T.accCol); const acc = [...T.accts].find(a => P.norm(a) === P.norm(p.nick));
+      if (af && af.type === 1) f[T.accCol] = acc; else if (af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc;
+      const df = T.meta.find(x => x.name === '发布日期'); if (df && df.type === 5) f['发布日期'] = dayStart(p.time || Date.now());
+      const pf = T.meta.find(x => x.name === '人员'); const person = senderName && pf && (pf.options || []).find(o => senderName.includes(o) || o.includes(senderName)); if (person) f['人员'] = pf.type === 4 ? [person] : person;
+      (add[T.name] = add[T.name] || { T, recs: [] }).recs.push({ fields: f }); out.created.push(Object.assign(p, { table: T.name, account: acc })); T.links.add(dyKey(p.url));
+    }
+    const app = await appToken();
+    for (const { T, recs } of Object.values(add)) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/batch_create`, { records: recs }); vt[T.name] = null; }
+    return out;
+  }
+
+  return { handleText, handleImage, handleDaily, handleDouyin, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案
@@ -279,4 +318,15 @@ function replyForImage(r) {
   return L.join('\n');
 }
 
-module.exports = { createCore, replyForText, replyForImage, replyForDaily, val, num, titleOf };
+
+function replyForDouyin(r) {
+  const short = t => (t || '').length > 18 ? t.slice(0, 18) + '…' : (t || '（无标题）');
+  const L = [];
+  r.created.forEach(p => L.push(`✅ 抖音「${short(p.title)}」→ 已登记到「${p.table}」（${p.account}）`));
+  r.dups.forEach(p => L.push(`↩️ 抖音「${short(p.title)}」在「${p.table}」里已经有了，没重复登记`));
+  r.noAcct.forEach(p => L.push(`❓ 抖音「${short(p.title)}」：账号「${p.nick || '读不出'}」在矩阵号表和素人号表里都没有，没登记。是新账号的话先把账号加进表里再发一次`));
+  r.noCol.forEach(p => L.push(`⚠️ 「${p.table}」里找不到放抖音链接的列，没登记`));
+  return L.join('\n');
+}
+
+module.exports = { createCore, replyForDouyin, replyForText, replyForImage, replyForDaily, val, num, titleOf };

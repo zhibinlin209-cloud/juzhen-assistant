@@ -5,7 +5,8 @@
  */
 'use strict';
 const fs = require('fs'); const path = require('path'); const readline = require('readline');
-const { createCore, replyForText, replyForImage, replyForDaily } = require('./lib/core');
+const { createCore, replyForText, replyForImage, replyForDaily, replyForDouyin } = require('./lib/core');
+const { fetchDouyin } = require('./lib/douyin');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
@@ -89,8 +90,9 @@ async function setup() {
   }
 
 
-  const core = createCore({ cfg, api: { call, fetchXhs, vision: cfg.qwenKey ? vision : null }, log });
+  const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log });
   await core.load(true);
+  for (const n of (cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'])) { try { await core.loadT(n, true); } catch (e) { log('[表] 读不到 ' + n + '：', e.message); } }
 
   // ---------- 收消息 ----------
   const seen = new Set(); let markDaily = null;
@@ -122,6 +124,10 @@ async function setup() {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
         const r = await core.handleText(text, who);
         if (r) { log(`[登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForText(r)); }
+      }
+      if (text && /v\.douyin\.com|iesdouyin\.com|douyin\.com\/(video|note)/.test(text)) {
+        const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
+        try { const r = await core.handleDouyin(text, who); if (r) { log(`[抖音登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}，没找到账号 ${r.noAcct.length}`); await reply(m.message_id, replyForDouyin(r)); } } catch (e) { log('抖音登记出错：', e.message); await reply(m.message_id, '⚠️ 抖音链接没登记成功：' + e.message.slice(0, 60)); }
       }
       if (images.length) {
         if (!cfg.qwenKey) log('收到截图，但 config.json 没填通义千问 Key，跳过');
