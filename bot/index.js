@@ -12,6 +12,7 @@ const { createWeb } = require('./lib/web');
 const { createTgt, replyForTgt } = require('./lib/tgt');
 const { createDraft, replyForDraft, createDispatch, isInstr, parseInstr, createAccounts } = require('./lib/draft');
 const { createPeople } = require('./lib/people');
+const { createSettle, replyForSettle } = require('./lib/settle');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
@@ -145,6 +146,9 @@ async function setup() {
   const resolver = async (name, kind) => { const p = await people.resolve(name, kind).catch(() => null); if (!p) return null; return { who: p['真实姓名'], acc: /小红书/.test(kind) ? p['小红书账号'] : p['抖音账号'] }; };
   const draft = createDraft({ api: { call }, core, upload, log, resolver }); const lastVideo = new Map(), lastInstr = new Map(), draftMsg = new Map();
   const accounts = createAccounts({ api: { call }, core, log, people });
+  const settle = createSettle({ cfg, api: { call }, core, people, log });
+  async function runSettle(month) { const res = await settle.compute(month); const w = await settle.save(res); log('[结算明细] ' + JSON.stringify(res.rows.filter(r => r.合计条数).map(r => [r.真实姓名, r.抖音账号, r.小红书账号, r.抖音, r.视频号, r.小红书, r.大众点评, r.携程, r.微信贴图, r.合计条数]))); if (res.orphan.length) log('[结算] 对照表里没有的账号：' + res.orphan.join('、')); return replyForSettle(res, w); }
+  const lastMonth = () => { const d = new Date(Date.now() + 8 * 3600e3); const y = d.getUTCMonth() === 0 ? d.getUTCFullYear() - 1 : d.getUTCFullYear(), m = d.getUTCMonth() === 0 ? 12 : d.getUTCMonth(); return `${y}-${String(m).padStart(2, '0')}`; };
   async function fillAccounts() { // 派稿记录里有发布人员、没账号名称的 → 按分发类别补上账号
     const T = await draft.tbl(); const rows = []; let pt = '';
     do { const d = await call('POST', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/search`, {}, Object.assign({ page_size: 200 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
@@ -218,6 +222,7 @@ async function setup() {
       try { try { await fillAccounts(); } catch (e) { } const list = await dispatch.today(); if (!list.length) { await reply(m.message_id, '今天没有「派稿日期 = 今天、状态 = 待发布」的稿件'); return; } if (!boss) { await reply(m.message_id, '还不知道你的飞书账号，先在这个群里随便说句话'); return; } for (const r of list) await dispatch.send(r, { type: 'open_id', id: boss }); await reply(m.message_id, `✅ ${list.length} 张领稿卡片已私聊发给你（样卡）`); } catch (e) { log('[领稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 样卡没发出去：' + e.message.replace(/\/bitable\S*/g, '').slice(-120)); }
       return;
     }
+    { const sm = text && text.trim().match(/^结算(?:\s*(\d{4})?[-年./]?\s*(\d{1,2})\s*月?)?$/); if (sm && m.chat_id === dailyChatNow()) { const y = sm[1] || String(new Date(Date.now() + 8 * 3600e3).getUTCFullYear()); const mon = sm[2] ? `${y}-${String(sm[2]).padStart(2, '0')}` : lastMonth(); try { await reply(m.message_id, '⏳ 正在算 ' + mon + ' 的结算…'); await reply(m.message_id, await runSettle(mon)); } catch (e) { log('[结算] 出错：' + e.message); await reply(m.message_id, '⚠️ 结算没算出来：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); } return; } }
     if (text && /^\s*(投放分析|推广通分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendAds({ replyTo: m.message_id }); return; }
     if (text && /^\s*(重新识别日报|重读日报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { rereadDaily(m.message_id); return; }
     if (text && /^\s*驾驶舱\s*$/.test(text) && m.chat_id === dailyChatNow()) { const link = web.loginLink(); if (link && boss) { try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: `🖥 驾驶舱登录链接（7 天内有效，登录后 30 天免登录，别转发给别人）：\n${link}` }) }, { receive_id_type: 'open_id' }); await reply(m.message_id, '✅ 登录链接已私聊发给你'); } catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 60)); } } return; }
@@ -412,6 +417,11 @@ async function setup() {
       if (hh === 20 && pst.remind !== day) { pst.remind = day; fs.writeFileSync(PST, JSON.stringify(pst)); const t = await progress(chat, true); if (t) await call('POST', '/im/v1/messages', { receive_id: chat, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'chat_id' }); }
       if (hh === 21 && mm >= 30 && pst.sum !== day) { pst.sum = day; fs.writeFileSync(PST, JSON.stringify(pst)); const t = await progress(chat, false); if (!/还没有派过稿/.test(t)) await call('POST', '/im/v1/messages', { receive_id: chat, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'chat_id' }); }
     } catch (e) { log('[领稿] 定时提醒出错：' + e.message); }
+  }, 60e3);
+  setTimeout(async () => { const f = path.join(DATA_DIR, 'settle-2026-10.json'); if (fs.existsSync(f)) return; try { const t = await runSettle('2026-10'); fs.writeFileSync(f, JSON.stringify({ at: Date.now() })); log('[结算] 10 月试算完成'); } catch (e) { log('[结算] 10 月试算出错：' + e.message); } }, 80e3); // 一次性：用 10 月数据和腾讯文档对账
+  setInterval(async () => { // 每月 1 号 10:30：算上个月结算草稿，私聊老板
+    const bj = new Date(Date.now() + 8 * 3600e3); if (bj.getUTCDate() !== 1 || bj.getUTCHours() !== 10 || bj.getUTCMinutes() < 30) return; const mon = lastMonth(); if (pst.settle === mon || !boss) return; pst.settle = mon; try { fs.writeFileSync(PST, JSON.stringify(pst)); } catch (e) { }
+    try { const t = await runSettle(mon); await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'open_id' }); } catch (e) { log('[结算] 自动结算出错：' + e.message); }
   }, 60e3);
   async function sendAds(o) {
     o = o || {};
