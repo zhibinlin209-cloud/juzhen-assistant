@@ -219,7 +219,7 @@ function createCore({ cfg, api, log }) {
 
   // ---------- 视频号-数据：发链接先登记，一周后发截图补标题和数据 ----------
   const SPH_NAME = cfg.sphTable || '视频号-数据';
-  const SPH_COLS = [['标题', 1], ['发布日期', 5], ['发布人员', 1], ['账号名称', 1], ['视频号链接', 15], ['播放', 2], ['点赞', 2], ['评论', 2], ['转发', 2], ['收藏', 2], ['数据更新于', 5], ['登记时间', 5]];
+  const SPH_COLS = [['标题', 1], ['发布日期', 5], ['发布人员', 1], ['账号名称', 1], ['视频号链接', 15], ['播放', 2], ['点赞', 2], ['评论', 2], ['转发', 2], ['收藏', 2], ['数据更新于', 5], ['登记时间', 5], ['类型', 1], ['来源', 1]];
   const sphKey = u => { const m = String(u || '').match(/(?:sph\/|id=|feed\/|export\/)([A-Za-z0-9_-]{6,})/); return m ? m[1] : String(u || '').trim(); };
   let sphNoAdd = false;
   async function sphTable() {
@@ -341,6 +341,24 @@ function createCore({ cfg, api, log }) {
     return out;
   }
 
+  // 历史导入：从抖音矩阵号 / 视频号矩阵号 / 抖音素人号三张表里把视频号内容复制到「视频号-数据」（只读原表，按链接去重，可重复执行）
+  async function sphImport() {
+    const app = await appToken(); const all = await listTables(); const T = await sphTable();
+    const WX = /https?:\/\/(?:weixin\.qq\.com\/sph\/[A-Za-z0-9_-]+|channels\.weixin\.qq\.com\/[^\s"\\,，。)）]+)/;
+    const link = v => { const m = JSON.stringify(v ?? '').match(WX); return m ? m[0] : ''; };
+    const read = async name => { const t = all.find(x => x.name === name); if (!t) return []; const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt); return recs.map(r => r.fields || {}); };
+    const mx = (...a) => { const v = a.map(num).filter(x => x !== null && x !== undefined); return v.length ? Math.max(...v) : null; };
+    const items = new Map(); const seen = new Set(T.rows.map(r => sphKey(r.link)).filter(Boolean));
+    const put = (u, o) => { const k = sphKey(u); if (!u || seen.has(k)) return; const old = items.get(k); if (!old) { items.set(k, Object.assign({ u }, o)); return; } for (const [a, b] of Object.entries(o)) if ((old[a] === null || old[a] === undefined || old[a] === '') && b !== null && b !== undefined && b !== '') old[a] = b; };
+    const base = (f, src, kind) => ({ title: titleOf(f['标题(供AI读取)'] || f['..标题'] || f['标题']), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, person: String(val(f['发布人员']) || '').trim(), acc: String(val(f['账号名称']) || '').trim(), src, kind });
+    for (const f of await read('抖音-矩阵号-数据')) { const u = link(f['视频号链接']); put(u, Object.assign(base(f, '抖音-矩阵号-数据', '视频'), { views: mx(f['播放量'], f['视频号播放(自动)']), likes: mx(f['点赞量'], f['视频号点赞(自动)']), comments: mx(f['评论量'], f['视频号评论(自动)']), shares: mx(f['转发量'], f['视频号转发(自动)']), collects: mx(f['视频号收藏(自动)']) })); }
+    for (const f of await read('视频号-矩阵号-数据')) { const u = link(f['视频号链接']); put(u, Object.assign(base(f, '视频号-矩阵号-数据', '视频'), { views: mx(f['播放量']), likes: mx(f['点赞量']), comments: mx(f['评论量']), shares: mx(f['转发量']) })); }
+    for (const f of await read('抖音-素人号-数据')) { const m = { views: mx(f['播放量']), likes: mx(f['点赞量']), comments: mx(f['评论量']), shares: mx(f['转发量']) }; const v = link(f['视频号']), p = link(f['贴图号']); if (v) put(v, Object.assign(base(f, '抖音-素人号-数据', '视频'), m)); if (p) put(p, Object.assign(base(f, '抖音-素人号-数据', '贴图'), m)); }
+    const now = Date.now(); const recs = [...items.values()].map(o => ({ fields: T.fit({ 标题: o.title || null, 发布日期: o.date, 发布人员: o.person || null, 账号名称: o.acc || null, 视频号链接: { link: o.u, text: o.u }, 播放: o.views, 点赞: o.likes, 评论: o.comments, 转发: o.shares, 收藏: o.collects, 类型: o.kind, 来源: o.src, 登记时间: now }) }));
+    for (let i = 0; i < recs.length; i += 400) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_create`, { records: recs.slice(i, i + 400) });
+    const by = {}; [...items.values()].forEach(o => { by[o.src] = (by[o.src] || 0) + 1; });
+    return { added: recs.length, skipped: T.rows.filter(r => r.link).length, by };
+  }
   // 只读盘点：哪些表里有视频号内容（不改任何表）
   async function sphSurvey() {
     const app = await appToken(); const all = await listTables(); const out = [];
@@ -356,7 +374,7 @@ function createCore({ cfg, api, log }) {
     }
     return out;
   }
-  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, load, loadT, _st: st, _match: match };
+  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案
