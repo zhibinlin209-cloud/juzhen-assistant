@@ -61,7 +61,7 @@ function createDraft({ api, core, upload, log }) {
   let tid = null; const pending = new Map(); // 发稿人 → { id, code, at, n }
   async function tbl() { if (!tid) tid = await core.ensurePaigao(); return { app: await core.appToken(), tid }; }
   async function save(text, sender, senderId, imgs, video) {
-    const d = parseDraft(text, video && video.name); const T = await tbl();
+    const d = parseDraft(text, video && video.named !== false ? video.name : ''); const T = await tbl();
     const kind = /抖音素人/.test(d.kind) ? '抖音素人号' : (/抖音矩阵/.test(d.kind) || d.video) ? '抖音矩阵号' : '小红书矩阵号';
     const type = kind === '抖音矩阵号' || d.video ? '视频' : '图文';
     const fields = { 文本: d.code, 稿件编号: d.code, 写手: d.writer, 账号名称: d.account, 分发类别: kind, 内容类型: type, 发布平台: PLATFORMS[`${kind}|${type}`] || [], 标题: d.title, 文案正文: d.body, 话题标签: d.tags, 门店: d.store, 定位: d.loc || d.area, 点评定位: d.dp, 状态: '待发布', 派稿人: sender || '', 备注: '收稿时间 ' + new Date(Date.now() + 8 * 3600e3).toISOString().slice(5, 16).replace('T', ' ') };

@@ -155,7 +155,8 @@ async function setup() {
     if (type === 'post') {
       const body = c.content ? c : (c.zh_cn || c.en_us || Object.values(c)[0] || {});
       const text = [body.title || '', ...(body.content || []).map(par => par.map(x => x.tag === 'a' ? `${x.text || ''} ${x.href || ''}` : x.tag === 'text' ? x.text : '').join(''))].join('\n');
-      return { text, images: (body.content || []).flat().filter(x => x.tag === 'img').map(x => x.image_key) };
+      const flat = (body.content || []).flat();
+      return { text, images: flat.filter(x => x.tag === 'img').map(x => x.image_key), media: flat.filter(x => x.tag === 'media' && x.file_key).map(x => ({ key: x.file_key, name: x.file_name || '' })) };
     }
     return { text: '', images: [] };
   }
@@ -163,7 +164,7 @@ async function setup() {
     const m = data.message || {}; if (!m.message_id || seen.has(m.message_id)) return; seen.add(m.message_id); if (seen.size > 5000) seen.clear();
     if (m.chat_type !== 'group') return;
     if (cfg.chats && cfg.chats.length && !cfg.chats.includes(m.chat_id)) return;
-    const { text, images } = flatten(m.message_type, m.content);
+    const { text, images, media } = flatten(m.message_type, m.content);
     const sid = ((data.sender || {}).sender_id || {}).open_id || '';
     if (m.message_type === 'media' || m.message_type === 'file') {
       let c = {}; try { c = JSON.parse(m.content || '{}'); } catch (e) { }
@@ -191,9 +192,10 @@ async function setup() {
     }
     if ((data.sender || {}).sender_type === 'app') return;
     // 收稿：编号 + 标题 + 正文；之后 15 分钟内同一个人发的图片都算这篇的素材
-    const lv = lastVideo.get(sid); const vid = lv && Date.now() - lv.at < 15 * 60e3 ? lv : null;
+    const lv = lastVideo.get(sid); let vid = lv && Date.now() - lv.at < 15 * 60e3 ? lv : null;
+    if (media && media.length) vid = { mid: m.message_id, key: media[0].key, name: media[0].name, at: Date.now(), inline: true }; // 视频和文字在同一条消息里
     if (text && draft.isDraft(text, vid)) {
-      try { const who = await senderName(sid); let video = null; if (vid && !/(^|\n)\s*标题\s*[:：]/.test(text)) { lastVideo.delete(sid); try { video = { buf: await fileBuf(vid.mid, vid.key), name: vid.name }; } catch (e) { log('[收稿] 视频下载失败：' + e.message); } } const imgs = []; for (const k of images) { try { imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); } catch (e) { } } const d = await draft.save(text, who, sid, imgs, video); await reply(m.message_id, replyForDraft(d) + (imgs.length ? `\n已存 ${imgs.length} 张图` : '') + (video ? `\n已存视频 ${video.name}` : '')); } catch (e) { log('[收稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 稿件没存进去：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); }
+      try { const who = await senderName(sid); let video = null; if (vid && !/(^|\n)\s*标题\s*[:：]/.test(text)) { if (!vid.inline) lastVideo.delete(sid); try { video = { buf: await fileBuf(vid.mid, vid.key), name: vid.name || '视频.mp4', named: !!vid.name }; } catch (e) { log('[收稿] 视频下载失败：' + e.message); } } const imgs = []; for (const k of images) { try { imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); } catch (e) { } } const d = await draft.save(text, who, sid, imgs, video); await reply(m.message_id, replyForDraft(d) + (imgs.length ? `\n已存 ${imgs.length} 张图` : '') + (video ? `\n已存视频 ${video.name}` : '')); } catch (e) { log('[收稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 稿件没存进去：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); }
       return;
     }
     if (!text && images.length && draft.active(sid)) {
