@@ -286,7 +286,11 @@ function createCore({ cfg, api, log }) {
     throw new Error('config.json 里 dailyBaseUrl 不是多维表格链接');
   }
   async function handleDaily(text, source) {
-    const list = D.parseDaily(text); if (!list.length) return null;
+    const all = D.parseDaily(text); if (!all.length) return null;
+    // 像测试数据的不入库：日期在未来、超过 60 天前，或营业额低于 100
+    const now = Date.now(); const bad = all.filter(r => r.ts > now + 2 * DAY || r.ts < now - 60 * DAY || (r.total !== null && r.total !== undefined && r.total < 100));
+    const list = all.filter(r => !bad.includes(r)); if (bad.length) log('[日报] 疑似测试数据，没入库：' + bad.map(r => `${r.store} ${r.date} 营业额${r.total}`).join('；'));
+    if (!list.length) return bad.map(r => Object.assign({}, r, { rejected: true }));
     // 经营数据只写进你自己的私密表格（config.json 的 dailyBaseUrl），绝不写进营销部共享的表
     const app = await dailyAppToken(); if (app === await appToken()) throw new Error('dailyBaseUrl 不能和营销部共享表格是同一个');
     const name = cfg.dailyTable || '门店营业日报';
@@ -308,7 +312,7 @@ function createCore({ cfg, api, log }) {
     for (let i = 0; i < add.length; i += 400) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/batch_create`, { records: add.slice(i, i + 400) });
     for (let i = 0; i < upd.length; i += 400) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/batch_update`, { records: upd.slice(i, i + 400) });
     log(`[日报] 新增 ${add.length}，更新 ${upd.length}`);
-    return out;
+    return out.concat(bad.map(r => Object.assign({}, r, { rejected: true })));
   }
 
 
@@ -474,8 +478,11 @@ function replyForText(r) {
 }
 function replyForDaily(list) {
   if (!list || !list.length) return '';
+  const rej = list.filter(r => r.rejected); list = list.filter(r => !r.rejected);
+  const rj = rej.length ? rej.map(r => `⚠️ ${r.store} ${String(r.date).slice(5)} 营业额 ${r.total ?? '—'}：看着像测试数据，没记录`).join('\n') : '';
+  if (!list.length) return rj;
   const w = x => (x === null || x === undefined ? '' : `（较上周同日 ${x >= 0 ? '+' : ''}${x}%）`);
-  return list.slice(0, 15).map(r => `📈 ${r.store} ${r.date.slice(5)}：${r.total === null || r.total === undefined ? '⚠️ 营业额没读出来' : '营业额 ' + Math.round(r.total)}${w(r.wow)}${r.dpBad ? `｜点评差评 ${r.dpBad}` : ''}${r.mtBad ? `｜美团差评 ${r.mtBad}` : ''}${r.updated ? '（已覆盖旧记录）' : ''}`).join('\n') + (list.length > 15 ? `\n…共 ${list.length} 份` : '') + '\n已记入你的私密表格（只有你能看）';
+  return list.slice(0, 15).map(r => `📈 ${r.store} ${r.date.slice(5)}：${r.total === null || r.total === undefined ? '⚠️ 营业额没读出来' : '营业额 ' + Math.round(r.total)}${w(r.wow)}${r.dpBad ? `｜点评差评 ${r.dpBad}` : ''}${r.mtBad ? `｜美团差评 ${r.mtBad}` : ''}${r.updated ? '（已覆盖旧记录）' : ''}`).join('\n') + (list.length > 15 ? `\n…共 ${list.length} 份` : '') + '\n已记入你的私密表格（只有你能看）' + (rj ? '\n' + rj : '');
 }
 function replyForImage(r) {
   if (!r) return '';
