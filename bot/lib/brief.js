@@ -56,11 +56,11 @@ function createBrief({ cfg, api, log, llm }) {
         if (!a) { F.missing.push(s); continue; }
         const rev = num(a['总营业额']), prev = b ? num(b['总营业额']) : null;
         const prevDay = Object.keys(days).map(Number).filter(d => d < y).sort((p, q) => q - p)[0]; const pd = prevDay !== undefined ? days[prevDay] : null;
-        const row = { store: s, revenue: rev, lastWeek: prev, wow: rev !== null && prev ? (rev - prev) / prev : null, dpScore: num(a['点评评分']), mtScore: num(a['美团评分']), dyScore: num(a['抖音评分']), dpBad: num(a['点评差评']) || 0, mtBad: num(a['美团差评']) || 0, dpScorePrev: pd ? num(pd['点评评分']) : null, mtScorePrev: pd ? num(pd['美团评分']) : null };
+        const row = { store: s, revenue: rev, lastWeek: prev, wow: rev !== null && prev ? (rev - prev) / prev : null, dpScore: num(a['点评评分']), mtScore: num(a['美团评分']), dyScore: num(a['抖音评分']), dpBad: num(a['点评差评']) || 0, mtBad: num(a['美团差评']) || 0, wmScore: num(a['外卖评分']), wmBad: num(a['外卖差评']) || 0, dyBad: num(a['抖音差评']) || 0, dpScorePrev: pd ? num(pd['点评评分']) : null, mtScorePrev: pd ? num(pd['美团评分']) : null, wmScorePrev: pd ? num(pd['外卖评分']) : null, dyScorePrev: pd ? num(pd['抖音评分']) : null };
         F.stores.push(row);
         if (row.wow !== null && row.wow <= RULE.dropPct) F.alerts.push(`${s} 营业额 ${fmt(rev)}，比上周同日 ${pct(row.wow)}`);
-        const bad = row.dpBad + row.mtBad; if (bad >= RULE.badRed) F.alerts.push(`${s} 昨天差评 ${bad} 条（点评 ${row.dpBad}、美团 ${row.mtBad}）`);
-        [['点评', 'dpScore', 'dpScorePrev'], ['美团', 'mtScore', 'mtScorePrev']].forEach(([n, k, kp]) => { if (row[k] !== null && row[kp] !== null && row[kp] - row[k] >= RULE.scoreDrop - 1e-9) F.alerts.push(`${s} ${n}评分 ${row[kp]} → ${row[k]}`); });
+        const bad = row.dpBad + row.mtBad + row.wmBad + row.dyBad; if (bad >= RULE.badRed) F.alerts.push(`${s} 昨天差评 ${bad} 条（点评 ${row.dpBad}、美团 ${row.mtBad}、外卖 ${row.wmBad}、抖音 ${row.dyBad}）`);
+        [['点评', 'dpScore', 'dpScorePrev'], ['美团', 'mtScore', 'mtScorePrev'], ['外卖', 'wmScore', 'wmScorePrev'], ['抖音', 'dyScore', 'dyScorePrev']].forEach(([n, k, kp]) => { if (row[k] !== null && row[kp] !== null && row[kp] - row[k] >= RULE.scoreDrop - 1e-9) F.alerts.push(`${s} ${n}评分 ${row[kp]} → ${row[k]}`); });
       }
       F.stores.sort((p, q) => (q.revenue || 0) - (p.revenue || 0));
       F.total = F.stores.reduce((t, r) => t + (r.revenue || 0), 0);
@@ -107,7 +107,7 @@ function createBrief({ cfg, api, log, llm }) {
     const L = [`📊 ${F.date}（周${F.weekday}）经营简报`];
     if (F.stores.length) {
       L.push(`\n💰 营业额合计 ${fmt(F.total)}${F.totalWow !== undefined ? '，比上周同日 ' + pct(F.totalWow) : ''}`);
-      F.stores.forEach(r => L.push(`· ${r.store} ${fmt(r.revenue)}${r.wow !== null ? '（' + pct(r.wow) + '）' : ''}${r.dpBad + r.mtBad ? ' 差评' + (r.dpBad + r.mtBad) : ''}`));
+      F.stores.forEach(r => L.push(`· ${r.store} ${fmt(r.revenue)}${r.wow !== null ? '（' + pct(r.wow) + '）' : ''}${r.dpBad + r.mtBad + r.wmBad + r.dyBad ? ' 差评' + (r.dpBad + r.mtBad + r.wmBad + r.dyBad) : ''}`));
     } else L.push('\n💰 昨天还没有收到任何门店的营业日报');
     if (F.missing.length) L.push(`⏳ 未收到日报：${F.missing.join('、')}`);
     if (F.alerts.length) { L.push('\n⚠️ 需要关注'); F.alerts.forEach(a => L.push('· ' + a)); }
