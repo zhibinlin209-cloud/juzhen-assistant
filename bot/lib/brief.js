@@ -186,8 +186,25 @@ ${JSON.stringify(F)}`;
     } catch (e) { log('[简报] 存档失败：' + e.message); }
   }
 
+  // 驾驶舱用：读待办、改状态、取最近一份简报
+  async function listTodos() {
+    if (!cfg.dailyBaseUrl) return [];
+    const T = await ensure('待办与决策'); const out = []; let pt = '';
+    do { const d = await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    return out.map(x => { const f = x.fields || {}; return { id: x.record_id, title: String(val(f['事项']) || ''), type: String(val(f['类型']) || '其他'), status: String(val(f['状态']) || '待定'), detail: String(val(f['详情']) || ''), first: f['首次出现'] || 0, last: f['最近出现'] || 0 }; }).sort((a, b) => b.last - a.last);
+  }
+  async function setTodo(id, status) {
+    if (!['待定', '已同意', '已执行', '不做'].includes(status)) throw new Error('状态不对');
+    const T = await ensure('待办与决策'); await api.call('PUT', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/${id}`, { fields: { 状态: status } });
+  }
+  async function latest() {
+    if (!cfg.dailyBaseUrl) return null;
+    const A = await ensure('简报存档'); const d = await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records/search`, { sort: [{ field_name: '生成时间', desc: true }] }, { page_size: 1 });
+    const f = ((d.items || [])[0] || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null;
+  }
+
   async function make(now, o) { const F = await facts(now); const prof = await profile(); const r = await write(F, prof); if (!(o && o.noArchive)) await archive(F, r, (o && o.kind) || '日报'); return Object.assign(r, { facts: F }); }
-  return { facts, profile, plain, write, make, archive, _allowed: allowed };
+  return { facts, profile, plain, write, make, archive, listTodos, setTodo, latest, _allowed: allowed };
 }
 
 module.exports = { createBrief, bjDay };

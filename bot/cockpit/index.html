@@ -41,10 +41,25 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 @media (prefers-reduced-motion: reduce) { .ring { animation: none } }
 .ceo p { margin: 0; color: var(--mute); font-size: 12px }
 .ceo .say { color: var(--ink); font-size: 13px; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px }
-.agents { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; width: 100%; padding-top: 26px; margin-top: 0 }
-.agents::before { content: ""; position: absolute; top: 0; left: 12.5%; right: 12.5%; height: 1px; background: var(--line) }
-.agent { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; cursor: pointer; text-align: left; font: inherit; color: inherit }
-.agent::before { content: ""; position: absolute; top: -26px; left: 50%; width: 1px; height: 26px; background: linear-gradient(var(--line), var(--cyan)) }
+.tree { position: relative; width: 100% }
+.wires { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible }
+.wires path { fill: none; stroke-width: 1.4 }
+.wires .base { stroke: var(--line) }
+.wires .flow { stroke-dasharray: 3 14; animation: flow 1.6s linear infinite; opacity: .9 }
+@keyframes flow { to { stroke-dashoffset: -34 } }
+@media (prefers-reduced-motion: reduce) { .wires .flow { animation: none } }
+.tags { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 46px 0 10px; position: relative; z-index: 1 }
+.tag { justify-self: center; font-family: var(--f-data); font-size: 10.5px; line-height: 1.5; background: var(--deep); border: 1px solid var(--line); border-radius: 5px; padding: 2px 8px; color: var(--mute) }
+.tag b { font-weight: 500; color: var(--h) }
+.agents { position: relative; z-index: 1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; width: 100% }
+.agent { position: relative; background: var(--panel); border: 1px solid var(--line); border-top: 2px solid var(--h); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; cursor: pointer; text-align: left; font: inherit; color: inherit }
+.col { display: grid; gap: 8px; align-content: start }
+.kids { display: grid; gap: 6px; margin-left: 14px; padding-left: 12px; border-left: 1px solid var(--h); position: relative }
+.kid { display: grid; grid-template-columns: 8px minmax(0, 1fr) auto; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; font-size: 12px }
+.kid i { width: 6px; height: 6px; border-radius: 50%; background: var(--good) } .kid i.warn { background: var(--amber) } .kid i.bad { background: var(--bad) }
+.kid b { font-weight: 500; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis } .kid small { color: var(--faint); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.kid .v { font-family: var(--f-data); font-size: 13px }
+.hue-amber { --h: #ff9f43 } .hue-cyan { --h: #4cc9f0 } .hue-green { --h: #3ddc97 } .hue-rose { --h: #ff6b9a }
 .agent:hover, .agent:focus-visible { border-color: #4cc9f077; outline: none }
 .agent .hd { display: flex; justify-content: space-between; align-items: center; font-weight: 700 }
 .agent .big { font-family: var(--f-data); font-size: 22px; font-weight: 600; letter-spacing: -.01em }
@@ -78,8 +93,9 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
 .sec { font-size: 11px; color: var(--faint); letter-spacing: .08em; margin: 12px 0 4px }
 .empty { color: var(--faint); font-size: 12px; padding: 6px 0 }
 @media (max-width: 980px) { .desk { grid-template-columns: 1fr } }
-@media (max-width: 760px) { .agents { grid-template-columns: repeat(2, minmax(0, 1fr)) } .agents::before, .agent::before { display: none } .status { margin-left: 0 } }
+@media (max-width: 760px) { .agents, .tags { grid-template-columns: repeat(2, minmax(0, 1fr)) } .wires, .tags { display: none } .agents { margin-top: 16px } .status { margin-left: 0 } }
 @media (max-width: 420px) { .agents { grid-template-columns: 1fr } }
+.agent .hd .ic { color: var(--h); margin-right: 6px }
 </style>
 
 <div class="wrap">
@@ -102,7 +118,7 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
       <p id="ceoMeta">每 10 分钟巡视 · 今天汇报 0 次</p>
       <div class="say" id="ceoSay">—</div>
     </div>
-    <div class="agents" id="agents"></div>
+    <div class="tree" id="tree"><svg class="wires" id="wires" aria-hidden="true"></svg><div class="tags" id="tags"></div><div class="agents" id="agents"></div></div>
   </section>
 
   <section class="desk">
@@ -118,10 +134,10 @@ const SAMPLE = {
   sample: true, boss: '林智斌', briefTime: '09:00', generatedAt: '2026-11-03T09:00:12+08:00', date: '11/02', weekday: '一',
   ceo: { patrols: 54, reports: 1, say: '昨天 9 家店营业额合计 61.2 万，比上周同日 +4.1%；华强北 -18%、差评 2 条要看。小红书有 3 条起量但还没投流。' },
   agents: [
-    { key: 'biz', name: '经营 Agent', status: 'ok', big: '612,380', unit: '元 · 昨天合计', last: '01:52 补收日报', next: '每 10 分钟', sub: [['日报已收', '9 / 11 家'], ['比上周同日', '+4.1%'], ['未收到', '水东街、陈家祠']] },
-    { key: 'content', name: '内容 Agent', status: 'ok', big: '23', unit: '条 · 昨天发布', last: '11:27 登记抖音', next: '随群消息', sub: [['近 7 天', '148 条'], ['截图更新', '17 条'], ['断更账号', '3 个']] },
-    { key: 'ads', name: '投放 Agent', status: 'wait', big: '3', unit: '条 · 建议投放', last: '09:00 筛选', next: '明天 09:00', sub: [['推广通报表', '等 Debbie 9:00 发'], ['聚光接口', '待申请'], ['本地推接口', '待申请']] },
-    { key: 'rep', name: '口碑 Agent', status: 'ok', big: '2', unit: '条 · 昨天差评', last: '01:52 读日报', next: '每 10 分钟', sub: [['点评评分下降', '1 家'], ['外卖评分', '日报待加'], ['抖音评分', '日报待加']] }
+    { key: 'biz', name: '经营 Agent', hue: 'amber', up: '日报 01:52', down: '补收 每10分钟', kids: [{ name: '宝安HOP天地店', note: '比上周 +8.1%', val: '96,500', tone: 'ok' }, { name: '华强北燕南店', note: '比上周 -22.2%', val: '70,000', tone: 'bad' }, { name: '玖洲道店', note: '比上周 +3.2%', val: '79,100', tone: 'ok' }], status: 'ok', big: '612,380', unit: '元 · 昨天合计', last: '01:52 补收日报', next: '每 10 分钟', sub: [['日报已收', '9 / 11 家'], ['比上周同日', '+4.1%'], ['未收到', '水东街、陈家祠']] },
+    { key: 'content', name: '内容 Agent', hue: 'cyan', up: '登记 今天 6 次', down: '截图/分享 随到随办', kids: [{ name: '小红书', note: '近7天 96 条', val: '14', tone: 'ok' }, { name: '抖音矩阵号', note: '近7天 30 条', val: '6', tone: 'ok' }, { name: '抖音素人号', note: '近7天 22 条', val: '3', tone: 'ok' }], status: 'ok', big: '23', unit: '条 · 昨天发布', last: '11:27 登记抖音', next: '随群消息', sub: [['近 7 天', '148 条'], ['截图更新', '17 条'], ['断更账号', '3 个']] },
+    { key: 'ads', name: '投放 Agent', hue: 'green', up: '建议 3 条', down: '按档案标准筛选', kids: [{ name: '欧阳', note: '小红书 · 建议投', val: '3,000', tone: 'ok' }, { name: 'Liu in', note: '小红书 · 互动率 3.6% 低于门槛 5%', val: '24,000', tone: 'warn' }], status: 'wait', big: '3', unit: '条 · 建议投放', last: '09:00 筛选', next: '明天 09:00', sub: [['推广通报表', '等 Debbie 9:00 发'], ['聚光接口', '待申请'], ['本地推接口', '待申请']] },
+    { key: 'rep', name: '口碑 Agent', hue: 'rose', up: '差评 2 条', down: '评分随日报更新', kids: [{ name: '华强北燕南店', note: '点评 4.7 · 美团 4.5', val: '差评 2', tone: 'bad' }, { name: '灯湖西街', note: '点评 4.8 · 美团 4.6', val: '差评 1', tone: 'bad' }], status: 'ok', big: '2', unit: '条 · 昨天差评', last: '01:52 读日报', next: '每 10 分钟', sub: [['点评评分下降', '1 家'], ['外卖评分', '日报待加'], ['抖音评分', '日报待加']] }
   ],
   todos: [
     { id: 'a', type: '投放建议', title: '小红书·欧阳「去深圳必吃的大排档」值得投放', detail: '11/02 发布，3,000 小眼睛（账号常态 6 倍），互动率 6%，还没投流', status: '待定' },
@@ -155,16 +171,19 @@ function render() {
   $('#ceoSay').textContent = S.ceo.say;
   $('#online').textContent = `${S.agents.filter(a => a.status !== 'off').length}/${S.agents.length} Agent 在岗`;
   const stTxt = { ok: ['ok', '运行中'], wait: ['wait', '等你'], off: ['off', '未接入'] };
-  $('#agents').innerHTML = S.agents.map(a => `<button class="agent" data-go="${a.key === 'ads' ? 'ads' : a.key === 'biz' || a.key === 'rep' ? 'biz' : 'all'}" id="ag-${a.key}"><div class="hd"><span>${esc(a.name)}</span><span class="st ${stTxt[a.status][0]}">${stTxt[a.status][1]}</span></div><div class="big">${esc(a.big)}<small>${esc(a.unit)}</small></div><div class="meta">上次 ${esc(a.last)} · 下次 ${esc(a.next)}</div><div class="sub">${a.sub.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div></button>`).join('');
+  const icon = { biz: '¥', content: '✎', ads: '↗', rep: '★' };
+  $('#tags').innerHTML = S.agents.map(a => `<div class="tag hue-${a.hue || 'cyan'}">↓ ${esc(a.down || '')}<br><b>↑ ${esc(a.up || '')}</b></div>`).join('');
+  $('#agents').innerHTML = S.agents.map(a => `<div class="col hue-${a.hue || 'cyan'}"><button class="agent" data-go="${a.key === 'ads' ? 'ads' : a.key === 'biz' || a.key === 'rep' ? 'biz' : 'all'}" id="ag-${a.key}"><div class="hd"><span><span class="ic">${icon[a.key] || '•'}</span>${esc(a.name)}</span><span class="st ${stTxt[a.status][0]}">${stTxt[a.status][1]}</span></div><div class="big">${esc(a.big)}<small>${esc(a.unit)}</small></div><div class="meta">上次 ${esc(a.last)} → 下次 ${esc(a.next)}</div><div class="sub">${a.sub.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div></button>${(a.kids || []).length ? `<div class="kids">${a.kids.map(k => `<div class="kid"><i class="${k.tone || 'ok'}"></i><span style="min-width:0"><b>${esc(k.name)}</b><small>${esc(k.note)}</small></span><span class="v">${esc(k.val)}</span></div>`).join('')}</div>` : ''}</div>`).join('');
+  requestAnimationFrame(wires);
   $('#todoSub').textContent = open.length ? `${open.length} 件待定` : '都处理完了';
   $('#todo').innerHTML = S.todos.length ? S.todos.map(t => `<div class="item" data-type="${esc(t.type)}"><div class="row"><span class="chip">${esc(t.type)}</span></div><div class="t">${esc(t.title)}</div><div class="d">${esc(t.detail)}</div><div class="row" data-id="${esc(t.id)}">${t.status === '待定' ? `<button class="btn yes" data-act="已同意">${t.type === '投放建议' ? '同意投放' : '知道了，去处理'}</button><button class="btn" data-act="不做">${t.type === '投放建议' ? '不投' : '不用管'}</button>` : `<span class="done">✓ ${esc(t.status)}</span>`}</div></div>`).join('') : '<div class="empty">今天没有需要你拍板的事。</div>';
   $('#bizSub').textContent = `${S.date}（周${S.weekday}）`;
   const max = Math.max(...S.stores.map(r => r.revenue || 0), 1);
   $('#stores tbody').innerHTML = S.stores.map(r => `<tr><td>${esc(r.store)}<div class="bar"><i style="width:${(r.revenue || 0) / max * 100}%"></i></div></td><td class="mono">${fmt(r.revenue)}</td><td class="mono ${r.wow > 0 ? 'up' : r.wow < 0 ? 'down' : ''}">${pct(r.wow)}</td><td class="mono ${r.bad ? 'down' : ''}">${r.bad || ''}</td></tr>`).join('') + (S.missing.length ? `<tr><td colspan="4" style="color:var(--amber)">未收到日报：${esc(S.missing.join('、'))}</td></tr>` : '');
   $('#brief').textContent = S.brief || '今天的简报还没生成。';
-  const ad = (h, extra) => `<div class="ad"><div class="k"><b>${esc(h.plat)}·${esc(h.acc)}「${esc(h.title.slice(0, 18))}」</b><span class="mono">${fmt(h.views)}</span></div><div class="why">常态 ${h.times} 倍 · 互动 ${h.engRate}%${extra ? ' · ' + esc(extra) : ''}</div></div>`;
+  const ad = (h, extra) => `<div class="ad"><div class="k"><b>${esc(h.plat)}·${esc(h.acc)}「${esc(h.title.slice(0, 18))}」</b><span class="mono">${fmt(h.views)}</span></div><div class="why">常态 ${h.times} 倍 · ${h.why ? esc(h.why) : '互动 ' + h.engRate + '%'}${extra && !h.why ? ' · ' + esc(extra) : ''}</div></div>`;
   $('#sug').innerHTML = S.suggest.length ? S.suggest.map(h => ad(h, h.date + ' 发布')).join('') : '<div class="empty">今天没有完全达标的投放候选。</div>';
-  $('#near').innerHTML = S.near.length ? S.near.map(h => ad(h, h.why)).join('') : '<div class="empty">无</div>';
+  $('#near').innerHTML = S.near.length ? S.near.map(h => ad(h)).join('') : '<div class="empty">无</div>';
   $('#spend').innerHTML = S.spend.length ? S.spend.map(x => `<div class="ad"><div class="k"><b>${esc(x.name)}</b><span class="mono">${fmt(x.cost)}</span></div><div class="why">${esc(x.note)}</div></div>`).join('') : '<div class="empty">推广通：等 Debbie 每天 9:00 把报表发到群里后自动接入。聚光、本地推：接口申请后接入。</div>';
 }
 
@@ -184,6 +203,14 @@ function show(v) {
   document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.v === v)));
   document.querySelectorAll('[data-pane]').forEach(p => { p.hidden = !(v === 'all' || p.dataset.pane === v); });
 }
+function wires() {
+  const svg = $('#wires'), tree = $('#tree'), ceo = document.querySelector('.ceo'); if (!svg || !ceo || getComputedStyle(svg).display === 'none') return;
+  const T = tree.getBoundingClientRect(), C = ceo.getBoundingClientRect();
+  const x0 = C.left + C.width / 2 - T.left, y0 = C.bottom - T.top;
+  const cols = { amber: '#ff9f43', cyan: '#4cc9f0', green: '#3ddc97', rose: '#ff6b9a' };
+  svg.innerHTML = [...document.querySelectorAll('#agents .agent')].map((el, i) => { const r = el.getBoundingClientRect(); const x1 = r.left + r.width / 2 - T.left, y1 = r.top - T.top; const d = `M${x0},${y0} C${x0},${y0 + 40} ${x1},${y1 - 50} ${x1},${y1}`; const c = cols[(S.agents[i] || {}).hue] || '#4cc9f0'; return `<path class="base" d="${d}"/><path class="flow" d="${d}" stroke="${c}" style="animation-delay:${-i * .4}s"/>`; }).join('');
+}
+addEventListener('resize', () => requestAnimationFrame(wires));
 function tick() { const d = new Date(Date.now() + (8 * 60 + new Date().getTimezoneOffset()) * 6e4); $('#clock').textContent = d.toTimeString().slice(0, 8); }
 setInterval(tick, 1000); tick();
 

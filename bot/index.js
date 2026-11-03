@@ -8,12 +8,22 @@ const fs = require('fs'); const path = require('path'); const readline = require
 const { createCore, replyForText, replyForImage, replyForDaily, replyForDouyin } = require('./lib/core');
 const { fetchDouyin } = require('./lib/douyin');
 const { createBrief, bjDay } = require('./lib/brief');
+const { createWeb } = require('./lib/web');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
 const LOG_FILE = path.join(DATA_DIR, 'bot.log');
 const API = 'https://open.feishu.cn/open-apis';
-function log(...a) { const line = `[${new Date().toLocaleString('zh-CN', { hour12: false })}] ` + a.join(' '); console.log(line); try { fs.appendFileSync(LOG_FILE, line + '\n'); } catch (e) { } }
+// 各 Agent 的动态（驾驶舱显示「上次做了什么」「今天几次」）
+const ACT = { ev: {}, day: -1, n: {}, patrols: 0 };
+const bjd = () => Math.floor((Date.now() + 8 * 3600e3) / 864e5);
+function track(line) {
+  const k = /\[日报/.test(line) ? 'biz' : /\[(登记|抖音登记|截图)\]/.test(line) ? 'content' : /\[简报\].*发送/.test(line) ? 'ceo' : null; if (!k) return;
+  if (ACT.day !== bjd()) { ACT.day = bjd(); ACT.n = {}; ACT.patrols = 0; }
+  ACT.n[k] = (ACT.n[k] || 0) + 1; ACT.ev[k] = { at: Date.now(), what: line.replace(/^.*?\]\s*/, '').replace(/^\[[^\]]+\]\s*/, '').slice(0, 24) };
+}
+const activity = () => { if (ACT.day !== bjd()) { ACT.day = bjd(); ACT.n = {}; ACT.patrols = 0; } return { patrols: ACT.patrols, count: k => ACT.n[k] || 0, last: k => ACT.ev[k] || {} }; };
+function log(...a) { const line = `[${new Date().toLocaleString('zh-CN', { hour12: false })}] ` + a.join(' '); console.log(line); try { track(a.join(' ')); } catch (e) { } try { fs.appendFileSync(LOG_FILE, line + '\n'); } catch (e) { } }
 
 async function setup() {
   if (fs.existsSync(CFG_FILE)) return JSON.parse(fs.readFileSync(CFG_FILE, 'utf8'));
@@ -126,6 +136,7 @@ async function setup() {
     const { text, images } = flatten(m.message_type, m.content);
     if ((data.sender || {}).sender_type === 'user' && m.chat_id === dailyChatNow()) rememberBoss(((data.sender || {}).sender_id || {}).open_id);
     if (text && /^\s*(简报|日报简报|今日简报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendBrief({ replyTo: m.message_id, manual: true }); return; }
+    if (text && /^\s*驾驶舱\s*$/.test(text) && m.chat_id === dailyChatNow()) { const link = web.loginLink(); if (link && boss) { try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: `🖥 驾驶舱登录链接（7 天内有效，登录后 30 天免登录，别转发给别人）：\n${link}` }) }, { receive_id_type: 'open_id' }); await reply(m.message_id, '✅ 登录链接已私聊发给你'); } catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 60)); } } return; }
     // 门店营业日报（华付数科等机器人发的也收）
     if (text && /营业日概况|当天总营业额/.test(text)) {
       if (typeof markDaily === 'function') markDaily(m.message_id, m.chat_id);
@@ -177,6 +188,7 @@ async function setup() {
     return null;
   }
   async function pollDaily() {
+    activity(); ACT.patrols++;
     try {
       if (!cfg.dailyBaseUrl) return;
       const chat = await findDailyChat(); if (!chat) return;
@@ -204,13 +216,15 @@ async function setup() {
   let boss = cfg.bossOpenId || (() => { try { return fs.readFileSync(BOSS_FILE, 'utf8').trim(); } catch (e) { return ''; } })();
   function rememberBoss(id) { if (!id || id === boss) return; boss = id; try { fs.writeFileSync(BOSS_FILE, id); } catch (e) { } log('[简报] 记住了老板的飞书账号，以后简报私聊发送'); }
   const brief = createBrief({ cfg, api: { call }, log, llm: cfg.qwenKey ? chat : null });
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss });
   let briefState = {}; try { briefState = JSON.parse(fs.readFileSync(BRIEF_FILE, 'utf8')); } catch (e) { }
   let briefing = false;
   async function sendBrief(o) {
     o = o || {}; if (briefing) return; briefing = true;
     try {
       const r = await brief.make();
-      const content = JSON.stringify({ text: r.text });
+      const link = web.loginLink();
+      const content = JSON.stringify({ text: r.text + (link ? `\n\n🖥 打开驾驶舱：${link}` : '') });
       let sent = false;
       if (boss) { try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content }, { receive_id_type: 'open_id' }); sent = true; } catch (e) { log('[简报] 私聊发送失败，改发日报群：', e.message); } }
       if (!sent && o.replyTo) { await reply(o.replyTo, r.text); sent = true; }

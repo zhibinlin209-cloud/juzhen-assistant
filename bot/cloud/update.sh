@@ -13,13 +13,13 @@ REF=${SHA:-refs/heads/main}
 curl -fsSL --max-time 90 https://codeload.github.com/$R/tar.gz/$REF -o $T/s.tgz || { log "下载失败（$REF），下次再试"; exit 0; }
 tar -xzf $T/s.tgz -C $T || exit 0
 S=$(ls -d $T/*/bot 2>/dev/null | head -1); [ -n "$S" ] || exit 0
-h() { (cd $1 && cat index.js package.json lib/*.js 2>/dev/null | sha256sum | cut -c1-16); }
+h() { (cd $1 && cat index.js package.json lib/*.js cockpit/* 2>/dev/null | sha256sum | cut -c1-16); }
 NEW=$(h $S); OLD=$(h $A)
 [ -n "$SHA" ] && echo "$SHA" > $S0
 [ "$NEW" = "$OLD" ] && exit 0
 for f in $S/index.js $S/lib/*.js; do $B/node/bin/node --check "$f" 2>>$L || { log "新版本 $NEW 语法检查没过，不更新"; exit 0; }; done
 rm -rf $B/app.prev && cp -a $A $B/app.prev
-cp $S/index.js $S/package.json $A/ && cp $S/lib/*.js $A/lib/
+cp $S/index.js $S/package.json $A/ && cp $S/lib/*.js $A/lib/ && { [ -d $S/cockpit ] && mkdir -p $A/cockpit && cp $S/cockpit/* $A/cockpit/ || true; }
 if ! cmp -s $S/package.json $B/app.prev/package.json; then (cd $A && PATH=$B/node/bin:$PATH npm install --omit=dev --no-audit --no-fund --registry=https://registry.npmmirror.com >/dev/null 2>&1) || log "依赖安装出错"; fi
 [ -f $S/cloud/update.sh ] && ! cmp -s $S/cloud/update.sh $B/update.sh && install -m 755 $S/cloud/update.sh $B/update.sh
 systemctl restart xiju-bot; sleep 25
