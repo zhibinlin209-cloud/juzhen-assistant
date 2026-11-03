@@ -223,17 +223,28 @@ function createCore({ cfg, api, log }) {
   const sphKey = u => { const m = String(u || '').match(/(?:sph\/|id=|feed\/|export\/)([A-Za-z0-9_-]{6,})/); return m ? m[1] : String(u || '').trim(); };
   async function sphTable() {
     const app = await appToken(); const t = (await listTables()).find(x => x.name === SPH_NAME); if (!t) throw new Error('NO_SPH_TABLE');
-    const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const have = new Set((fd.items || []).map(f => f.field_name));
-    for (const [name, type] of SPH_COLS) if (!have.has(name)) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, { field_name: name, type }); log('[视频号] 补建列：' + name); }
+    const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const types = new Map((fd.items || []).map(f => [f.field_name, f.type]));
+    for (const [name, type] of SPH_COLS) if (!types.has(name)) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, { field_name: name, type }); types.set(name, type); log('[视频号] 补建列：' + name); }
     const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
     const rows = recs.map(r => { const f = r.fields || {}; return { id: r.record_id, title: titleOf(f['标题']), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, person: String(val(f['发布人员']) || '').trim(), link: String(val(f['视频号链接']) || ''), reg: typeof f['登记时间'] === 'number' ? f['登记时间'] : 0, cur: { views: num(f['播放']), likes: num(f['点赞']), comments: num(f['评论']), shares: num(f['转发']) } }; });
-    return { app, id: t.table_id, rows };
+    // 表是人手建的，列类型可能和预设不同（文本/日期/链接/数字/单选/人员），按实际类型转换写入值
+    const ymd = t => { const d = new Date(t + 8 * 3600e3); return `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`; };
+    const fit = f => { const o = {}; for (const [k, v] of Object.entries(f)) { const ty = types.get(k); if (v === null || v === undefined || ty === undefined) continue; const isUrl = v && typeof v === 'object' && v.link; const isDate = /日期|时间|更新于/.test(k) && typeof v === 'number';
+      if (ty === 15) o[k] = isUrl ? v : { link: String(v), text: String(v) };
+      else if (ty === 5) { if (typeof v === 'number') o[k] = v; }
+      else if (ty === 2) { const n = Number(v); if (isFinite(n)) o[k] = n; }
+      else if (ty === 1 || ty === 3) o[k] = isUrl ? v.link : isDate ? ymd(v) : String(v);
+      else if (ty === 4) o[k] = [isUrl ? v.link : isDate ? ymd(v) : String(v)];
+      else if (ty === 11 || ty === 1001 || ty === 1002 || ty === 20 || ty === 19) continue; // 人员/系统/公式列不写
+      else o[k] = isUrl ? v.link : v; }
+      return o; };
+    return { app, id: t.table_id, rows, fit };
   }
   async function handleChannelsLink(text, sender) {
     const links = [...new Set((String(text).match(/https?:\/\/(?:weixin\.qq\.com\/sph\/[A-Za-z0-9_-]+|channels\.weixin\.qq\.com\/[^\s，。)）]+)/g) || []))];
     if (!links.length) return null;
     const T = await sphTable(); const out = { created: [], dups: [] }; const add = []; const now = Date.now();
-    for (const u of links) { if (T.rows.some(r => sphKey(r.link) === sphKey(u))) { out.dups.push(u); continue; } const f = { 视频号链接: { link: u, text: u }, 发布日期: dayStart(now), 登记时间: now }; if (sender) f['发布人员'] = sender; add.push({ fields: f }); out.created.push(u); }
+    for (const u of links) { if (T.rows.some(r => sphKey(r.link) === sphKey(u))) { out.dups.push(u); continue; } const f = { 视频号链接: { link: u, text: u }, 发布日期: dayStart(now), 登记时间: now }; if (sender) f['发布人员'] = sender; add.push({ fields: T.fit(f) }); out.created.push(u); }
     if (add.length) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_create`, { records: add });
     return out;
   }
@@ -254,7 +265,7 @@ function createCore({ cfg, api, log }) {
       used.add(row.r.id); const f = { 数据更新于: now };
       if (fillTitle) { f['标题'] = x.n.title.replace(/\.{3}$|…$/, ''); const dm = String(x.n.date).match(/(20\d{2})\D+(\d{1,2})\D+(\d{1,2})/); if (dm) f['发布日期'] = new Date(+dm[1], +dm[2] - 1, +dm[3]).getTime(); }
       [['播放', 'views'], ['点赞', 'likes'], ['评论', 'comments'], ['转发', 'shares'], ['收藏', 'collects']].forEach(([c, k]) => { const v = x.n[k]; if (v === null || v === undefined) return; const old = row.r.cur && row.r.cur[k]; if (old !== null && old !== undefined && old > v) return; f[c] = v; });
-      recs.push({ record_id: row.r.id, fields: f }); x.row = { table: SPH_NAME, account: row.r.person || '视频号表', date: row.r.date, kind: fillTitle ? '新补标题' : '' };
+      recs.push({ record_id: row.r.id, fields: T.fit(f) }); x.row = { table: SPH_NAME, account: row.r.person || '视频号表', date: row.r.date, kind: fillTitle ? '新补标题' : '' };
     }
     if (recs.length) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_update`, { records: recs });
   }
