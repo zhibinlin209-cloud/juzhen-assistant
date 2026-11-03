@@ -5,18 +5,18 @@
 'use strict';
 const { readXlsx } = require('./xlsx');
 const NAME = '人员账号对照';
-const COLS = [['真实姓名', 1], ['微信名', 1], ['抖音账号', 1], ['小红书账号', 1], ['数据表叫法', 1], ['备注', 1], ['更新时间', 5]];
+const COLS = [['真实姓名', 1], ['收款人', 1], ['微信名', 1], ['抖音账号', 1], ['小红书账号', 1], ['数据表叫法', 1], ['备注', 1], ['更新时间', 5]];
 const norm = s => String(s || '').normalize('NFKC').toLowerCase().replace(/[\s​-‏️'"“”‘’`·.。，,!！?？~～^（）()\[\]【】/\\|_\-—]+/g, '').replace(/l/g, 'i');
 const val = v => Array.isArray(v) ? v.map(x => (x && typeof x === 'object') ? (x.text || x.name || '') : String(x)).join('') : (v && typeof v === 'object') ? (v.text || v.name || '') : (v ?? '');
 
 function parseSettle(buf) {
   const rows = readXlsx(buf); const hi = rows.findIndex(r => r.some(c => /收款人/.test(c || '')) && r.some(c => /微信/.test(c || '')));
   if (hi < 0) return null; const H = rows[hi].map(c => String(c || '').trim());
-  const iName = H.findIndex(c => /收款人/.test(c)), iWx = H.findIndex(c => /微信/.test(c));
+  const iPay = H.findIndex(c => /收款人/.test(c)), iName = H.findIndex(c => c === '姓名'), iWx = H.findIndex(c => /微信/.test(c)); // 收款账号、手机号不读
   const accIdx = H.map((c, i) => c === '账号' ? i : -1).filter(i => i >= 0);
   const iDy = accIdx.find(i => /抖音/.test(H[i + 1] || '')) ?? accIdx[0], iXhs = accIdx.find(i => /小红书/.test(H[i + 1] || '')) ?? accIdx[1];
   const clean = v => { const t = String(v ?? '').trim(); return t === '/' ? '' : t; };
-  return rows.slice(hi + 1).map(r => ({ 真实姓名: clean(r[iName]), 微信名: clean(r[iWx]), 抖音账号: iDy >= 0 ? clean(r[iDy]) : '', 小红书账号: iXhs >= 0 ? clean(r[iXhs]) : '' })).filter(x => x.真实姓名 && !/合计|总计/.test(x.真实姓名));
+  return rows.slice(hi + 1).map(r => ({ 真实姓名: clean(iName >= 0 && r[iName] ? r[iName] : r[iPay]), 收款人: clean(r[iPay]), 微信名: clean(r[iWx]), 抖音账号: iDy >= 0 ? clean(r[iDy]) : '', 小红书账号: iXhs >= 0 ? clean(r[iXhs]) : '' })).filter(x => x.真实姓名 && !/合计|总计/.test(x.真实姓名));
 }
 
 function createPeople({ cfg, api, log }) {
@@ -39,7 +39,7 @@ function createPeople({ cfg, api, log }) {
   // 结算表导入：按 真实姓名+微信名 去重（同一个收款人可能收两套账号的钱）
   async function importSettle(buf) {
     const rows = parseSettle(buf); if (!rows) return null; if (!rows.length) return { rows: 0 };
-    const A = app(), T = await table(); const ex = await list(true); const key = x => norm(x.真实姓名) + '|' + norm(x.微信名);
+    const A = app(), T = await table(); const ex = await list(true); const key = x => norm(x.真实姓名) + '|' + norm(x.抖音账号) + '|' + norm(x.小红书账号);
     const map = new Map(ex.map(x => [key(x), x])); const add = [], upd = []; const now = Date.now();
     for (const r of rows) { const e = map.get(key(r)); const fields = Object.assign({}, r, { 更新时间: now }); if (e) upd.push({ record_id: e.id, fields }); else add.push({ fields }); }
     if (add.length) await api.call('POST', `/bitable/v1/apps/${A}/tables/${T}/records/batch_create`, { records: add });
@@ -60,7 +60,18 @@ function createPeople({ cfg, api, log }) {
     return upd.length;
   }
   // 名字（真名 / 微信名 / 数据表叫法 / 账号名）→ 这个人
-  async function resolve(name) {
+  async function resolve(name, kind) { // 同一个人多套账号：按平台挑有该平台账号的那行，默认第一行（主号）
+    const rows = await resolveAll(name); if (!rows.length) return null;
+    const k = /小红书/.test(kind || '') ? '小红书账号' : /抖音|视频/.test(kind || '') ? '抖音账号' : '';
+    return (k && rows.find(p => p[k])) || rows[0];
+  }
+  async function resolveAll(name) {
+    const n = norm(String(name || '').replace(/[（(][^）)]*[）)]/g, '')); if (!n) return []; const ps = await list();
+    const tries = [p => norm(p.真实姓名) === n, p => norm(p.微信名) === n, p => String(p.数据表叫法 || '').split(/[、,，]/).some(a => norm(a) === n), p => norm(p.抖音账号) === n || norm(p.小红书账号) === n, p => p.微信名 && n.length >= 3 && (n.includes(norm(p.微信名)) || norm(p.微信名).includes(n))];
+    for (const f of tries) { const r = ps.filter(f); if (r.length && new Set(r.map(p => p.真实姓名)).size === 1) return r; }
+    return [];
+  }
+  async function resolveOld(name) {
     const n = norm(String(name || '').replace(/[（(][^）)]*[）)]/g, '')); if (!n) return null; const ps = await list();
     const hit = f => ps.filter(f);
     let r = hit(p => norm(p.真实姓名) === n); if (r.length === 1) return r[0];
@@ -70,6 +81,6 @@ function createPeople({ cfg, api, log }) {
     r = hit(p => p.微信名 && (n.includes(norm(p.微信名)) || norm(p.微信名).includes(n)) && n.length >= 3); if (r.length === 1) return r[0];
     return null;
   }
-  return { importSettle, list, linkAliases, resolve, parseSettle };
+  return { importSettle, list, linkAliases, resolve, resolveAll, parseSettle };
 }
 module.exports = { createPeople, parseSettle, norm };

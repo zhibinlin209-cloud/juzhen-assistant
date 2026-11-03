@@ -153,7 +153,7 @@ function createAccounts({ api, core, log, people }) {
   const best = o => Object.entries(o || {}).sort((a, b) => b[1] - a[1]);
   // 按分发类别挑账号：小红书矩阵号 → 小红书号；抖音矩阵号 → 抖音矩阵号；抖音素人号 → 素人号（没有就退到另一个抖音表）
   async function pick(who, kind) {
-    if (people) { try { const p = await people.resolve(who); if (p) { const a = /小红书/.test(kind) ? p['小红书账号'] : p['抖音账号']; if (a) return { acc: a, alts: [], person: p }; } } catch (e) { } }
+    if (people) { try { const p = await people.resolve(who, kind); if (p) { const a = /小红书/.test(kind) ? p['小红书账号'] : p['抖音账号']; if (a) return { acc: a, alts: [], person: p }; } } catch (e) { } }
     const m = await map(); const o = m[String(who || '').trim()]; if (!o) return { acc: '', alts: [] };
     const k = /小红书/.test(kind) ? ['xhs'] : /素人/.test(kind) ? ['sr', 'dy'] : ['dy', 'sr'];
     for (const x of k) { const b = best(o[x]); if (b.length) return { acc: b[0][0], alts: b.slice(1).map(y => y[0]) }; }

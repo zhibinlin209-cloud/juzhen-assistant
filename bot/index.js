@@ -142,7 +142,7 @@ async function setup() {
   const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log });
   await core.load(true);
   const people = createPeople({ cfg, api: { call }, log });
-  const resolver = async (name, kind) => { const p = await people.resolve(name).catch(() => null); if (!p) return null; return { who: p['真实姓名'], acc: /小红书/.test(kind) ? p['小红书账号'] : p['抖音账号'] }; };
+  const resolver = async (name, kind) => { const p = await people.resolve(name, kind).catch(() => null); if (!p) return null; return { who: p['真实姓名'], acc: /小红书/.test(kind) ? p['小红书账号'] : p['抖音账号'] }; };
   const draft = createDraft({ api: { call }, core, upload, log, resolver }); const lastVideo = new Map(), lastInstr = new Map(), draftMsg = new Map();
   const accounts = createAccounts({ api: { call }, core, log, people });
   async function fillAccounts() { // 派稿记录里有发布人员、没账号名称的 → 按分发类别补上账号
@@ -193,7 +193,7 @@ async function setup() {
       if (m.message_type === 'media') return;
       if (/\.xlsx$/i.test(c.file_name || '')) {
         try { const buf = await fileBuf(m.message_id, c.file_key); const r = await tgt.ingest(buf); if (r) { await reply(m.message_id, replyForTgt(r)); if (r.rows) brief.ads().catch(e => log('[投放分析] 出错 ' + e.message)); }
-          else { const pr = await people.importSettle(buf); if (pr) { let n = 0; try { n = await people.linkAliases(await accounts.map(true)); } catch (e) { log('[人员] 补叫法出错 ' + e.message); } const ps = await people.list(true); await reply(m.message_id, `👥 人员账号对照已更新：${pr.rows} 人（新增 ${pr.added}、更新 ${pr.updated}），自动认出数据表里的叫法 ${n} 人\n` + ps.slice(0, 40).map(p => `· ${p['真实姓名']}（微信 ${p['微信名'] || '—'}）抖音 ${p['抖音账号'] || '—'} · 小红书 ${p['小红书账号'] || '—'}${p['数据表叫法'] ? ' · 表里叫 ' + p['数据表叫法'] : ''}`).join('\n') + '\n存在你的私密表格「人员账号对照」，可以直接改。'); try { await fillAccounts(); } catch (e) { } } } } catch (e) { if (e.message === 'NO_PRIVATE_BASE') return; log('[推广通] 处理出错：', e.message); await reply(m.message_id, '⚠️ 推广通报表没处理成功：' + e.message.slice(0, 60)); }
+          else { const pr = await people.importSettle(buf); if (pr) { let n = 0; try { n = await people.linkAliases(await accounts.map(true)); } catch (e) { log('[人员] 补叫法出错 ' + e.message); } const ps = await people.list(true); await reply(m.message_id, `👥 人员账号对照已更新：${pr.rows} 人（新增 ${pr.added}、更新 ${pr.updated}），自动认出数据表里的叫法 ${n} 人\n` + ps.slice(0, 60).map(p => `· ${p['真实姓名']}（微信 ${p['微信名'] || '—'}）抖音 ${p['抖音账号'] || '—'} · 小红书 ${p['小红书账号'] || '—'}${p['数据表叫法'] ? ' · 表里叫 ' + p['数据表叫法'] : ''}`).join('\n') + '\n存在你的私密表格「人员账号对照」，可以直接改。'); try { await fillAccounts(); } catch (e) { } } } } catch (e) { if (e.message === 'NO_PRIVATE_BASE') return; log('[推广通] 处理出错：', e.message); await reply(m.message_id, '⚠️ 推广通报表没处理成功：' + e.message.slice(0, 60)); }
       }
       return;
     }
