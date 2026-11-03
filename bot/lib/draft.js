@@ -7,8 +7,8 @@
 const STORES = [
   [/粤迹/, '粤迹·岭南家宴', '深圳市南山区', '粤迹·岭南家宴'],
   [/水东街|惠州/, '惠州水东街店', '惠州市惠城区', '也是大排档（水东街店）'],
-  [/江南西/, '广州江南西店', '广州市海珠区', '也是大排档（江南西店）'],
-  [/华强北/, '深圳华强北燕南店', '深圳市福田区', '也是大排档（华强北店）'],
+  [/江南西|海珠/, '广州江南西店', '广州市海珠区', '也是大排档（江南西店）'],
+  [/华强北|福田/, '深圳华强北燕南店', '深圳市福田区', '也是大排档（华强北店）'],
   [/白石洲/, '深圳白石洲店', '深圳市南山区', '也是大排档（白石洲店）'],
   [/前海|HOP/i, '深圳前海HOP店', '深圳市宝安区', '也是大排档（前海店）'],
   [/花园城|蛇口/, '深圳蛇口招商花园城店', '深圳市南山区', '也是大排档（花园城店）'],
@@ -42,6 +42,7 @@ function parseDraft(text, videoName) {
   const head = first.replace(/^[✅☑️✔️\s]+/u, '').trim();
   // 「yes-水东街逛吃攻略-6篇-芝士很困」：最后一段不是数字/篇号时当作写手
   const segs = head.split('-'); let code = head, writer = '';
+  if (/^标题\s*[:：]/.test(head)) { code = head.replace(/^标题\s*[:：]\s*/, '').slice(0, 24); segs.length = 0; }
   if (segs.length >= 3 && !/^\d+$|篇$/.test(segs[segs.length - 1])) { writer = segs.pop().trim(); code = segs.join('-').trim(); }
   const ti = lines.findIndex(l => /^\s*标题\s*[:：]/.test(l));
   const title = ti >= 0 ? lines[ti].replace(/^\s*标题\s*[:：]\s*/, '').trim() : '';
@@ -52,26 +53,44 @@ function parseDraft(text, videoName) {
   const tagLines = rest.filter(l => /^\s*#/.test(l.trim()) && (l.match(/#/g) || []).length >= 2);
   const tags = tagLines.join(' ').trim();
   const body = rest.filter(l => !tagLines.includes(l)).join('\n').replace(/^\s*(?:正文|文案)\s*[:：]\s*/m, '').replace(/^\n+|\n+$/g, '').replace(/\n{3,}/g, '\n\n');
-  const all = head + '\n' + title + '\n' + body;
+  const all = head + '\n' + title + '\n' + body + '\n' + tags;
   const st = STORES.find(([re]) => re.test(head)) || STORES.find(([re]) => re.test(all));
   return { code, writer, title, body, tags, kind, loc, store: st ? st[1] : '', area: st ? st[2] : '', dp: st ? st[3] : '' };
+}
+
+// PR 的派发说明：「@某某 今天发这条，发布到小红书+点评+携程+微信贴图4个平台，小红书+携程定位广州市海珠区，点评定位也是大排档（江南西店）…」
+const isInstr = t => /发布到|今天发这条|今日发/.test(String(t || '')) && /定位|平台/.test(String(t || '')) && !/(^|\n)\s*标题\s*[:：]/.test(String(t || ''));
+function parseInstr(text, names) {
+  const t = String(text || ''); const P = [];
+  const seg = (t.match(/发布到([^，,。；;]+)/) || [])[1] || t;
+  [['小红书', /小红书/], ['大众点评', /点评/], ['携程', /携程/], ['微信贴图', /贴图/], ['抖音', /抖音/], ['视频号', /视频号/]].forEach(([n, re]) => { if (re.test(seg)) P.push(n); });
+  const loc = ((t.match(/(?:小红书|携程|抖音|视频号)[^，,。；;]*?定位(?:在|是|为)?\s*([^，,。；;（(]+)/) || [])[1] || '').trim();
+  const dp = ((t.match(/点评定位(?:在|是|为)?\s*(也是大排档[（(][^）)]+[）)]|[^，,。；;]+)/) || [])[1] || '').trim();
+  const st = STORES.find(([re]) => re.test(dp)) || STORES.find(([re]) => re.test(loc));
+  return { people: (names || []).filter(Boolean), platforms: P, loc, dp, store: st ? st[1] : '' };
 }
 
 function createDraft({ api, core, upload, log }) {
   let tid = null; const pending = new Map(); // 发稿人 → { id, code, at, n }
   async function tbl() { if (!tid) tid = await core.ensurePaigao(); return { app: await core.appToken(), tid }; }
-  async function save(text, sender, senderId, imgs, video) {
+  async function save(text, sender, senderId, imgs, video, instr) {
     const d = parseDraft(text, video && video.named !== false ? video.name : ''); const T = await tbl();
     const kind = /抖音素人/.test(d.kind) ? '抖音素人号' : (/抖音矩阵/.test(d.kind) || d.video) ? '抖音矩阵号' : '小红书矩阵号';
     const type = kind === '抖音矩阵号' || d.video ? '视频' : '图文';
     const fields = { 文本: d.code, 稿件编号: d.code, 写手: d.writer, 账号名称: d.account, 分发类别: kind, 内容类型: type, 发布平台: PLATFORMS[`${kind}|${type}`] || [], 标题: d.title, 文案正文: d.body, 话题标签: d.tags, 门店: d.store, 定位: d.loc || d.area, 点评定位: d.dp, 状态: '待发布', 派稿人: sender || '', 备注: '收稿时间 ' + new Date(Date.now() + 8 * 3600e3).toISOString().slice(5, 16).replace('T', ' ') };
+    if (instr) Object.assign(fields, instrFields(instr));
     Object.keys(fields).forEach(k => { if (fields[k] === '' || (Array.isArray(fields[k]) && !fields[k].length)) delete fields[k]; });
     const r = await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records`, { fields });
     const id = r.record.record_id; pending.set(senderId, { id, code: d.code, at: Date.now(), n: 0, type, kind });
     log(`[收稿] ${d.code}（${d.title.slice(0, 20)}）`);
     if (imgs && imgs.length) await addMedia(senderId, imgs);
     if (video && video.buf) await addMedia(senderId, [{ buf: video.buf, name: video.name, video: true }]);
-    return Object.assign(d, { id, kind, type, platforms: fields.发布平台 || [] });
+    return Object.assign(d, { id, kind, type, platforms: fields.发布平台 || [], who: fields.发布人员 || '', store: fields.门店 || d.store, area: fields.定位 || d.area, dp: fields.点评定位 || d.dp });
+  }
+  function instrFields(i) { const f = {}; if (i.people.length) f['发布人员'] = i.people[0]; if (i.platforms.length) f['发布平台'] = i.platforms; if (i.loc) f['定位'] = i.loc; if (i.dp) f['点评定位'] = i.dp; if (i.store) f['门店'] = i.store; const d = new Date(Date.now() + 8 * 3600e3); f['派稿日期'] = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) - 8 * 3600e3; return f; }
+  async function applyInstr(senderId, instr) { // 说明比稿件晚发：补到刚收的那篇
+    const p = active(senderId); if (!p) return null; const T = await tbl();
+    await api.call('PUT', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/${p.id}`, { fields: instrFields(instr) }); return p;
   }
   // 发稿后 15 分钟内，同一个人发的图片/视频都归到这篇
   const active = senderId => { const p = pending.get(senderId); return p && Date.now() - p.at < 15 * 60e3 ? p : null; };
@@ -79,6 +98,10 @@ function createDraft({ api, core, upload, log }) {
     const p = active(senderId); if (!p) return Promise.resolve(null);
     p.at = Date.now(); p.q = (p.q || Promise.resolve()).then(() => addNow(p, files)).catch(e => { log('[收稿] 素材保存失败：' + e.message); return p; });
     return p.q;
+  }
+  function attachTo(rec, files) { // 指定稿件补素材（回复稿件消息发图 / 「补图」命令）
+    let p = [...pending.values()].find(x => x.id === rec.id); if (!p) { p = { id: rec.id, code: rec.code, at: Date.now(), n: 0, type: rec.type || '图文', kind: rec.kind || '' }; pending.set('rec:' + rec.id, p); }
+    p.q = (p.q || Promise.resolve()).then(() => addNow(p, files)).catch(e => { log('[收稿] 素材保存失败：' + e.message); return p; }); return p.q;
   }
   async function addNow(p, files) {
     const T = await tbl();
@@ -91,13 +114,13 @@ function createDraft({ api, core, upload, log }) {
     await api.call('PUT', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/${p.id}`, { fields });
     p.n += toks.length; p.at = Date.now(); return p;
   }
-  return { isDraft, save, addMedia, active, parseDraft };
+  return { isDraft, save, addMedia, active, parseDraft, applyInstr, attachTo, tbl };
 }
 
 function replyForDraft(d) {
-  return `📥 已收进稿件库：${d.code}${d.writer ? '（写手 ' + d.writer + '）' : ''}${d.account ? '（账号 ' + d.account + '）' : ''}\n标题：${d.title || '⚠️ 没读到标题'}\n类别：${d.kind} · ${d.type} → ${d.platforms.join(' + ')}\n门店：${d.store || '⚠️ 没认出门店'}${d.area ? ' · 定位 ' + d.area : ''}${d.dp ? ' · 点评定位 ' + d.dp : ''}\n接下来 15 分钟内发的图片/视频会自动归到这篇。`;
+  return `📥 已收进稿件库：${d.code}${d.writer ? '（写手 ' + d.writer + '）' : ''}${d.account ? '（账号 ' + d.account + '）' : ''}\n标题：${d.title || '⚠️ 没读到标题'}\n类别：${d.kind} · ${d.type} → ${d.platforms.join(' + ')}\n${d.who ? '派给：' + d.who + '（今天）\n' : ''}门店：${d.store || '⚠️ 没认出门店'}${d.area ? ' · 定位 ' + d.area : ''}${d.dp ? ' · 点评定位 ' + d.dp : ''}\n接下来 15 分钟内发的图片/视频会自动归到这篇。`;
 }
-module.exports = { createDraft, parseDraft, isDraft, replyForDraft, PLATFORMS };
+module.exports = { createDraft, parseDraft, isDraft, replyForDraft, PLATFORMS, isInstr, parseInstr };
 
 // ---------- 领稿卡片：派稿日期 = 今天、状态 = 待发布 的稿件 → 卡片 + 可复制的文案 + 素材 ----------
 function createDispatch({ api, core, raw, log }) {

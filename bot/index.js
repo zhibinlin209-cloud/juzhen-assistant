@@ -10,7 +10,7 @@ const { fetchDouyin } = require('./lib/douyin');
 const { createBrief, bjDay } = require('./lib/brief');
 const { createWeb } = require('./lib/web');
 const { createTgt, replyForTgt } = require('./lib/tgt');
-const { createDraft, replyForDraft, createDispatch } = require('./lib/draft');
+const { createDraft, replyForDraft, createDispatch, isInstr, parseInstr } = require('./lib/draft');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
@@ -140,7 +140,7 @@ async function setup() {
   const tgt = createTgt({ cfg, api: { call }, log });
   const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log });
   await core.load(true);
-  const draft = createDraft({ api: { call }, core, upload, log }); const lastVideo = new Map();
+  const draft = createDraft({ api: { call }, core, upload, log }); const lastVideo = new Map(), lastInstr = new Map(), draftMsg = new Map();
   const rawIO = { download: dl, imKey, imFile }; const dispatch = createDispatch({ api: { call }, core, raw: rawIO, log });
   for (const n of (cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'])) { try { await core.loadT(n, true); } catch (e) { log('[表] 读不到 ' + n + '：', e.message); } }
 
@@ -214,13 +214,29 @@ async function setup() {
     }
     if ((data.sender || {}).sender_type === 'app') return;
     // 收稿：编号 + 标题 + 正文；之后 15 分钟内同一个人发的图片都算这篇的素材
+    // PR 的派发说明（@人 + 平台 + 定位）：先记下，和前后 15 分钟内同一个人发的稿件合在一起
+    const names = (m.mentions || []).map(x => String(x.name || '').trim()).filter(Boolean);
+    const txt = text ? text.replace(/@_user_\d+/g, '').trim() : '';
+    if (txt && isInstr(txt)) {
+      const ins = parseInstr(txt, names); lastInstr.set(sid, { ins, at: Date.now() });
+      try { const p = await draft.applyInstr(sid, ins); if (p) { await reply(m.message_id, `📌 已把「${p.code}」派给 ${ins.people.join('、') || '?'}（今天）· ${ins.platforms.join(' + ')}${ins.dp ? ' · 点评定位 ' + ins.dp : ''}`); lastInstr.delete(sid); } } catch (e) { log('[收稿] 派发说明出错：' + e.message); }
+      return;
+    }
+    const li = lastInstr.get(sid); const instr = li && Date.now() - li.at < 15 * 60e3 ? li.ins : null;
     const lv = lastVideo.get(sid); let vid = lv && Date.now() - lv.at < 15 * 60e3 ? lv : null;
     if (media && media.length) vid = { mid: m.message_id, key: media[0].key, name: media[0].name, at: Date.now(), inline: true }; // 视频和文字在同一条消息里
     if (text && draft.isDraft(text, vid)) {
-      try { const who = await senderName(sid); let video = null; if (vid && !/(^|\n)\s*标题\s*[:：]/.test(text)) { if (!vid.inline) lastVideo.delete(sid); try { video = { buf: await fileBuf(vid.mid, vid.key), name: vid.name || '视频.mp4', named: !!vid.name }; } catch (e) { log('[收稿] 视频下载失败：' + e.message); } } const imgs = []; for (const k of images) { try { imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); } catch (e) { } } const d = await draft.save(text, who, sid, imgs, video); await reply(m.message_id, replyForDraft(d) + (imgs.length ? `\n已存 ${imgs.length} 张图` : '') + (video ? `\n已存视频 ${video.name}` : '')); } catch (e) { log('[收稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 稿件没存进去：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); }
+      try { const who = await senderName(sid); let video = null; if (vid && !/(^|\n)\s*标题\s*[:：]/.test(text)) { if (!vid.inline) lastVideo.delete(sid); try { video = { buf: await fileBuf(vid.mid, vid.key), name: vid.name || '视频.mp4', named: !!vid.name }; } catch (e) { log('[收稿] 视频下载失败：' + e.message); } } const imgs = []; for (const k of images) { try { imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); } catch (e) { } } const d = await draft.save(text, who, sid, imgs, video, instr); if (instr) lastInstr.delete(sid); draftMsg.set(m.message_id, { id: d.id, code: d.code, type: d.type, kind: d.kind }); await reply(m.message_id, replyForDraft(d) + (imgs.length ? `\n已存 ${imgs.length} 张图` : '') + (video ? `\n已存视频 ${video.name}` : '')); } catch (e) { log('[收稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 稿件没存进去：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); }
       return;
     }
-    if (!text && images.length && draft.active(sid)) {
+    const blank = !text || !text.trim();
+    const parentDraft = draftMsg.get(m.parent_id) || draftMsg.get(m.root_id);
+    if (blank && images.length && parentDraft) { // 回复在稿件下面发的图 → 归到那篇
+      try { const imgs = []; for (const k of images) imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); const p = await draft.attachTo(parentDraft, imgs); if (p) await reply(m.message_id, `🖼 图片已归到「${p.code}」（素材共 ${p.n} 个）`); } catch (e) { log('[收稿] 图片处理失败：' + e.message); }
+      return;
+    }
+    if (text && /^\s*补图\s*$/.test(text)) { await fixImages(m.chat_id, m.message_id); return; }
+    if (blank && images.length && draft.active(sid)) {
       try { const imgs = []; for (const k of images) imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); const p = await draft.addMedia(sid, imgs); if (p && (p.n === imgs.length || p.n % 3 === 0)) await reply(m.message_id, `🖼 图片已归到「${p.code}」（素材共 ${p.n} 个）`); } catch (e) { log('[收稿] 图片处理失败：' + e.message); }
       return;
     }
@@ -342,6 +358,25 @@ async function setup() {
       if (!o.manual && sent) { briefState.last = bjDay(Date.now()); try { fs.writeFileSync(BRIEF_FILE, JSON.stringify(briefState)); } catch (e) { } }
     } catch (e) { log('[简报] 生成失败：', e.message); if (o.replyTo) await reply(o.replyTo, '⚠️ 简报生成失败：' + e.message.slice(0, 80)); }
     finally { briefing = false; }
+  }
+  // 「补图」：翻本群最近 2 小时的聊天记录，把最后一篇稿件后面、同一个人发的图片补进稿件库
+  async function fixImages(chat, replyTo) {
+    try {
+      const start = Math.floor(Date.now() / 1000) - 7200; const msgs = []; let pt = '';
+      do { const d = await call('GET', '/im/v1/messages', null, Object.assign({ container_id_type: 'chat', container_id: chat, start_time: String(start), sort_type: 'ByCreateTimeAsc', page_size: 50 }, pt ? { page_token: pt } : {})); msgs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+      const fl = x => flatten(x.msg_type, (x.body || {}).content);
+      let di = -1; msgs.forEach((x, i) => { const f = fl(x); if (f.text && draft.isDraft(f.text)) di = i; });
+      if (di < 0) { await reply(replyTo, '最近 2 小时没找到稿件'); return; }
+      const dm = msgs[di], who = ((dm.sender || {}).id) || ''; const code = draft.parseDraft(fl(dm).text).code;
+      const T = await draft.tbl(); const rs = await call('POST', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/search`, {}, { page_size: 200 });
+      const rec = (rs.items || []).filter(r => String(((r.fields || {})['稿件编号'] || [{}])[0]?.text || (r.fields || {})['稿件编号'] || '') === code || JSON.stringify((r.fields || {})['稿件编号'] || '').includes(code.slice(0, 10))).pop();
+      if (!rec) { await reply(replyTo, `稿件库里没找到「${code}」`); return; }
+      const old = ((rec.fields || {})['素材'] || []).length; const imgs = [];
+      for (const x of msgs.slice(di + 1)) { if (((x.sender || {}).id) !== who) continue; const f = fl(x); if (f.text && f.text.trim() && draft.isDraft(f.text)) break; for (const k of f.images) { try { imgs.push({ buf: await imgBuf(x.message_id, k), name: k + '.jpg' }); } catch (e) { } } }
+      if (!imgs.length) { await reply(replyTo, `「${code}」后面没找到同一个人发的图片`); return; }
+      if (old) { await reply(replyTo, `「${code}」已经有 ${old} 个素材了，没有重复补`); return; }
+      const p = await draft.attachTo({ id: rec.record_id, code }, imgs); await reply(replyTo, `🖼 已给「${code}」补上 ${p ? p.n : imgs.length} 张图`);
+    } catch (e) { log('[收稿] 补图出错：' + e.message); await reply(replyTo, '⚠️ 补图没成功：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); }
   }
   // 派稿进度：今天在这个群派出的稿件，哪些发了、哪些还没发
   async function progress(chatId, remind) {
