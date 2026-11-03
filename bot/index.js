@@ -7,6 +7,7 @@
 const fs = require('fs'); const path = require('path'); const readline = require('readline');
 const { createCore, replyForText, replyForImage, replyForDaily, replyForDouyin } = require('./lib/core');
 const { fetchDouyin } = require('./lib/douyin');
+const { createBrief, bjDay } = require('./lib/brief');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
@@ -90,6 +91,17 @@ async function setup() {
   }
 
 
+  async function chat(prompt) { // 通义千问文字模型（写简报）
+    const models = [cfg.briefModel || 'qwen-max', 'qwen-plus'];
+    let last = '';
+    for (const model of models) {
+      const r = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.qwenKey }, body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }), signal: AbortSignal.timeout(90000) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok) return ((j.choices || [])[0] || {}).message.content || '';
+      last = (j.error && (j.error.message || j.error.code)) || ('HTTP ' + r.status); log(`[简报] 模型 ${model} 不可用：${last}`);
+    }
+    throw new Error(last);
+  }
   const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log });
   await core.load(true);
   for (const n of (cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'])) { try { await core.loadT(n, true); } catch (e) { log('[表] 读不到 ' + n + '：', e.message); } }
@@ -112,6 +124,8 @@ async function setup() {
     if (m.chat_type !== 'group') return;
     if (cfg.chats && cfg.chats.length && !cfg.chats.includes(m.chat_id)) return;
     const { text, images } = flatten(m.message_type, m.content);
+    if ((data.sender || {}).sender_type === 'user' && m.chat_id === dailyChatNow()) rememberBoss(((data.sender || {}).sender_id || {}).open_id);
+    if (text && /^\s*(简报|日报简报|今日简报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendBrief({ replyTo: m.message_id, manual: true }); return; }
     // 门店营业日报（华付数科等机器人发的也收）
     if (text && /营业日概况|当天总营业额/.test(text)) {
       if (typeof markDaily === 'function') markDaily(m.message_id, m.chat_id);
@@ -155,6 +169,7 @@ async function setup() {
   const CHAT_FILE = path.join(DATA_DIR, 'daily-chat.txt');
   let dailyChat = cfg.dailyChatId || (() => { try { return fs.readFileSync(CHAT_FILE, 'utf8').trim() || null; } catch (e) { return null; } })();
   markDaily = (id, chatId) => { dailySeen[id] = 1; saveSeen(); if (chatId && chatId !== dailyChat) { dailyChat = chatId; try { fs.writeFileSync(CHAT_FILE, chatId); } catch (e) { } log('[日报] 记住日报群，之后定时补收'); } };
+  function dailyChatNow() { return dailyChat; }
   async function findDailyChat() {
     if (dailyChat) return dailyChat;
     const name = cfg.dailyChatName || '经营日报'; let pt = '';
@@ -183,6 +198,35 @@ async function setup() {
     } catch (e) { log('补收日报失败：', e.message); }
   }
   setTimeout(pollDaily, 15e3); setInterval(pollDaily, 10 * 60e3);
+
+  // ---------- 每日 CEO 简报 ----------
+  const BOSS_FILE = path.join(DATA_DIR, 'boss.txt'), BRIEF_FILE = path.join(DATA_DIR, 'brief-state.json');
+  let boss = cfg.bossOpenId || (() => { try { return fs.readFileSync(BOSS_FILE, 'utf8').trim(); } catch (e) { return ''; } })();
+  function rememberBoss(id) { if (!id || id === boss) return; boss = id; try { fs.writeFileSync(BOSS_FILE, id); } catch (e) { } log('[简报] 记住了老板的飞书账号，以后简报私聊发送'); }
+  const brief = createBrief({ cfg, api: { call }, log, llm: cfg.qwenKey ? chat : null });
+  let briefState = {}; try { briefState = JSON.parse(fs.readFileSync(BRIEF_FILE, 'utf8')); } catch (e) { }
+  let briefing = false;
+  async function sendBrief(o) {
+    o = o || {}; if (briefing) return; briefing = true;
+    try {
+      const r = await brief.make();
+      const content = JSON.stringify({ text: r.text });
+      let sent = false;
+      if (boss) { try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content }, { receive_id_type: 'open_id' }); sent = true; } catch (e) { log('[简报] 私聊发送失败，改发日报群：', e.message); } }
+      if (!sent && o.replyTo) { await reply(o.replyTo, r.text); sent = true; }
+      else if (!sent && dailyChatNow()) { await call('POST', '/im/v1/messages', { receive_id: dailyChatNow(), msg_type: 'text', content }, { receive_id_type: 'chat_id' }); sent = true; }
+      if (sent && o.replyTo && boss) await reply(o.replyTo, '✅ 简报已私聊发给你');
+      log(`[简报] ${o.manual ? '手动' : '定时'}发送${sent ? '成功' : '失败（没有收件人）'}（${r.by}）`);
+      if (!o.manual && sent) { briefState.last = bjDay(Date.now()); try { fs.writeFileSync(BRIEF_FILE, JSON.stringify(briefState)); } catch (e) { } }
+    } catch (e) { log('[简报] 生成失败：', e.message); if (o.replyTo) await reply(o.replyTo, '⚠️ 简报生成失败：' + e.message.slice(0, 80)); }
+    finally { briefing = false; }
+  }
+  setInterval(() => {
+    if (cfg.briefAuto === false) return;
+    const bj = new Date(Date.now() + 8 * 3600e3); const hh = bj.getUTCHours(), mm = bj.getUTCMinutes();
+    const [H, M] = String(cfg.briefTime || '09:00').split(':').map(Number);
+    if ((hh > H || (hh === H && mm >= M)) && hh < H + 3 && briefState.last !== bjDay(Date.now())) sendBrief({});
+  }, 60e3);
 
   const lark = require('@larksuiteoapi/node-sdk');
   const ws = new lark.WSClient({ appId: cfg.appId, appSecret: cfg.appSecret, loggerLevel: lark.LoggerLevel.warn });

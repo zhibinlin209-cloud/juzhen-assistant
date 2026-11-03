@@ -52,7 +52,7 @@ function createCore({ cfg, api, log }) {
   const dyKey = u => { const t = String(u || ''); const a = t.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/); if (a) return 's:' + a[1]; const b = t.match(/(?:video|note)\/(\d{8,})/); return b ? 'i:' + b[1] : ''; };
   async function loadT(name, force) {
     if (vt[name] && !force && Date.now() - vt[name].at < 5 * 60e3) return vt[name];
-    const app = await appToken(); const t = (await listTables()).find(x => x.name === name); if (!t) { log('[表] 没找到：' + name); return null; }
+    const app = await appToken(); const all = await listTables(); const nk = x => String(x).replace(/最新|[-_\s—－·]/g, ''); const t = all.find(x => x.name === name) || all.find(x => nk(x.name) === nk(name)); if (!t) { log('[表] 没找到：' + name); return null; } if (t.name !== name) log(`[表] 「${name}」已改名为「${t.name}」，照常使用`);
     let fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
     if (await heal(app, t.table_id, fd.items || [])) fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
     const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
@@ -277,7 +277,7 @@ function createCore({ cfg, api, log }) {
       const af = T.meta.find(x => x.name === T.accCol); const acc = [...T.accts].find(a => P.norm(a) === P.norm(p.nick));
       if (af && af.type === 1) f[T.accCol] = acc; else if (af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc;
       const df = T.meta.find(x => x.name === '发布日期'); if (df && df.type === 5) f['发布日期'] = dayStart(p.time || Date.now());
-      const pf = T.meta.find(x => x.name === '人员'); const person = senderName && pf && (pf.options || []).find(o => senderName.includes(o) || o.includes(senderName)); if (person) f['人员'] = pf.type === 4 ? [person] : person;
+      const pf = T.meta.find(x => x.name === '发布人员') || T.meta.find(x => x.name === '人员'); const person = senderName && pf && (pf.options || []).find(o => senderName.includes(o) || o.includes(senderName)); if (person) f['人员'] = pf.type === 4 ? [person] : person;
       (add[T.name] = add[T.name] || { T, recs: [] }).recs.push({ fields: f }); out.created.push(Object.assign(p, { table: T.name, account: acc })); T.links.add(dyKey(p.url));
     }
     const app = await appToken();
