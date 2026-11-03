@@ -418,6 +418,9 @@ async function setup() {
       if (hh === 21 && mm >= 30 && pst.sum !== day) { pst.sum = day; fs.writeFileSync(PST, JSON.stringify(pst)); const t = await progress(chat, false); if (!/还没有派过稿/.test(t)) await call('POST', '/im/v1/messages', { receive_id: chat, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'chat_id' }); }
     } catch (e) { log('[领稿] 定时提醒出错：' + e.message); }
   }, 60e3);
+  setTimeout(async () => { // 自检：能不能读发布群成员、读到人名（决定卡片能不能真 @ 到人）
+    try { const chat = fs.readFileSync(path.join(DATA_DIR, 'publish-chat.txt'), 'utf8').trim(); const d = await call('GET', `/im/v1/chats/${chat}/members`, null, { member_id_type: 'open_id', page_size: 100 }); const ns = (d.items || []).map(x => x.name); log(`[自检] 发布群成员 ${ns.length} 人：${ns.slice(0, 20).join('、')}`); if (d.items && d.items[0]) { const n = await senderName(d.items[0].member_id); log('[自检] 读人名：' + (n || '读不到')); } } catch (e) { log('[自检] 读群成员失败：' + e.message.slice(0, 160)); }
+  }, 25e3);
   setTimeout(async () => { const f = path.join(DATA_DIR, 'alias-seed.json'); if (fs.existsSync(f)) return; try { // 一次性：账号改过名的，补上旧名（按数据表推断）
       const ps = await people.list(true); const A = String(cfg.dailyBaseUrl).match(/\/base\/([A-Za-z0-9]+)/)[1]; const tabs = await call('GET', `/bitable/v1/apps/${A}/tables`, null, { page_size: 100 }); const t = (tabs.items || []).find(x => x.name === '人员账号对照');
       const seed = [[p => p['小红书账号'] === '饭桌C位Jack', 'c位Noli、饭桌c位fury'], [p => p['小红书账号'] === '七七八八八', '77888']]; const upd = [];
