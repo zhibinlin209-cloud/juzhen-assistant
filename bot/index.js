@@ -127,7 +127,8 @@ async function setup() {
   setTimeout(async () => { const f = path.join(DATA_DIR, 'sph-import.json'); if (fs.existsSync(f)) return; try { const r = await core.sphImport(); fs.writeFileSync(f, JSON.stringify(Object.assign({ at: Date.now() }, r))); log('[视频号导入] ' + JSON.stringify(r)); } catch (e) { log('[视频号导入] 出错 ' + e.message); } }, 20e3);
   setTimeout(async () => { const f = path.join(DATA_DIR, 'sph-format.json'); if (fs.existsSync(f)) return; try { const r = await core.sphFormat(); fs.writeFileSync(f, JSON.stringify(Object.assign({ at: Date.now() }, r))); log('[视频号整理] ' + JSON.stringify(r)); } catch (e) { log('[视频号整理] 出错 ' + e.message); } }, 40e3);
   setTimeout(async () => { const f = path.join(DATA_DIR, 'sph-titles.json'); if (fs.existsSync(f)) return; try { const r = await core.sphTitles(); fs.writeFileSync(f, JSON.stringify(Object.assign({ at: Date.now() }, r))); log('[视频号补标题] ' + JSON.stringify({ imported: r.imported, filled: r.filled, ambiguous: r.ambiguous.length, notFound: r.notFound.length })); } catch (e) { log('[视频号补标题] 出错 ' + e.message); } }, 60e3);
-  setTimeout(() => core.ensurePaigao().catch(e => log('[派稿] 建表出错 ' + e.message)), 30e3);
+  { let ok = false; const tryPg = () => { if (ok) return; core.ensurePaigao().then(() => { ok = true; log('[派稿] 派稿记录表已就绪'); }).catch(e => log('[派稿] 暂时不能用（' + e.message.replace(/\/bitable\S*/g, '') + '），10 分钟后再试')); }; setTimeout(tryPg, 30e3); setInterval(tryPg, 10 * 60e3); }
+  setTimeout(async () => { const f = path.join(DATA_DIR, 'sph-clean.json'); if (fs.existsSync(f)) return; try { const r = await core.sphCleanTitles(); fs.writeFileSync(f, JSON.stringify(r)); log('[视频号] 清掉占位标题 ' + r.length + ' 条：' + r.join('、')); } catch (e) { log('[视频号] 清标题出错 ' + e.message); } }, 50e3);
   // ---------- 收消息 ----------
   const seen = new Set(); let markDaily = null;
   function flatten(type, content) { // 文本 / 富文本 → 文字 + 图片

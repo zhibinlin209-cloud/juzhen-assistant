@@ -397,7 +397,7 @@ function createCore({ cfg, api, log }) {
     const link = v => { const m = JSON.stringify(v ?? '').match(WX); return m ? m[0] : ''; };
     const read = async name => { const t = all.find(x => x.name === name); if (!t) return []; const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt); return recs.map(r => r.fields || {}); };
     const bj = t => Math.floor((t + 8 * 3600e3) / DAY); const mx = (...a) => { const v = a.map(num).filter(x => x !== null && x !== undefined); return v.length ? Math.max(...v) : null; };
-    const tt = f => titleOf(f['标题(供AI读取)'] || f['..标题'] || f['标题']).replace(/\.{3}$|…$/, '');
+    const tt = f => { const x = titleOf(f['标题(供AI读取)'] || f['..标题'] || f['标题']).replace(/\.{3}$|…$/, '').trim(); return /^@/.test(x) || x.length < 4 ? '' : x; };
     const pool = []; // {person, day, title}
     const have = new Set(T.rows.map(r => sphKey(r.link)).filter(Boolean)); const add = []; const now = Date.now();
     for (const f of await read('小红书矩阵号-数据')) {
@@ -439,6 +439,12 @@ function createCore({ cfg, api, log }) {
     } catch (e) { log('[派稿] 同步发布人员下拉失败 ' + e.message); }
     return t.table_id;
   }
+  // 清掉误填的占位标题（如「@武少」）
+  async function sphCleanTitles() {
+    const T = await sphTable(); const bad = T.rows.filter(r => r.title && /^@\S{1,12}$/.test(r.title.trim()));
+    if (bad.length) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_update`, { records: bad.map(r => ({ record_id: r.id, fields: { 标题: '' } })) });
+    return bad.map(r => r.title);
+  }
   // 只读盘点：哪些表里有视频号内容（不改任何表）
   async function sphSurvey() {
     const app = await appToken(); const all = await listTables(); const out = [];
@@ -454,7 +460,7 @@ function createCore({ cfg, api, log }) {
     }
     return out;
   }
-  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, load, loadT, _st: st, _match: match };
+  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案
