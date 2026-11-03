@@ -226,7 +226,8 @@ async function setup() {
     const lv = lastVideo.get(sid); let vid = lv && Date.now() - lv.at < 15 * 60e3 ? lv : null;
     if (media && media.length) vid = { mid: m.message_id, key: media[0].key, name: media[0].name, at: Date.now(), inline: true }; // 视频和文字在同一条消息里
     if (text && draft.isDraft(text, vid)) {
-      try { const who = await senderName(sid); let video = null; if (vid && !/(^|\n)\s*标题\s*[:：]/.test(text)) { if (!vid.inline) lastVideo.delete(sid); try { video = { buf: await fileBuf(vid.mid, vid.key), name: vid.name || '视频.mp4', named: !!vid.name }; } catch (e) { log('[收稿] 视频下载失败：' + e.message); } } const imgs = []; for (const k of images) { try { imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); } catch (e) { } } const d = await draft.save(text, who, sid, imgs, video, instr); if (instr) lastInstr.delete(sid); draftMsg.set(m.message_id, { id: d.id, code: d.code, type: d.type, kind: d.kind }); await reply(m.message_id, replyForDraft(d) + (imgs.length ? `\n已存 ${imgs.length} 张图` : '') + (video ? `\n已存视频 ${video.name}` : '')); } catch (e) { log('[收稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 稿件没存进去：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); }
+      const ph = draft.begin(sid);
+      try { const who = await senderName(sid); let video = null; if (vid && !/(^|\n)\s*标题\s*[:：]/.test(text)) { if (!vid.inline) lastVideo.delete(sid); try { video = { buf: await fileBuf(vid.mid, vid.key), name: vid.name || '视频.mp4', named: !!vid.name }; } catch (e) { log('[收稿] 视频下载失败：' + e.message); } } const imgs = []; for (const k of images) { try { imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); } catch (e) { } } const d = await draft.save(text, who, sid, imgs, video, instr); if (instr) lastInstr.delete(sid); draftMsg.set(m.message_id, { id: d.id, code: d.code, type: d.type, kind: d.kind }); await reply(m.message_id, replyForDraft(d) + (imgs.length ? `\n已存 ${imgs.length} 张图` : '') + (video ? `\n已存视频 ${video.name}` : '')); } catch (e) { if (!ph.id) ph.ok(); log('[收稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 稿件没存进去：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); }
       return;
     }
     const blank = !text || !text.trim();
@@ -237,7 +238,7 @@ async function setup() {
     }
     if (text && /^\s*补图\s*$/.test(text)) { await fixImages(m.chat_id, m.message_id); return; }
     if (blank && images.length && draft.active(sid)) {
-      try { const imgs = []; for (const k of images) imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); const p = await draft.addMedia(sid, imgs); if (p && (p.n === imgs.length || p.n % 3 === 0)) await reply(m.message_id, `🖼 图片已归到「${p.code}」（素材共 ${p.n} 个）`); } catch (e) { log('[收稿] 图片处理失败：' + e.message); }
+      try { const imgs = (async () => { const a = []; for (const k of images) a.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); return a; })(); const p = await draft.addMedia(sid, imgs); if (p && p.id) { clearTimeout(p.tm); p.tm = setTimeout(() => reply(m.message_id, `🖼 图片已归到「${p.code}」（素材共 ${p.n} 个）`), 4000); } } catch (e) { log('[收稿] 图片处理失败：' + e.message); }
       return;
     }
     try {

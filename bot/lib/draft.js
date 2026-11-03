@@ -73,6 +73,10 @@ function parseInstr(text, names) {
 function createDraft({ api, core, upload, log }) {
   let tid = null; const pending = new Map(); // 发稿人 → { id, code, at, n }
   async function tbl() { if (!tid) tid = await core.ensurePaigao(); return { app: await core.appToken(), tid }; }
+  function begin(senderId) { // 一认出稿件就先占位：紧跟着到的图片排在它后面，等稿件建好再存
+    let ok; const ready = new Promise(r => { ok = r; }); const p = { id: null, code: '', at: Date.now(), n: 0, type: '图文', kind: '', q: ready, ok };
+    pending.set(senderId, p); return p;
+  }
   async function save(text, sender, senderId, imgs, video, instr) {
     const d = parseDraft(text, video && video.named !== false ? video.name : ''); const T = await tbl();
     const kind = /抖音素人/.test(d.kind) ? '抖音素人号' : (/抖音矩阵/.test(d.kind) || d.video) ? '抖音矩阵号' : '小红书矩阵号';
@@ -81,7 +85,8 @@ function createDraft({ api, core, upload, log }) {
     if (instr) Object.assign(fields, instrFields(instr));
     Object.keys(fields).forEach(k => { if (fields[k] === '' || (Array.isArray(fields[k]) && !fields[k].length)) delete fields[k]; });
     const r = await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records`, { fields });
-    const id = r.record.record_id; pending.set(senderId, { id, code: d.code, at: Date.now(), n: 0, type, kind });
+    const id = r.record.record_id; const ph = pending.get(senderId);
+    if (ph && !ph.id) { Object.assign(ph, { id, code: d.code, at: Date.now(), type, kind }); ph.ok(); } else pending.set(senderId, { id, code: d.code, at: Date.now(), n: 0, type, kind });
     log(`[收稿] ${d.code}（${d.title.slice(0, 20)}）`);
     if (imgs && imgs.length) await addMedia(senderId, imgs);
     if (video && video.buf) await addMedia(senderId, [{ buf: video.buf, name: video.name, video: true }]);
@@ -104,6 +109,7 @@ function createDraft({ api, core, upload, log }) {
     p.q = (p.q || Promise.resolve()).then(() => addNow(p, files)).catch(e => { log('[收稿] 素材保存失败：' + e.message); return p; }); return p.q;
   }
   async function addNow(p, files) {
+    files = await files; if (!files || !files.length || !p.id) return p;
     const T = await tbl();
     const toks = []; for (const f of files) { try { toks.push({ file_token: await upload(f.buf, f.name, f.video ? 'bitable_file' : 'bitable_image', T.app) }); if (f.video) p.type = '视频'; } catch (e) { log('[收稿] 素材上传失败：' + e.message); } }
     if (!toks.length) return p;
@@ -114,7 +120,7 @@ function createDraft({ api, core, upload, log }) {
     await api.call('PUT', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/${p.id}`, { fields });
     p.n += toks.length; p.at = Date.now(); return p;
   }
-  return { isDraft, save, addMedia, active, parseDraft, applyInstr, attachTo, tbl };
+  return { isDraft, save, addMedia, active, parseDraft, applyInstr, attachTo, tbl, begin };
 }
 
 function replyForDraft(d) {

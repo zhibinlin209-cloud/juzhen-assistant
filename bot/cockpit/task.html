@@ -90,7 +90,7 @@ function render() {
   if (location.hash === '#done') setTimeout(() => $('#done').scrollIntoView({ behavior: 'smooth' }), 200);
 }
 fetch(base + '/data').then(r => r.ok ? r.json() : Promise.reject(r.status)).then(j => { D = j; document.title = (j.type === '视频' ? '🎬 ' : '📮 ') + (j.code || '领稿'); render(); })
-  .catch(s => { $('#app').innerHTML = `<div class="card"><div class="sec">${s === 403 ? '这个领稿链接已失效，请让 PR 重新派一次，或在群里找最新的卡片。' : '加载失败，请稍后刷新。'}</div></div>`; });
+  .catch(s => { $('#app').innerHTML = `<div class="card"><div class="sec">${s === 403 ? '这个领稿链接已失效，请让 PR 重新派一次，或在群里找最新的卡片。' : s === 404 ? '这条稿件已经从稿件库删除了。' : '加载失败，请稍后刷新。'}</div></div>`; });
 </script>
 </body>
 </html>

@@ -21,7 +21,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
     const m = p.match(/^\/t\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)(\/.*)?$/); const id = m && tverify(m[1]); if (!id || !dispatch) return send(res, 403, '{"error":"链接失效"}');
     const sub = m[2] || '/'; const mb = `${base}t/${m[1]}`;
     if (sub === '/' ) { const h = page('task.html'); return h ? send(res, 200, h, 'text/html; charset=utf-8') : send(res, 503, '页面更新中'); }
-    const r = await dispatch.getRec(id);
+    let r; try { r = await dispatch.getRec(id); } catch (e) { if (/RecordIdNotFound|1254043/.test(e.message)) return send(res, 404, '{"error":"这条稿件已被删除"}'); throw e; }
     if (sub === '/data') return send(res, 200, JSON.stringify(dispatch.view(r, mb)));
     const mm = sub.match(/^\/m\/(\d+)$/);
     if (mm && req.method === 'GET') {
