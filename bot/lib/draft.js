@@ -140,7 +140,7 @@ function createAccounts({ api, core, log }) {
     const m = {}; const since = Date.now() - 90 * 864e5;
     for (const [k, name, pf, af] of SRC) {
       const t = tabs.find(x => x.name === name); if (!t) continue; let p2 = '';
-      do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { field_names: pf.concat(af, ['发布日期']) }, Object.assign({ page_size: 500 }, p2 ? { page_token: p2 } : {}));
+      do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, p2 ? { page_token: p2 } : {}));
         for (const r of d.items || []) { const f = r.fields || {}; const who = String(val(pf.map(x => f[x]).find(Boolean)) || '').trim(); const acc = String(val(af.map(x => f[x]).find(Boolean)) || '').trim(); if (!who || !acc) continue; const recent = typeof f['发布日期'] === 'number' && f['发布日期'] >= since; const o = ((m[who] = m[who] || {})[k] = m[who][k] || {}); o[acc] = (o[acc] || 0) + (recent ? 3 : 1); }
         p2 = d.has_more ? d.page_token : ''; } while (p2);
     }
