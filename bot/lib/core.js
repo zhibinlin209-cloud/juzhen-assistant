@@ -388,6 +388,39 @@ function createCore({ cfg, api, log }) {
     for (let i = 0; i < recs.length; i += 400) await api.call('POST', `/bitable/v1/apps/${T2.app}/tables/${T2.id}/records/batch_update`, { records: recs.slice(i, i + 400) });
     return { filled: recs.length, people: people.length };
   }
+  // 补标题 + 补导小红书表「微信贴图」列（只读原表）：
+  // 1) 小红书矩阵号表里的微信贴图链接（视频号贴图）导进来，标题直接带上
+  // 2) 视频号表里还没标题的行：找同一发布人员、同一天在小红书/抖音表里发的内容，只有一个标题时才填
+  async function sphTitles() {
+    const app = await appToken(); const all = await listTables(); const T = await sphTable();
+    const WX = /https?:\/\/(?:weixin\.qq\.com\/sph\/[A-Za-z0-9_-]+|channels\.weixin\.qq\.com\/[^\s"\\,，。)）]+)/;
+    const link = v => { const m = JSON.stringify(v ?? '').match(WX); return m ? m[0] : ''; };
+    const read = async name => { const t = all.find(x => x.name === name); if (!t) return []; const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt); return recs.map(r => r.fields || {}); };
+    const bj = t => Math.floor((t + 8 * 3600e3) / DAY); const mx = (...a) => { const v = a.map(num).filter(x => x !== null && x !== undefined); return v.length ? Math.max(...v) : null; };
+    const tt = f => titleOf(f['标题(供AI读取)'] || f['..标题'] || f['标题']).replace(/\.{3}$|…$/, '');
+    const pool = []; // {person, day, title}
+    const have = new Set(T.rows.map(r => sphKey(r.link)).filter(Boolean)); const add = []; const now = Date.now();
+    for (const f of await read('小红书矩阵号-数据')) {
+      const person = String(val(f['人员'] || f['发布人员']) || '').trim(), date = typeof f['发布日期'] === 'number' ? f['发布日期'] : null, title = tt(f);
+      if (person && date && title && !link(f['微信贴图'])) pool.push({ person, day: bj(date), title, src: '小红书' });
+      const u = link(f['微信贴图']); if (!u || have.has(sphKey(u))) continue; have.add(sphKey(u));
+      const home = f['主页链接'];
+      add.push({ fields: T.fit({ 标题: title || null, 发布日期: date, 发布人员: person || null, 账号名称: String(val(f['账号昵称']) || '').trim() || null, 视频号链接: { link: u, text: u }, 播放: mx(f['视频号播放(自动)']), 点赞: mx(f['视频号点赞(自动)']), 评论: mx(f['视频号评论(自动)']), 转发: mx(f['视频号转发(自动)']), 收藏: mx(f['视频号收藏(自动)']), 类型: '贴图', 来源: '小红书矩阵号-数据', 账号类型: '矩阵号', 账号主页: home && typeof home === 'object' && home.link ? { link: home.link, text: home.text || home.link } : null, 登记时间: now }) });
+    }
+    for (const n of ['抖音-矩阵号-数据', '抖音-素人号-数据']) for (const f of await read(n)) { const person = String(val(f['发布人员']) || '').trim(), date = typeof f['发布日期'] === 'number' ? f['发布日期'] : null, title = tt(f); if (person && date && title && !link(f['视频号链接']) && !link(f['视频号']) && !link(f['贴图号'])) pool.push({ person, day: bj(date), title, src: '抖音' }); }
+    for (let i = 0; i < add.length; i += 400) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_create`, { records: add.slice(i, i + 400) });
+    const norm = x => P.norm(x); const upd = [], amb = [], none = [];
+    for (const r of T.rows.filter(r => r.link && !r.title)) {
+      if (!r.person || !r.date) { none.push(`${r.person || '?'} 无日期`); continue; }
+      const c = pool.filter(p => p.person === r.person && p.day === bj(r.date)); const uniq = [];
+      for (const p of c) if (!uniq.some(q => sim(norm(q.title), norm(p.title)) >= 0.8)) uniq.push(p);
+      if (uniq.length === 1) upd.push({ record_id: r.id, fields: T.fit({ 标题: uniq[0].title }) });
+      else if (uniq.length > 1) amb.push(`${r.person} ${new Date(r.date + 8 * 3600e3).toISOString().slice(5, 10)}：${uniq.map(u => u.title.slice(0, 12)).join(' / ')}`);
+      else none.push(`${r.person} ${new Date(r.date + 8 * 3600e3).toISOString().slice(5, 10)}`);
+    }
+    for (let i = 0; i < upd.length; i += 400) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_update`, { records: upd.slice(i, i + 400) });
+    return { imported: add.length, filled: upd.length, ambiguous: amb, notFound: none };
+  }
   // 只读盘点：哪些表里有视频号内容（不改任何表）
   async function sphSurvey() {
     const app = await appToken(); const all = await listTables(); const out = [];
@@ -403,7 +436,7 @@ function createCore({ cfg, api, log }) {
     }
     return out;
   }
-  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, load, loadT, _st: st, _match: match };
+  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案

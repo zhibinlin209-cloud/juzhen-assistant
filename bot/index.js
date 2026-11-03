@@ -126,6 +126,7 @@ async function setup() {
   // 视频号历史数据一次性导入（做过就不再做；按链接去重）
   setTimeout(async () => { const f = path.join(DATA_DIR, 'sph-import.json'); if (fs.existsSync(f)) return; try { const r = await core.sphImport(); fs.writeFileSync(f, JSON.stringify(Object.assign({ at: Date.now() }, r))); log('[视频号导入] ' + JSON.stringify(r)); } catch (e) { log('[视频号导入] 出错 ' + e.message); } }, 20e3);
   setTimeout(async () => { const f = path.join(DATA_DIR, 'sph-format.json'); if (fs.existsSync(f)) return; try { const r = await core.sphFormat(); fs.writeFileSync(f, JSON.stringify(Object.assign({ at: Date.now() }, r))); log('[视频号整理] ' + JSON.stringify(r)); } catch (e) { log('[视频号整理] 出错 ' + e.message); } }, 40e3);
+  setTimeout(async () => { const f = path.join(DATA_DIR, 'sph-titles.json'); if (fs.existsSync(f)) return; try { const r = await core.sphTitles(); fs.writeFileSync(f, JSON.stringify(Object.assign({ at: Date.now() }, r))); log('[视频号补标题] ' + JSON.stringify({ imported: r.imported, filled: r.filled, ambiguous: r.ambiguous.length, notFound: r.notFound.length })); } catch (e) { log('[视频号补标题] 出错 ' + e.message); } }, 60e3);
   // ---------- 收消息 ----------
   const seen = new Set(); let markDaily = null;
   function flatten(type, content) { // 文本 / 富文本 → 文字 + 图片
