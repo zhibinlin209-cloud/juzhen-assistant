@@ -421,6 +421,16 @@ function createCore({ cfg, api, log }) {
     for (let i = 0; i < upd.length; i += 400) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_update`, { records: upd.slice(i, i + 400) });
     return { imported: add.length, filled: upd.length, ambiguous: amb, notFound: none };
   }
+  // 派稿表：PR 派稿时在这里填一行（图文/视频两种），以后发布链接进来时机器人按它补标题
+  const PG_NAME = '派稿记录';
+  const PG_COLS = [['标题', 1], ['派稿日期', 5], ['内容类型', 3, { options: [{ name: '图文', color: 0 }, { name: '视频', color: 1 }] }], ['发布平台', 4, { options: ['小红书', '抖音', '视频号', '微信贴图', '大众点评', '携程'].map((name, color) => ({ name, color })) }], ['门店', 3, { options: ['深圳华强北燕南店', '深圳前海HOP店', '深圳白石洲店', '深圳蛇口招商花园城店', '广州江南西店', '珠海玖洲道店', '惠州水东街店', '东莞东城33小镇店', '佛山创意产业园店', '佛山保利西街店', '粤迹·岭南家宴'].map((name, color) => ({ name, color: color % 10 })) }], ['发布人员', 3], ['账号名称', 1], ['稿件编号', 1], ['文案正文', 1], ['话题标签', 1], ['定位', 1], ['点评定位', 1], ['素材', 17], ['状态', 3, { options: [{ name: '待发布', color: 2 }, { name: '已发布', color: 4 }, { name: '取消', color: 7 }] }], ['小红书链接', 15], ['抖音链接', 15], ['视频号链接', 15], ['派稿人', 1], ['备注', 1]];
+  async function ensurePaigao() {
+    const app = await appToken(); const t = (await listTables()).find(x => x.name === PG_NAME);
+    if (!t) { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables`, { table: { name: PG_NAME, default_view_name: '全部', fields: PG_COLS.map(([field_name, type, property]) => Object.assign({ field_name, type }, property ? { property } : {})) } }); log('[派稿] 新建表：' + PG_NAME); return d.table_id; }
+    const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const have = new Set((fd.items || []).map(f => f.field_name));
+    for (const [field_name, type, property] of PG_COLS) if (!have.has(field_name)) { try { await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, Object.assign({ field_name, type }, property ? { property } : {})); log('[派稿] 补建列 ' + field_name); } catch (e) { log('[派稿] 补建列失败 ' + field_name + '：' + e.message); } }
+    return t.table_id;
+  }
   // 只读盘点：哪些表里有视频号内容（不改任何表）
   async function sphSurvey() {
     const app = await appToken(); const all = await listTables(); const out = [];
@@ -436,7 +446,7 @@ function createCore({ cfg, api, log }) {
     }
     return out;
   }
-  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, load, loadT, _st: st, _match: match };
+  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案
