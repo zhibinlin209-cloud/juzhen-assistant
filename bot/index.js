@@ -93,7 +93,7 @@ async function setup() {
   await core.load(true);
 
   // ---------- 收消息 ----------
-  const seen = new Set();
+  const seen = new Set(); let markDaily = null;
   function flatten(type, content) { // 文本 / 富文本 → 文字 + 图片
     let c = {}; try { c = JSON.parse(content || '{}'); } catch (e) { }
     if (type === 'text') return { text: c.text || '', images: [] };
@@ -112,6 +112,7 @@ async function setup() {
     const { text, images } = flatten(m.message_type, m.content);
     // 门店营业日报（华付数科等机器人发的也收）
     if (text && /营业日概况|当天总营业额/.test(text)) {
+      if (typeof markDaily === 'function') markDaily(m.message_id, m.chat_id);
       try { const r = await core.handleDaily(text, (data.sender || {}).sender_type === 'app' ? '日报机器人' : '群消息'); if (r && r.length) { log(`[日报] ${r.map(x => x.store + ' ' + x.date).join('、')}`); if (cfg.replyDaily !== false) await reply(m.message_id, replyForDaily(r)); } } catch (e) { if (e.message === 'NO_PRIVATE_BASE') { log('收到营业日报，但还没配置私密表格（config.json 的 dailyBaseUrl），没有记录'); await reply(m.message_id, '⚠️ 还没设置营业日报的私密表格，这条先不记录（不会写进营销部共享表）'); } else log('处理日报出错：', e.message); }
       return;
     }
@@ -138,6 +139,44 @@ async function setup() {
       }
     } catch (e) { log('处理消息出错：', e.message); }
   }
+
+  // ---------- 日报群定时补收 ----------
+  // 飞书不会把「自定义机器人」（华付数科）发的消息推给我们，所以每 10 分钟翻一次日报群的聊天记录
+  const SEEN_FILE = path.join(DATA_DIR, 'daily-seen.json');
+  let dailySeen = {}; try { dailySeen = JSON.parse(fs.readFileSync(SEEN_FILE, 'utf8')); } catch (e) { }
+  const saveSeen = () => { const ks = Object.keys(dailySeen); if (ks.length > 3000) ks.slice(0, ks.length - 2000).forEach(k => delete dailySeen[k]); try { fs.writeFileSync(SEEN_FILE, JSON.stringify(dailySeen)); } catch (e) { log('daily-seen 保存失败', e.message); } };
+  const firstRun = !fs.existsSync(SEEN_FILE); // 第一次：群里已有的旧消息只记下、不重复处理
+  const CHAT_FILE = path.join(DATA_DIR, 'daily-chat.txt');
+  let dailyChat = cfg.dailyChatId || (() => { try { return fs.readFileSync(CHAT_FILE, 'utf8').trim() || null; } catch (e) { return null; } })();
+  markDaily = (id, chatId) => { dailySeen[id] = 1; saveSeen(); if (chatId && chatId !== dailyChat) { dailyChat = chatId; try { fs.writeFileSync(CHAT_FILE, chatId); } catch (e) { } log('[日报] 记住日报群，之后定时补收'); } };
+  async function findDailyChat() {
+    if (dailyChat) return dailyChat;
+    const name = cfg.dailyChatName || '经营日报'; let pt = '';
+    try { do { const d = await call('GET', '/im/v1/chats', null, Object.assign({ page_size: 100 }, pt ? { page_token: pt } : {})); const c = (d.items || []).find(x => x.name === name); if (c) { dailyChat = c.chat_id; log(`[日报] 补收群：${name}`); return dailyChat; } pt = d.has_more ? d.page_token : ''; } while (pt); } catch (e) { if (!findDailyChat.warned) { findDailyChat.warned = 1; log('读不到群列表（等日报群里来一条日报后自动记住）：', e.message); } }
+    return null;
+  }
+  async function pollDaily() {
+    try {
+      if (!cfg.dailyBaseUrl) return;
+      const chat = await findDailyChat(); if (!chat) return;
+      const start = Math.floor(Date.now() / 1000) - 2 * 86400; let pt = ''; const found = [];
+      do {
+        const d = await call('GET', '/im/v1/messages', null, Object.assign({ container_id_type: 'chat', container_id: chat, start_time: String(start), sort_type: 'ByCreateTimeAsc', page_size: 50 }, pt ? { page_token: pt } : {}));
+        (d.items || []).forEach(m => { if (!dailySeen[m.message_id] && !seen.has(m.message_id)) found.push(m); });
+        pt = d.has_more ? d.page_token : '';
+      } while (pt);
+      if (firstRun && !pollDaily.done) { found.forEach(m => { dailySeen[m.message_id] = 1; }); pollDaily.done = true; saveSeen(); log(`[日报] 补收已就绪（群里原有 ${found.length} 条消息不重复处理）`); return; }
+      pollDaily.done = true;
+      for (const m of found) {
+        dailySeen[m.message_id] = 1; seen.add(m.message_id);
+        const { text } = flatten(m.msg_type, (m.body || {}).content);
+        if (!text || !/营业日概况|当天总营业额/.test(text)) continue;
+        try { const r = await core.handleDaily(text, (m.sender || {}).sender_type === 'app' ? '日报机器人' : '群消息'); if (r && r.length) { log(`[日报·补收] ${r.map(x => x.store + ' ' + x.date).join('、')}`); if (cfg.replyDaily !== false) await reply(m.message_id, replyForDaily(r)); } } catch (e) { log('补收日报出错：', e.message); }
+      }
+      if (found.length) saveSeen();
+    } catch (e) { log('补收日报失败：', e.message); }
+  }
+  setTimeout(pollDaily, 15e3); setInterval(pollDaily, 10 * 60e3);
 
   const lark = require('@larksuiteoapi/node-sdk');
   const ws = new lark.WSClient({ appId: cfg.appId, appSecret: cfg.appSecret, loggerLevel: lark.LoggerLevel.warn });
