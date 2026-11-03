@@ -70,7 +70,7 @@ function parseInstr(text, names) {
   return { people: (names || []).filter(Boolean), platforms: P, loc, dp, store: st ? st[1] : '' };
 }
 
-function createDraft({ api, core, upload, log }) {
+function createDraft({ api, core, upload, log, resolver }) {
   let tid = null; const pending = new Map(); // 发稿人 → { id, code, at, n }
   async function tbl() { if (!tid) tid = await core.ensurePaigao(); return { app: await core.appToken(), tid }; }
   function begin(senderId) { // 一认出稿件就先占位：紧跟着到的图片排在它后面，等稿件建好再存
@@ -83,6 +83,10 @@ function createDraft({ api, core, upload, log }) {
     const type = kind === '抖音矩阵号' || d.video ? '视频' : '图文';
     const fields = { 文本: d.code, 稿件编号: d.code, 写手: d.writer, 账号名称: d.account, 分发类别: kind, 内容类型: type, 发布平台: PLATFORMS[`${kind}|${type}`] || [], 标题: d.title, 文案正文: d.body, 话题标签: d.tags, 门店: d.store, 定位: d.loc || d.area, 点评定位: d.dp, 状态: '待发布', 派稿人: sender || '', 备注: '收稿时间 ' + new Date(Date.now() + 8 * 3600e3).toISOString().slice(5, 16).replace('T', ' ') };
     if (instr) Object.assign(fields, instrFields(instr));
+    if (resolver) { // @ 的是微信名 → 换成真人 + 对应平台账号
+      const ref = d.account || (instr && instr.people[0]) || '';
+      if (ref) { try { const r = await resolver(ref, kind); if (r) { if (r.who) fields['发布人员'] = r.who; fields['账号名称'] = r.acc || (d.account && !r.who ? d.account : ''); } } catch (e) { } }
+    }
     Object.keys(fields).forEach(k => { if (fields[k] === '' || (Array.isArray(fields[k]) && !fields[k].length)) delete fields[k]; });
     const r = await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records`, { fields });
     const id = r.record.record_id; const ph = pending.get(senderId);
@@ -129,7 +133,7 @@ function replyForDraft(d) {
 module.exports = { createDraft, parseDraft, isDraft, replyForDraft, PLATFORMS, isInstr, parseInstr };
 
 // ---------- 发布人员 → 各平台账号（从小红书/抖音数据表里统计，近 90 天谁用哪个号发得最多） ----------
-function createAccounts({ api, core, log }) {
+function createAccounts({ api, core, log, people }) {
   const val = v => Array.isArray(v) ? v.map(x => (x && typeof x === 'object') ? (x.text || x.name || '') : String(x)).join('') : (v && typeof v === 'object') ? (v.text || v.name || '') : (v ?? '');
   let cache = null;
   async function map(force) {
@@ -149,6 +153,7 @@ function createAccounts({ api, core, log }) {
   const best = o => Object.entries(o || {}).sort((a, b) => b[1] - a[1]);
   // 按分发类别挑账号：小红书矩阵号 → 小红书号；抖音矩阵号 → 抖音矩阵号；抖音素人号 → 素人号（没有就退到另一个抖音表）
   async function pick(who, kind) {
+    if (people) { try { const p = await people.resolve(who); if (p) { const a = /小红书/.test(kind) ? p['小红书账号'] : p['抖音账号']; if (a) return { acc: a, alts: [], person: p }; } } catch (e) { } }
     const m = await map(); const o = m[String(who || '').trim()]; if (!o) return { acc: '', alts: [] };
     const k = /小红书/.test(kind) ? ['xhs'] : /素人/.test(kind) ? ['sr', 'dy'] : ['dy', 'sr'];
     for (const x of k) { const b = best(o[x]); if (b.length) return { acc: b[0][0], alts: b.slice(1).map(y => y[0]) }; }
