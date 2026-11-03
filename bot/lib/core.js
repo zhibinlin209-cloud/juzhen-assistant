@@ -359,6 +359,34 @@ function createCore({ cfg, api, log }) {
     const by = {}; [...items.values()].forEach(o => { by[o.src] = (by[o.src] || 0) + 1; });
     return { added: recs.length, skipped: T.rows.filter(r => r.link).length, by };
   }
+  // 把「视频号-数据」整理成和抖音表一样：发布人员改单选（沿用原表颜色），补 账号类型/账号主页/发布内容/区域定位/投流状态（只读原表）
+  async function sphFormat() {
+    const app = await appToken(); const all = await listTables(); const T = await sphTable();
+    const WX = /https?:\/\/(?:weixin\.qq\.com\/sph\/[A-Za-z0-9_-]+|channels\.weixin\.qq\.com\/[^\s"\\,，。)）]+)/;
+    const link = v => { const m = JSON.stringify(v ?? '').match(WX); return m ? m[0] : ''; };
+    const SRC = [['抖音-矩阵号-数据', '矩阵号', ['视频号链接']], ['视频号-矩阵号-数据', '矩阵号', ['视频号链接']], ['抖音-素人号-数据', '素人号', ['视频号', '贴图号']]];
+    const opts = { 发布人员: new Map(), 发布内容: new Map(), 投流状态: new Map() }; const info = new Map();
+    for (const [name, kind, cols] of SRC) {
+      const t = all.find(x => x.name === name); if (!t) continue;
+      const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
+      for (const f of fd.items || []) if (opts[f.field_name] && f.type === 3) for (const o of (f.property || {}).options || []) if (!opts[f.field_name].has(o.name)) opts[f.field_name].set(o.name, o.color);
+      let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {}));
+        for (const r of d.items || []) { const f = r.fields || {}; for (const c of cols) { const u = link(f[c]); if (!u) continue; const k = sphKey(u); if (info.has(k)) continue;
+          const home = f['账号主页']; info.set(k, { 账号类型: kind, 发布人员: String(val(f['发布人员']) || '').trim(), 账号主页: home && typeof home === 'object' && home.link ? { link: home.link, text: home.text || home.link } : null, 发布内容: String(val(f['发布内容']) || '').trim(), 区域定位: String(val(f['区域定位']) || '').trim(), 投流状态: String(val(f['投流状态']) || '').trim() }); } }
+        pt = d.has_more ? d.page_token : ''; } while (pt);
+    }
+    const fd = await api.call('GET', `/bitable/v1/apps/${T.app}/tables/${T.id}/fields`, null, { page_size: 200 }); const F = new Map((fd.items || []).map(f => [f.field_name, f]));
+    const selOpts = (m, extra) => { const o = [...m].map(([name, color]) => ({ name, color })); (extra || []).forEach(n => { if (n && !m.has(n)) o.push({ name: n }); }); return o; };
+    const used = n => [...new Set([...info.values()].map(x => x[n]).filter(Boolean))];
+    const want = [['账号类型', 3, { options: [{ name: '矩阵号', color: 0 }, { name: '素人号', color: 1 }] }], ['账号主页', 15], ['发布内容', 3, { options: selOpts(opts.发布内容, used('发布内容')) }], ['区域定位', 1], ['投流状态', 3, { options: selOpts(opts.投流状态, used('投流状态')) }]];
+    for (const [name, type, property] of want) if (!F.has(name)) { await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/fields`, Object.assign({ field_name: name, type }, property ? { property } : {})); log('[视频号整理] 新增列 ' + name); }
+    const pf = F.get('发布人员'); const people = selOpts(opts.发布人员, used('发布人员').concat(T.rows.map(r => r.person)));
+    if (pf && pf.type !== 3) { await api.call('PUT', `/bitable/v1/apps/${T.app}/tables/${T.id}/fields/${pf.field_id}`, { field_name: '发布人员', type: 3, property: { options: people } }); log('[视频号整理] 发布人员改成单选'); }
+    const T2 = await sphTable(); const recs = [];
+    for (const r of T2.rows) { const x = info.get(sphKey(r.link)); if (!r.link || !x) continue; const fl = T2.fit(Object.fromEntries(Object.entries(x).filter(([, v]) => v))); if (Object.keys(fl).length) recs.push({ record_id: r.id, fields: fl }); }
+    for (let i = 0; i < recs.length; i += 400) await api.call('POST', `/bitable/v1/apps/${T2.app}/tables/${T2.id}/records/batch_update`, { records: recs.slice(i, i + 400) });
+    return { filled: recs.length, people: people.length };
+  }
   // 只读盘点：哪些表里有视频号内容（不改任何表）
   async function sphSurvey() {
     const app = await appToken(); const all = await listTables(); const out = [];
@@ -374,7 +402,7 @@ function createCore({ cfg, api, log }) {
     }
     return out;
   }
-  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, load, loadT, _st: st, _match: match };
+  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案
