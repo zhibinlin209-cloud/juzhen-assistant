@@ -28,6 +28,37 @@ const STORES = ['深圳华强北燕南店', '深圳前海HOP店', '深圳白石�
 const ALIAS = { '深圳福田华强北店': '深圳华强北燕南店', '华强北': '深圳华强北燕南店', '深圳宝安HOP天地店': '深圳前海HOP店', '宝安HOP天地店': '深圳前海HOP店', '前海HOP店': '深圳前海HOP店', '佛山灯湖西街': '佛山保利西街店', '佛山灯湖西街店': '佛山保利西街店', '佛山东湖西街': '佛山保利西街店', '蛇口花园城店': '深圳蛇口招商花园城店', '粤迹花园城店': '深圳蛇口招商花园城店', '东莞33小镇店': '东莞东城33小镇店' };
 const CLOSED = ['广州陈家祠店', '陈家祠'];
 const canon = s => { s = String(s || '').trim(); return ALIAS[s] || ALIAS[s.replace(/店$/, '')] || s; };
+// 推广通分析：近 7 天 vs 再前 7 天（环比），按单笔团购成本（CPO）和趋势给每家店一个结论
+const TGT = { up: 0.85, down: 1.3, minOrders: 5, minSpend: 200, trend: 0.3 };
+function tgtAnalyze(rows, today, dayStr) {
+  const last = Math.max(...rows.map(r => r.d)); const K = ['spend', 'orders', 'views', 'imp', 'clk'];
+  const agg = (a, b, store) => { const o = { spend: 0, orders: 0, views: 0, imp: 0, clk: 0 }; rows.filter(r => r.d > a && r.d <= b && (!store || r.store === store)).forEach(r => K.forEach(k => { o[k] += r[k]; })); o.cpo = o.orders ? o.spend / o.orders : null; o.ctr = o.imp ? o.clk / o.imp : null; o.cvr = o.views ? o.orders / o.views : null; return o; };
+  const ch = (a, b) => (a === null || b === null || !b) ? null : (a - b) / b;
+  const pc = x => x === null ? '—' : (x > 0 ? '+' : '') + Math.round(x * 100) + '%';
+  const r0 = x => x === null ? null : Math.round(x);
+  const stores = [...new Set(rows.filter(r => r.d > last - 14).map(r => r.store))];
+  const S = stores.map(store => { const a = agg(last - 7, last, store), b = agg(last - 14, last - 7, store); const spendLast = rows.filter(r => r.store === store && r.d === last).reduce((t, r) => t + r.spend, 0); const prevSame = [7, 14, 21].map(k => rows.filter(r => r.store === store && r.d === last - k).reduce((t, r) => t + r.spend, 0)); const avgSame = prevSame.reduce((x, y) => x + y, 0) / 3; return { store, a, b, spendLast, avgSame }; }).filter(o => o.a.spend > 0 || o.b.spend > 0);
+  const cpos = S.filter(o => o.a.orders >= 3 && o.a.cpo).map(o => o.a.cpo).sort((x, y) => x - y); const med = cpos.length ? cpos[Math.floor(cpos.length / 2)] : null;
+  const flags = [];
+  const out = S.map(o => {
+    const { a, b } = o; const dCpo = ch(a.cpo, b.cpo), dOrd = ch(a.orders, b.orders), dCtr = ch(a.ctr, b.ctr), dCvr = ch(a.cvr, b.cvr), dSpend = ch(a.spend, b.spend);
+    let verdict = '维持', why = [], todo = '';
+    const cpoTxt = a.cpo ? `单笔成本 ${r0(a.cpo)} 元（环比 ${pc(dCpo)}，全店中位 ${r0(med)}）` : '近 7 天没有团购订单';
+    if (o.avgSame >= 50 && o.spendLast < o.avgSame * 0.5) { verdict = '检查'; why.push(`最新一天花费 ${r0(o.spendLast)}，前 3 周同一天平均 ${r0(o.avgSame)}`); todo = '看是不是余额不足或计划被停'; flags.push(`${o.store} 推广通花费 ${r0(o.spendLast)}，前几周同一天平均 ${r0(o.avgSame)}，可能余额不足或计划被停`); }
+    else if (a.spend >= TGT.minSpend && (!a.orders || (med && a.cpo >= med * TGT.down) || (dCpo !== null && dCpo >= TGT.trend && (dOrd === null || dOrd < 0)))) {
+      verdict = '要调整'; why.push(cpoTxt); if (dOrd !== null) why.push(`团购订单 ${a.orders}（环比 ${pc(dOrd)}）`);
+      if (dCtr !== null && dCtr <= -0.15) { why.push(`点击率环比 ${pc(dCtr)}`); todo = '点击率在掉：先换推广主图/标题，再看是否降额'; }
+      else if (dCvr !== null && dCvr <= -0.15) { why.push(`浏览→下单转化环比 ${pc(dCvr)}`); todo = '有人看但不下单：检查团购套餐价格和评价，再考虑降额'; }
+      else todo = '成本偏高：先降额 20–30%，或把预算挪到成本低的门店';
+    } else if (a.orders >= TGT.minOrders && med && a.cpo <= med * TGT.up && (dCpo === null || dCpo <= 0.1) && (dOrd === null || dOrd >= -0.1)) {
+      verdict = '可加投'; why.push(cpoTxt, `团购订单 ${a.orders}（环比 ${pc(dOrd)}）`); todo = '成本低且稳：预算加 20%，观察 3 天成本有没有涨';
+    } else { why.push(cpoTxt, `团购订单 ${a.orders}（环比 ${pc(dOrd)}）`); todo = '先保持，继续观察'; }
+    return { store: o.store, verdict, why: why.join('；'), todo, spend7: r0(a.spend), spendPrev7: r0(b.spend), dSpend: pc(dSpend), orders7: a.orders, ordersPrev7: b.orders, dOrders: pc(dOrd), cpo: r0(a.cpo), cpoPrev: r0(b.cpo), dCpo: pc(dCpo), ctr: a.ctr === null ? null : Math.round(a.ctr * 1000) / 10, dCtr: pc(dCtr), cvr: a.cvr === null ? null : Math.round(a.cvr * 1000) / 10, dCvr: pc(dCvr), views7: r0(a.views), spendLast: r0(o.spendLast), cpoVal: a.cpo };
+  });
+  const ord = { 检查: 0, 要调整: 1, 可加投: 2, 维持: 3 }; out.sort((x, y) => ord[x.verdict] - ord[y.verdict] || y.spend7 - x.spend7);
+  const A = agg(last - 7, last), B = agg(last - 14, last - 7);
+  return { last: dayStr(last), stale: today - 1 - last, spend7: r0(A.spend), orders7: A.orders, spendPrev7: r0(B.spend), ordersPrev7: B.orders, dSpend: pc(ch(A.spend, B.spend)), dOrders: pc(ch(A.orders, B.orders)), cpo: r0(A.cpo), cpoPrev: r0(B.cpo), dCpo: pc(ch(A.cpo, B.cpo)), ctr: A.ctr === null ? null : Math.round(A.ctr * 1000) / 10, dCtr: pc(ch(A.ctr, B.ctr)), medCpo: r0(med), rule: `近 7 天对比再前 7 天；单笔成本 ≤ 中位 ×${TGT.up} 且订单 ≥${TGT.minOrders}、成本和订单都没变差 → 可加投；花费 ≥${TGT.minSpend} 且（没订单 / 成本 ≥ 中位 ×${TGT.down} / 成本涨 ${TGT.trend * 100}% 以上且订单下降）→ 要调整；花费比前 3 周同一天平均掉一半 → 检查`, stores: out, flags };
+}
 const RULE = { dropPct: -0.15, badRed: 2, scoreDrop: 0.1, hotDays: 14, hotTimes: 2, minXhs: 1000, minDy: 3000, engXhs: 0.05, engDy: 0.03 };
 
 function createBrief({ cfg, api, log, llm }) {
@@ -78,12 +109,9 @@ function createBrief({ cfg, api, log, llm }) {
       try {
         const T = (await table(priv, '推广通数据')) || [];
         if (T.length) {
-          const rows = T.map(f => ({ d: typeof f['日期'] === 'number' ? bjDay(f['日期']) : null, store: canon(val(f['门店'])), spend: num(f['花费']) || 0, orders: num(f['团购订单量']) || 0, views: num(f['商户浏览量']) || 0 })).filter(r => r.d !== null);
-          const last = Math.max(...rows.map(r => r.d)); const sum = (a, b, k) => rows.filter(r => r.d > a && r.d <= b).reduce((t, r) => t + r[k], 0);
-          const by = {}; rows.filter(r => r.d > last - 7).forEach(r => { const o = by[r.store] = by[r.store] || { store: r.store, spend7: 0, orders7: 0, views7: 0, spendLast: 0 }; o.spend7 += r.spend; o.orders7 += r.orders; o.views7 += r.views; if (r.d === last) o.spendLast += r.spend; });
-          rows.filter(r => r.d > last - 14 && r.d <= last - 7).forEach(r => { const o = by[r.store]; if (o) { o.spendPrev7 = (o.spendPrev7 || 0) + r.spend; o.ordersPrev7 = (o.ordersPrev7 || 0) + r.orders; } });
-          const flags = []; Object.values(by).forEach(o => { const prev = [7, 14, 21].map(k => rows.filter(r => r.store === o.store && r.d === last - k).reduce((t, r) => t + r.spend, 0)); const avg = prev.reduce((a, b) => a + b, 0) / 3; if (avg >= 50 && o.spendLast < avg * 0.5) flags.push(`${o.store} 推广通花费 ${Math.round(o.spendLast)}，前几周同一天平均 ${Math.round(avg)}，可能余额不足或计划被停`); });
-          F.tgt = { last: dayStr(last), stale: today - 1 - last, spend7: Math.round(sum(last - 7, last, 'spend')), orders7: Math.round(sum(last - 7, last, 'orders')), spendPrev7: Math.round(sum(last - 14, last - 7, 'spend')), ordersPrev7: Math.round(sum(last - 14, last - 7, 'orders')), stores: Object.values(by).map(o => Object.assign(o, { spend7: Math.round(o.spend7), cpo: o.orders7 ? Math.round(o.spend7 / o.orders7) : null })).filter(o => o.spend7 > 0 || o.spendPrev7 > 0).sort((a, b) => b.spend7 - a.spend7), flags };
+          const rows = T.map(f => ({ d: typeof f['日期'] === 'number' ? bjDay(f['日期']) : null, store: canon(val(f['门店'])), spend: num(f['花费']) || 0, orders: num(f['团购订单量']) || 0, views: num(f['商户浏览量']) || 0, imp: num(f['曝光']) || 0, clk: num(f['点击']) || 0 })).filter(r => r.d !== null);
+          F.tgt = tgtAnalyze(rows, today, dayStr);
+          const flags = F.tgt.flags;
           flags.forEach(x => F.alerts.push(x));
         }
       } catch (e) { F.notes.push('推广通数据读取失败'); }
@@ -159,7 +187,7 @@ function createBrief({ cfg, api, log, llm }) {
 2. 日期：简报说的是「昨天（${F.date}）」的情况，不要写成今天。
 3. 格式：飞书纯文本，不要用 # 标题、不要用 ** 加粗、不要用表格。用 emoji 小标题分块：先 1–2 句结论，再「💰营业」「⭐口碑」「📝内容与投放」「🙋需要你拍板」。手机一屏读完（450 字以内）。
 4. 「建议投放」只能从 suggest 列表里选（写账号+标题前几个字+为什么）；suggest 为空就明确说「今天没有完全达标的投放候选」。hot 里没进 suggest 的，原因一律照抄它的 why 字段（不要自己推断），写成「数据好但暂不建议投：原因」。
-5. missing 里的门店写「还没收到日报」；不确定的原因用「可能」，给可执行的建议。不要客套话，不要「请审阅」之类的结尾。
+5. 推广通：只按 tgt.stores 里每家店的 verdict / why / todo 写（照抄，不要自己判断），先写「检查」「要调整」，再写「可加投」，「维持」的不用逐家写；tgt 为空就不写推广通。\n6. missing 里的门店写「还没收到日报」；不确定的原因用「可能」，给可执行的建议。不要客套话，不要「请审阅」之类的结尾。
 【老板档案】
 ${prof || '（还没有档案）'}
 【程序算好的数据（JSON）】
@@ -230,4 +258,4 @@ ${JSON.stringify(F)}`;
   return { facts, profile, plain, write, make, archive, listTodos, setTodo, latest, _allowed: allowed };
 }
 
-module.exports = { createBrief, bjDay };
+module.exports = { tgtAnalyze, createBrief, bjDay };
