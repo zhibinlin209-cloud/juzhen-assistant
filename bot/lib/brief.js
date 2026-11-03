@@ -23,6 +23,11 @@ const titleOf = v => { const t = String(val(v) || '').replace(/\r/g, '').trim();
 const median = a => { const s = a.filter(x => x !== null).sort((x, y) => x - y); if (!s.length) return null; const i = s.length >> 1; return s.length % 2 ? s[i] : (s[i - 1] + s[i]) / 2; };
 
 // 默认判断标准（和「老板档案」里的草稿一致；以后可改成从档案读）
+// 门店：以日报里的名字为准；其他叫法都归到同一家。陈家祠已闭店，不提醒
+const STORES = ['深圳华强北燕南店', '深圳前海HOP店', '深圳白石洲店', '深圳蛇口招商花园城店', '广州江南西店', '珠海玖洲道店', '惠州水东街店', '东莞东城33小镇店', '佛山创意产业园店', '佛山保利西街店'];
+const ALIAS = { '深圳福田华强北店': '深圳华强北燕南店', '华强北': '深圳华强北燕南店', '深圳宝安HOP天地店': '深圳前海HOP店', '宝安HOP天地店': '深圳前海HOP店', '前海HOP店': '深圳前海HOP店', '佛山灯湖西街': '佛山保利西街店', '佛山灯湖西街店': '佛山保利西街店', '佛山东湖西街': '佛山保利西街店', '蛇口花园城店': '深圳蛇口招商花园城店', '粤迹花园城店': '深圳蛇口招商花园城店', '东莞33小镇店': '东莞东城33小镇店' };
+const CLOSED = ['广州陈家祠店', '陈家祠'];
+const canon = s => { s = String(s || '').trim(); return ALIAS[s] || ALIAS[s.replace(/店$/, '')] || s; };
 const RULE = { dropPct: -0.15, badRed: 2, scoreDrop: 0.1, hotDays: 14, hotTimes: 2, minXhs: 1000, minDy: 3000, engXhs: 0.05, engDy: 0.03 };
 
 function createBrief({ cfg, api, log, llm }) {
@@ -48,7 +53,7 @@ function createBrief({ cfg, api, log, llm }) {
     if (cfg.dailyBaseUrl) {
       const priv = await appOf(cfg.dailyBaseUrl);
       const R = (await table(priv, cfg.dailyTable || '经营日报数据')) || [];
-      const by = {}; R.forEach(f => { const s = String(val(f['门店']) || '').trim(); const d = typeof f['日期'] === 'number' ? bjDay(f['日期']) : null; if (s && d !== null) (by[s] = by[s] || {})[d] = f; });
+      const by = {}; R.forEach(f => { const s = canon(val(f['门店'])); const d = typeof f['日期'] === 'number' ? bjDay(f['日期']) : null; if (s && d !== null) (by[s] = by[s] || {})[d] = f; });
       for (const [s, days] of Object.entries(by)) {
         const recent = Object.keys(days).map(Number).filter(d => d >= today - 14);
         if (!recent.length) continue;
@@ -62,6 +67,10 @@ function createBrief({ cfg, api, log, llm }) {
         const bad = row.dpBad + row.mtBad + row.wmBad + row.dyBad; if (bad >= RULE.badRed) F.alerts.push(`${s} 昨天差评 ${bad} 条（点评 ${row.dpBad}、美团 ${row.mtBad}、外卖 ${row.wmBad}、抖音 ${row.dyBad}）`);
         [['点评', 'dpScore', 'dpScorePrev'], ['美团', 'mtScore', 'mtScorePrev'], ['外卖', 'wmScore', 'wmScorePrev'], ['抖音', 'dyScore', 'dyScorePrev']].forEach(([n, k, kp]) => { if (row[k] !== null && row[kp] !== null && row[kp] - row[k] >= RULE.scoreDrop - 1e-9) F.alerts.push(`${s} ${n}评分 ${row[kp]} → ${row[k]}`); });
       }
+      const expected = (cfg.stores || STORES).filter(n => !CLOSED.some(c => n.includes(c)));
+      expected.forEach(n => { if (!F.stores.some(r => r.store === n) && !F.missing.includes(n)) F.missing.push(n); });
+      F.missing = F.missing.filter(n => !CLOSED.some(c => n.includes(c)));
+      F.storeCount = expected.length;
       F.stores.sort((p, q) => (q.revenue || 0) - (p.revenue || 0));
       F.total = F.stores.reduce((t, r) => t + (r.revenue || 0), 0);
       const both = F.stores.filter(r => r.lastWeek); if (both.length) { const a = both.reduce((t, r) => t + r.revenue, 0), b = both.reduce((t, r) => t + r.lastWeek, 0); F.totalWow = (a - b) / b; }
