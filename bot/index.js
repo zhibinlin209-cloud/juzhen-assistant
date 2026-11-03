@@ -150,12 +150,13 @@ async function setup() {
     if (m.message_type === 'file') {
       let c = {}; try { c = JSON.parse(m.content || '{}'); } catch (e) { }
       if (/\.xlsx$/i.test(c.file_name || '')) {
-        try { const r = await tgt.ingest(await fileBuf(m.message_id, c.file_key)); if (r) { await reply(m.message_id, replyForTgt(r)); } } catch (e) { if (e.message === 'NO_PRIVATE_BASE') return; log('[推广通] 处理出错：', e.message); await reply(m.message_id, '⚠️ 推广通报表没处理成功：' + e.message.slice(0, 60)); }
+        try { const r = await tgt.ingest(await fileBuf(m.message_id, c.file_key)); if (r) { await reply(m.message_id, replyForTgt(r)); if (r.rows) brief.ads().catch(e => log('[投放分析] 出错 ' + e.message)); } } catch (e) { if (e.message === 'NO_PRIVATE_BASE') return; log('[推广通] 处理出错：', e.message); await reply(m.message_id, '⚠️ 推广通报表没处理成功：' + e.message.slice(0, 60)); }
       }
       return;
     }
     if ((data.sender || {}).sender_type === 'user' && m.chat_id === dailyChatNow()) rememberBoss(((data.sender || {}).sender_id || {}).open_id);
     if (text && /^\s*(简报|日报简报|今日简报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendBrief({ replyTo: m.message_id, manual: true }); return; }
+    if (text && /^\s*(投放分析|推广通分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendAds({ replyTo: m.message_id }); return; }
     if (text && /^\s*(重新识别日报|重读日报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { rereadDaily(m.message_id); return; }
     if (text && /^\s*驾驶舱\s*$/.test(text) && m.chat_id === dailyChatNow()) { const link = web.loginLink(); if (link && boss) { try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: `🖥 驾驶舱登录链接（7 天内有效，登录后 30 天免登录，别转发给别人）：\n${link}` }) }, { receive_id_type: 'open_id' }); await reply(m.message_id, '✅ 登录链接已私聊发给你'); } catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 60)); } } return; }
     // 门店营业日报（华付数科等机器人发的也收）
@@ -276,6 +277,21 @@ async function setup() {
     } catch (e) { log('[简报] 生成失败：', e.message); if (o.replyTo) await reply(o.replyTo, '⚠️ 简报生成失败：' + e.message.slice(0, 80)); }
     finally { briefing = false; }
   }
+  async function sendAds(o) {
+    o = o || {};
+    try {
+      const r = await brief.ads(); if (!r) { if (o.replyTo) await reply(o.replyTo, '还没有推广通数据，先把报表发进来'); return; }
+      const link = web.loginLink(); const content = JSON.stringify({ text: r.text + (link ? `\n\n🖥 驾驶舱看明细：${link}` : '') });
+      if (boss) { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content }, { receive_id_type: 'open_id' }); if (o.replyTo) await reply(o.replyTo, '✅ 投放分析已私聊发给你'); }
+      else if (o.replyTo) await reply(o.replyTo, r.text);
+      if (o.weekly) { briefState.ads = bjDay(Date.now()); try { fs.writeFileSync(BRIEF_FILE, JSON.stringify(briefState)); } catch (e) { } }
+    } catch (e) { log('[投放分析] 发送失败：' + e.message); if (o.replyTo) await reply(o.replyTo, '⚠️ 投放分析没生成成功：' + e.message.slice(0, 80)); }
+  }
+  setInterval(() => { // 每周一 09:30 私聊一份投放周分析
+    const bj = new Date(Date.now() + 8 * 3600e3); if (bj.getUTCDay() !== 1) return; const hh = bj.getUTCHours(), mm = bj.getUTCMinutes();
+    if (((hh === 9 && mm >= 30) || hh === 10 || hh === 11) && briefState.ads !== bjDay(Date.now()) && briefState.last === bjDay(Date.now())) sendAds({ weekly: true });
+  }, 60e3);
+  setTimeout(async () => { try { if (!(await brief.latestAds())) await brief.ads(); } catch (e) { log('[投放分析] 首次生成出错 ' + e.message); } }, 70e3);
   setInterval(() => {
     if (cfg.briefAuto === false) return;
     const bj = new Date(Date.now() + 8 * 3600e3); const hh = bj.getUTCHours(), mm = bj.getUTCMinutes();

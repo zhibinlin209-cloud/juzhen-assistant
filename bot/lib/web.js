@@ -20,7 +20,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port }) {
   let cache = null;
   async function state() {
     if (cache && Date.now() - cache.at < 3 * 60e3) return cache.v;
-    const [F, todos, last] = await Promise.all([brief.facts(), brief.listTodos().catch(() => []), brief.latest().catch(() => null)]);
+    const [F, todos, last, adsA] = await Promise.all([brief.facts(), brief.listTodos().catch(() => []), brief.latest().catch(() => null), brief.latestAds ? brief.latestAds().catch(() => null) : null]);
     const A = activity();
     const fmt = n => n == null ? '—' : Math.round(n).toLocaleString('en-US');
     const pct = x => x == null ? '—' : (x > 0 ? '+' : '') + Math.round(x * 1000) / 10 + '%';
@@ -49,7 +49,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port }) {
       todos: todos.filter(t => t.status === '待定' || Date.now() - t.last < 3 * DAY).slice(0, 20),
       stores: F.stores.map(r => ({ store: r.store, revenue: r.revenue, wow: r.wow, bad: r.dpBad + r.mtBad + (r.wmBad || 0) + (r.dyBad || 0), dp: r.dpScore, mt: r.mtScore, wm: r.wmScore ?? null, dy: r.dyScore ?? null, dpBad: r.dpBad, mtBad: r.mtBad, wmBad: r.wmBad || 0, dyBad: r.dyBad || 0, dpPrev: r.dpScorePrev, mtPrev: r.mtScorePrev })),
       rules: { scoreMin: 4.5, minBy: Object.assign({ dp: null, mt: 4.5, wm: 4.5, dy: 4.5 }, cfg.scoreMinBy || {}), engXhs: 5, engDy: 3, minXhs: 1000, minDy: 3000, hotTimes: 2 },
-      content: F.content, top7: F.top7 || [], hot: F.hot, tgt: F.tgt || null,
+      content: F.content, top7: F.top7 || [], hot: F.hot, tgt: F.tgt || null, ads: adsA ? { text: adsA.text, at: adsA.at, by: adsA.by } : null,
       missing: F.missing, brief: last ? last.text : '', briefAt: last ? last.at : 0,
       suggest: F.suggest, near: F.hot.filter(h => !F.suggest.includes(h) && !h.boosted).slice(0, 6), spend: [], notes: F.notes
     };

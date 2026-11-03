@@ -57,7 +57,9 @@ function tgtAnalyze(rows, today, dayStr) {
   });
   const ord = { 检查: 0, 要调整: 1, 可加投: 2, 维持: 3 }; out.sort((x, y) => ord[x.verdict] - ord[y.verdict] || y.spend7 - x.spend7);
   const A = agg(last - 7, last), B = agg(last - 14, last - 7);
-  return { last: dayStr(last), stale: today - 1 - last, spend7: r0(A.spend), orders7: A.orders, spendPrev7: r0(B.spend), ordersPrev7: B.orders, dSpend: pc(ch(A.spend, B.spend)), dOrders: pc(ch(A.orders, B.orders)), cpo: r0(A.cpo), cpoPrev: r0(B.cpo), dCpo: pc(ch(A.cpo, B.cpo)), ctr: A.ctr === null ? null : Math.round(A.ctr * 1000) / 10, dCtr: pc(ch(A.ctr, B.ctr)), medCpo: r0(med), rule: `近 7 天对比再前 7 天；单笔成本 ≤ 中位 ×${TGT.up} 且订单 ≥${TGT.minOrders}、成本和订单都没变差 → 可加投；花费 ≥${TGT.minSpend} 且（没订单 / 成本 ≥ 中位 ×${TGT.down} / 成本涨 ${TGT.trend * 100}% 以上且订单下降）→ 要调整；花费比前 3 周同一天平均掉一半 → 检查`, stores: out, flags };
+  const wk = store => [3, 2, 1, 0].map(k => { const o = agg(last - 7 * (k + 1), last - 7 * k, store); return { 周: `${dayStr(last - 7 * (k + 1) + 1)}~${dayStr(last - 7 * k)}`, 花费: r0(o.spend), 团购订单: o.orders, 单笔成本: r0(o.cpo) }; });
+  const weeks = { 全部: wk(null) }; out.forEach(o => { weeks[o.store] = wk(o.store); });
+  return { weeks, last: dayStr(last), stale: today - 1 - last, spend7: r0(A.spend), orders7: A.orders, spendPrev7: r0(B.spend), ordersPrev7: B.orders, dSpend: pc(ch(A.spend, B.spend)), dOrders: pc(ch(A.orders, B.orders)), cpo: r0(A.cpo), cpoPrev: r0(B.cpo), dCpo: pc(ch(A.cpo, B.cpo)), ctr: A.ctr === null ? null : Math.round(A.ctr * 1000) / 10, dCtr: pc(ch(A.ctr, B.ctr)), medCpo: r0(med), rule: `近 7 天对比再前 7 天；单笔成本 ≤ 中位 ×${TGT.up} 且订单 ≥${TGT.minOrders}、成本和订单都没变差 → 可加投；花费 ≥${TGT.minSpend} 且（没订单 / 成本 ≥ 中位 ×${TGT.down} / 成本涨 ${TGT.trend * 100}% 以上且订单下降）→ 要调整；花费比前 3 周同一天平均掉一半 → 检查`, stores: out, flags };
 }
 const RULE = { dropPct: -0.15, badRed: 2, scoreDrop: 0.1, hotDays: 14, hotTimes: 2, minXhs: 1000, minDy: 3000, engXhs: 0.05, engDy: 0.03 };
 
@@ -202,7 +204,7 @@ ${JSON.stringify(F)}`;
 
   // ---------- 存档 + 待办与决策（驾驶舱「今天你要做的事」从这里读） ----------
   const SCHEMA = {
-    '简报存档': [['日期', 5], ['类型', 3, ['日报', '周报', '半月报', '月报']], ['正文', 1], ['数据', 1], ['生成方式', 1], ['生成时间', 5]],
+    '简报存档': [['日期', 5], ['类型', 3, ['日报', '周报', '半月报', '月报', '投放分析']], ['正文', 1], ['数据', 1], ['生成方式', 1], ['生成时间', 5]],
     '待办与决策': [['事项', 1], ['类型', 3, ['投放建议', '营业异常', '口碑', '其他']], ['状态', 3, ['待定', '已同意', '已执行', '不做']], ['详情', 1], ['来源', 1], ['首次出现', 5], ['最近出现', 5], ['唯一键', 1]]
   };
   const ensured = {};
@@ -250,12 +252,55 @@ ${JSON.stringify(F)}`;
   }
   async function latest() {
     if (!cfg.dailyBaseUrl) return null;
-    const A = await ensure('简报存档'); const d = await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records/search`, { sort: [{ field_name: '生成时间', desc: true }] }, { page_size: 1 });
+    const A = await ensure('简报存档'); const d = await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '类型', operator: 'isNot', value: ['投放分析'] }] }, sort: [{ field_name: '生成时间', desc: true }] }, { page_size: 1 });
+    const f = ((d.items || [])[0] || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null;
+  }
+
+  // ---------- 投放分析（AI 写，给驾驶舱和周一私聊）：只基于程序算好的推广通数据 ----------
+  async function ads(o) {
+    const F = await facts(); if (!F.tgt) return null;
+    const D = { 数据截至: F.tgt.last, 判断标准: F.tgt.rule, 全店单笔成本中位: F.tgt.medCpo, 近7天: { 花费: F.tgt.spend7, 团购订单: F.tgt.orders7, 单笔成本: F.tgt.cpo, 点击率: F.tgt.ctr }, 再前7天: { 花费: F.tgt.spendPrev7, 团购订单: F.tgt.ordersPrev7, 单笔成本: F.tgt.cpoPrev }, 环比: { 花费: F.tgt.dSpend, 团购订单: F.tgt.dOrders, 单笔成本: F.tgt.dCpo, 点击率: F.tgt.dCtr }, 门店: F.tgt.stores.map(x => ({ 门店: x.store, 结论: x.verdict, 原因: x.why, 建议: x.todo, 花费: x.spend7, 花费环比: x.dSpend, 团购订单: x.orders7, 订单环比: x.dOrders, 单笔成本: x.cpo, 成本环比: x.dCpo, 点击率: x.ctr, 点击率环比: x.dCtr, 浏览转化: x.cvr, 转化环比: x.dCvr })), 近4周: F.tgt.weeks, 异常提醒: F.tgt.flags };
+    let r;
+    if (!llm) r = { text: plainAds(D), by: '纯数字（没配 AI）' };
+    else {
+      const prompt = `你是禧聚餐饮的投放分析师。下面是程序算好的「大众点评推广通」数据（近 7 天对比再前 7 天，以及近 4 周趋势）。请写一份投放分析给老板林智斌看。
+要求：
+1. 只能使用数据里出现的数字，不许自己计算新数字、不许编造。
+2. 每家店的结论和建议只能照「结论 / 原因 / 建议」字段写，不要自己改判断；可以结合「近4周」说趋势（比如连续几周成本在涨/降），但只能引用里面的数字。
+3. 结构（飞书纯文本，不要 # 和 **，不要表格）：
+一句话结论
+📊 整体：花费、订单、单笔成本的环比，以及近 4 周趋势
+🚨 先处理：「检查」「要调整」的门店，每家一行：问题 + 怎么做
+✅ 可以加投：「可加投」的门店
+➖ 维持：一句话带过
+📌 本周要做的 3 件事（具体到门店和动作）
+4. 500 字以内，手机一屏能看完。没有的部分写「无」。
+【数据】
+${JSON.stringify(D)}`;
+      try {
+        const text = (await llm(prompt)).trim(); const ok = allowed(D); const bad = numbersIn(text).filter(n => !ok.has(n) && !ok.has(Math.abs(n)));
+        if (bad.length) { log('[投放分析] AI 数字对不上：' + bad.slice(0, 8).join(',') + '，改用纯数字版'); r = { text: plainAds(D) + '\n\n（AI 分析里有数字对不上，这次先给纯数字版）', by: '纯数字（AI 核对没过）' }; }
+        else r = { text, by: 'AI' };
+      } catch (e) { log('[投放分析] AI 出错：' + e.message); r = { text: plainAds(D), by: '纯数字（AI 出错）' }; }
+    }
+    r.text = `📈 推广通投放分析（数据到 ${D.数据截至}）\n\n` + r.text;
+    if (cfg.dailyBaseUrl) { try { const A = await ensure('简报存档'); await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records`, { fields: { 日期: (bjDay(Date.now()) - 1) * DAY - TZ, 类型: '投放分析', 正文: r.text, 数据: JSON.stringify(D).slice(0, 90000), 生成方式: r.by, 生成时间: Date.now() } }); } catch (e) { log('[投放分析] 存档失败：' + e.message); } }
+    log(`[投放分析] 已生成（${r.by}）`); return r;
+  }
+  function plainAds(D) {
+    const L = [`近 7 天花费 ${D.近7天.花费} 元（${D.环比.花费}），团购订单 ${D.近7天.团购订单}（${D.环比.团购订单}），单笔成本 ${D.近7天.单笔成本 ?? '—'} 元（${D.环比.单笔成本}）`];
+    D.门店.filter(x => x.结论 !== '维持').forEach(x => L.push(`${x.结论 === '可加投' ? '✅' : x.结论 === '要调整' ? '🔧' : '⚠️'} ${x.门店}【${x.结论}】${x.原因}。👉 ${x.建议}`));
+    const k = D.门店.filter(x => x.结论 === '维持').map(x => x.门店); if (k.length) L.push('➖ 维持：' + k.join('、'));
+    return L.join('\n');
+  }
+  async function latestAds() {
+    if (!cfg.dailyBaseUrl) return null;
+    const A = await ensure('简报存档'); const d = await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '类型', operator: 'is', value: ['投放分析'] }] }, sort: [{ field_name: '生成时间', desc: true }] }, { page_size: 1 });
     const f = ((d.items || [])[0] || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null;
   }
 
   async function make(now, o) { const F = await facts(now); const prof = await profile(); const r = await write(F, prof); if (!(o && o.noArchive)) await archive(F, r, (o && o.kind) || '日报'); return Object.assign(r, { facts: F }); }
-  return { facts, profile, plain, write, make, archive, listTodos, setTodo, latest, _allowed: allowed };
+  return { facts, profile, plain, write, make, archive, listTodos, setTodo, latest, ads, latestAds, _allowed: allowed };
 }
 
 module.exports = { tgtAnalyze, createBrief, bjDay };
