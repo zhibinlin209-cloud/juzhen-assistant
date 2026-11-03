@@ -13,6 +13,7 @@
   color-scheme: dark;
 }
 * { box-sizing: border-box }
+[hidden] { display: none !important }
 body { background: radial-gradient(1200px 600px at 50% -10%, #12234080, transparent 70%), var(--deep); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.55; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 40px; }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--deep) }
 .wrap { max-width: 1180px; margin: 0 auto }
@@ -71,7 +72,6 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .st { font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 10px; border: 1px solid }
 .st.ok { color: var(--good); border-color: #3ddc9755 } .st.wait { color: var(--amber); border-color: #ffb54755; background: none; margin: 0; font-weight: 500 } .st.off { color: var(--faint); border-color: var(--line) }
 /* 工作区 */
-.desk { display: grid; grid-template-columns: 1.05fr 1fr 1fr; gap: 14px; margin-top: 22px }
 .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0 }
 .pane h2 { margin: 0 0 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: baseline } .pane h2 span { color: var(--faint); font-weight: 400; font-size: 12px }
 .todo { display: grid; gap: 8px }
@@ -93,7 +93,19 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
 .ad .k { display: flex; justify-content: space-between; gap: 8px } .ad .k b { font-weight: 500 } .ad .why { font-size: 12px; color: var(--mute) }
 .sec { font-size: 11px; color: var(--faint); letter-spacing: .08em; margin: 12px 0 4px }
 .empty { color: var(--faint); font-size: 12px; padding: 6px 0 }
-@media (max-width: 980px) { .desk { grid-template-columns: 1fr } }
+.hint { text-align: center; color: var(--faint); font-size: 12px; margin: 18px 0 0 }
+.modal { position: fixed; inset: 0; z-index: 20; background: #02060dcc; backdrop-filter: blur(3px); display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)) }
+.sheet { width: min(1040px, 100%); max-height: 100%; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--h, var(--cyan)); border-radius: 14px; box-shadow: 0 30px 80px -20px #000 }
+.mh { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; gap: 12px; padding: 16px 20px; background: var(--panel); border-bottom: 1px solid var(--line) }
+.mh h2 { margin: 0; font-size: 18px } .mh span { color: var(--faint); font-size: 12px }
+.x { margin-left: auto; font: inherit; font-size: 22px; line-height: 1; background: none; border: 0; color: var(--mute); cursor: pointer; padding: 0 4px } .x:hover { color: var(--ink) }
+.mb { padding: 16px 20px 22px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)) }
+.mb .full { grid-column: 1 / -1 }
+.blk { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0 }
+.blk h3 { margin: 0 0 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: baseline } .blk h3 span { color: var(--faint); font-weight: 400; font-size: 12px }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px }
+.kpi { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px } .kpi small { color: var(--faint); display: block; font-size: 11px } .kpi b { font-family: var(--f-data); font-size: 20px; font-weight: 600 }
+.ok-t { color: var(--good) } .low { color: var(--bad); font-weight: 600 }
 @media (max-width: 760px) { .agents, .tags { grid-template-columns: repeat(2, minmax(0, 1fr)) } .wires, .tags { display: none } .agents { margin-top: 16px } .status { margin-left: 0 } }
 @media (max-width: 420px) { .agents { grid-template-columns: 1fr } }
 .agent .hd .ic { color: var(--h); margin-right: 6px }
@@ -102,11 +114,12 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
 <div class="wrap">
   <header class="top">
     <div class="brand">禧聚 <b>AI</b> 驾驶舱</div>
-    <nav class="tabs" role="tablist" aria-label="视图">
-      <button class="tab" role="tab" aria-selected="true" data-v="all" id="tab-all">总览</button>
-      <button class="tab" role="tab" aria-selected="false" data-v="biz" id="tab-biz">经营</button>
-      <button class="tab" role="tab" aria-selected="false" data-v="ads" id="tab-ads">投放</button>
-      <button class="tab" role="tab" aria-selected="false" data-v="todo" id="tab-todo">待拍板<span class="n" id="nTodo">0</span></button>
+    <nav class="tabs" aria-label="打开">
+      <button class="tab" data-open="biz" id="tab-biz">经营</button>
+      <button class="tab" data-open="content" id="tab-content">内容</button>
+      <button class="tab" data-open="ads" id="tab-ads">投放</button>
+      <button class="tab" data-open="rep" id="tab-rep">口碑</button>
+      <button class="tab" data-open="todo" id="tab-todo">待拍板<span class="n" id="nTodo">0</span></button>
     </nav>
     <div class="status"><span id="sample" class="sample" hidden>示例数据</span><span><i class="dot"></i><span id="online">4/4 Agent 在岗</span></span><span class="mono" id="clock">--:--:--</span></div>
   </header>
@@ -122,11 +135,13 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
     <div class="tree" id="tree"><svg class="wires" id="wires" aria-hidden="true"></svg><div class="tags" id="tags"></div><div class="agents" id="agents"></div></div>
   </section>
 
-  <section class="desk">
-    <div class="pane" data-pane="todo"><h2>今天你要做的事 <span id="todoSub"></span></h2><div class="todo" id="todo"></div></div>
-    <div class="pane" data-pane="biz"><h2>昨天经营 <span id="bizSub"></span></h2><div class="tbl"><table id="stores"><thead><tr><th>门店</th><th>营业额</th><th>比上周同日</th><th>差评</th></tr></thead><tbody></tbody></table></div><div class="sec">CEO AGENT 的结论</div><div class="brief" id="brief"></div></div>
-    <div class="pane" data-pane="ads"><h2>投放 <span id="adsSub">近 14 天</span></h2><div class="sec">值得投放、还没投</div><div id="sug"></div><div class="sec">数据好但暂不建议投</div><div id="near"></div><div class="sec">推广通 · 聚光 · 本地推</div><div id="spend"></div></div>
-  </section>
+  <p class="hint">点任意一个 Agent 看详情</p>
+  <div class="modal" id="modal" hidden role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <div class="sheet" id="sheet">
+      <header class="mh"><h2 id="mTitle">—</h2><span id="mSub"></span><button class="x" id="mClose" aria-label="关闭">×</button></header>
+      <div class="mb" id="mBody"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -146,15 +161,19 @@ const SAMPLE = {
     { id: 'c', type: '口碑', title: '深圳华强北燕南店 昨天差评 2 条（点评 2、美团 0）', detail: '11/02 经营数据', status: '待定' }
   ],
   stores: [
-    { store: '深圳宝安HOP天地店', revenue: 96500, wow: .081, bad: 0 }, { store: '深圳白石洲店', revenue: 88200, wow: .124, bad: 0 }, { store: '珠海玖洲道店', revenue: 79100, wow: .032, bad: 0 },
-    { store: '深圳华强北燕南店', revenue: 70000, wow: -.222, bad: 2 }, { store: '广州江南西店', revenue: 66800, wow: .057, bad: 0 }, { store: '佛山灯湖西街', revenue: 61200, wow: -.041, bad: 1 },
+    { store: '深圳宝安HOP天地店', revenue: 96500, wow: .081, bad: 0, dp: 4.3, mt: 4.5 }, { store: '深圳白石洲店', revenue: 88200, wow: .124, bad: 0 }, { store: '珠海玖洲道店', revenue: 79100, wow: .032, bad: 0 },
+    { store: '深圳华强北燕南店', revenue: 70000, wow: -.222, bad: 2, dp: 4.6, dpPrev: 4.7, mt: 4.5, dpBad: 2, mtBad: 0 }, { store: '广州江南西店', revenue: 66800, wow: .057, bad: 0 }, { store: '佛山灯湖西街', revenue: 61200, wow: -.041, bad: 1 },
     { store: '东莞33小镇店', revenue: 58300, wow: .015, bad: 0 }, { store: '佛山创意产业园店', revenue: 52280, wow: .09, bad: 0 }, { store: '蛇口花园城店（粤迹）', revenue: 40000, wow: .2, bad: 0 }
   ],
   missing: ['惠州水东街店', '广州陈家祠店'],
   brief: '结论：整体比上周同日涨 4.1%，但华强北掉了 22%，同时有 2 条点评差评，可能和出餐或服务有关，建议今天问一下店长。\n\n📝 内容与投放：小红书·欧阳「去深圳必吃的大排档」3,000 小眼睛、互动 6%，达标且没投流，建议投聚光。\n\n🙋 需要你拍板：是否投上面这条；华强北要不要临时加推广通预算。',
   suggest: [{ plat: '小红书', acc: '欧阳', title: '去深圳必吃的大排档', views: 3000, times: 6, engRate: 6, date: '11/02' }],
   near: [{ plat: '小红书', acc: 'Liu in', title: '11-12月去佛山旅游｜这些地方很适合', views: 24000, times: 9.4, engRate: 3.6, why: '互动率 3.6% 低于门槛 5%' }, { plat: '抖音矩阵号', acc: '还能吃一些香菜', title: '老广爱的镬气小炒', views: 7861, times: 2.6, engRate: .5, why: '互动率 0.5% 低于门槛 3%' }],
-  spend: []
+  spend: [],
+  rules: { scoreMin: 4.5, engXhs: 5, engDy: 3, minXhs: 1000, minDy: 3000, hotTimes: 2 },
+  content: { 小红书: { yesterday: 14, last7: 96 }, 抖音矩阵号: { yesterday: 6, last7: 30 }, 抖音素人号: { yesterday: 3, last7: 22 } },
+  hot: [{ plat: '小红书', acc: '欧阳', title: '去深圳必吃的大排档', views: 3000, times: 6, engRate: 6, date: '11/02' }, { plat: '小红书', acc: 'Liu in', title: '11-12月去佛山旅游｜这些地方很适合', views: 24000, times: 9.4, engRate: 3.6, why: '互动率 3.6% 低于门槛 5%', date: '10/28' }],
+  top7: [{ plat: '小红书', acc: 'Liu in', title: '11-12月去佛山旅游｜这些地方很适合', views: 24000, times: 9.4, engRate: 3.6, date: '10/28' }, { plat: '抖音矩阵号', acc: '还能吃一些香菜', title: '老广爱的镬气小炒', views: 7861, times: 2.6, engRate: 0.5, date: '10/30' }, { plat: '小红书', acc: '欧阳', title: '去深圳必吃的大排档', views: 3000, times: 6, engRate: 6, date: '11/02' }]
 };
 
 const $ = s => document.querySelector(s);
@@ -174,18 +193,9 @@ function render() {
   const stTxt = { ok: ['ok', '运行中'], wait: ['wait', '等你'], off: ['off', '未接入'] };
   const icon = { biz: '¥', content: '✎', ads: '↗', rep: '★' };
   $('#tags').innerHTML = S.agents.map(a => `<div class="tag hue-${a.hue || 'cyan'}">↓ ${esc(a.down || '')}<br><b>↑ ${esc(a.up || '')}</b></div>`).join('');
-  $('#agents').innerHTML = S.agents.map(a => `<div class="col hue-${a.hue || 'cyan'}"><button class="agent" data-go="${a.key === 'ads' ? 'ads' : a.key === 'biz' || a.key === 'rep' ? 'biz' : 'all'}" id="ag-${a.key}"><div class="hd"><span><span class="ic">${icon[a.key] || '•'}</span>${esc(a.name)}</span><span class="st ${stTxt[a.status][0]}">${stTxt[a.status][1]}</span></div><div class="big">${esc(a.big)}<small>${esc(a.unit)}</small></div><div class="meta">上次 ${esc(a.last)} → 下次 ${esc(a.next)}</div><div class="sub">${a.sub.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div></button>${(a.kids || []).length ? `<div class="kids">${a.kids.map(k => `<div class="kid"><i class="${k.tone || 'ok'}"></i><span style="min-width:0"><b>${esc(k.name)}</b><small>${esc(k.note)}</small></span><span class="v">${esc(k.val)}</span></div>`).join('')}</div>` : ''}</div>`).join('');
+  $('#agents').innerHTML = S.agents.map(a => `<div class="col hue-${a.hue || 'cyan'}"><button class="agent" data-open="${a.key}" id="ag-${a.key}"><div class="hd"><span><span class="ic">${icon[a.key] || '•'}</span>${esc(a.name)}</span><span class="st ${stTxt[a.status][0]}">${stTxt[a.status][1]}</span></div><div class="big">${esc(a.big)}<small>${esc(a.unit)}</small></div><div class="meta">上次 ${esc(a.last)} → 下次 ${esc(a.next)}</div><div class="sub">${a.sub.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div></button>${(a.kids || []).length ? `<div class="kids">${a.kids.map(k => `<div class="kid"><i class="${k.tone || 'ok'}"></i><span style="min-width:0"><b>${esc(k.name)}</b><small>${esc(k.note)}</small></span><span class="v">${esc(k.val)}</span></div>`).join('')}</div>` : ''}</div>`).join('');
   requestAnimationFrame(wires);
-  $('#todoSub').textContent = open.length ? `${open.length} 件待定` : '都处理完了';
-  $('#todo').innerHTML = S.todos.length ? S.todos.map(t => `<div class="item" data-type="${esc(t.type)}"><div class="row"><span class="chip">${esc(t.type)}</span></div><div class="t">${esc(t.title)}</div><div class="d">${esc(t.detail)}</div><div class="row" data-id="${esc(t.id)}">${t.status === '待定' ? `<button class="btn yes" data-act="已同意">${t.type === '投放建议' ? '同意投放' : '知道了，去处理'}</button><button class="btn" data-act="不做">${t.type === '投放建议' ? '不投' : '不用管'}</button>` : `<span class="done">✓ ${esc(t.status)}</span>`}</div></div>`).join('') : '<div class="empty">今天没有需要你拍板的事。</div>';
-  $('#bizSub').textContent = `${S.date}（周${S.weekday}）`;
-  const max = Math.max(...S.stores.map(r => r.revenue || 0), 1);
-  $('#stores tbody').innerHTML = S.stores.map(r => `<tr><td>${esc(r.store)}<div class="bar"><i style="width:${(r.revenue || 0) / max * 100}%"></i></div></td><td class="mono">${fmt(r.revenue)}</td><td class="mono ${r.wow > 0 ? 'up' : r.wow < 0 ? 'down' : ''}">${pct(r.wow)}</td><td class="mono ${r.bad ? 'down' : ''}">${r.bad || ''}</td></tr>`).join('') + (S.missing.length ? `<tr><td colspan="4" style="color:var(--amber)">未收到日报：${esc(S.missing.join('、'))}</td></tr>` : '');
-  $('#brief').textContent = S.brief || '今天的简报还没生成。';
-  const ad = (h, extra) => `<div class="ad"><div class="k"><b>${esc(h.plat)}·${esc(h.acc)}「${esc(h.title.slice(0, 18))}」</b><span class="mono">${fmt(h.views)}</span></div><div class="why">常态 ${h.times} 倍 · ${h.why ? esc(h.why) : '互动 ' + h.engRate + '%'}${extra && !h.why ? ' · ' + esc(extra) : ''}</div></div>`;
-  $('#sug').innerHTML = S.suggest.length ? S.suggest.map(h => ad(h, h.date + ' 发布')).join('') : '<div class="empty">今天没有完全达标的投放候选。</div>';
-  $('#near').innerHTML = S.near.length ? S.near.map(h => ad(h)).join('') : '<div class="empty">无</div>';
-  $('#spend').innerHTML = S.spend.length ? S.spend.map(x => `<div class="ad"><div class="k"><b>${esc(x.name)}</b><span class="mono">${fmt(x.cost)}</span></div><div class="why">${esc(x.note)}</div></div>`).join('') : '<div class="empty">推广通：等 Debbie 每天 9:00 把报表发到群里后自动接入。聚光、本地推：接口申请后接入。</div>';
+  if (!$('#modal').hidden) openAgent(cur);
 }
 
 document.addEventListener('click', async e => {
@@ -196,13 +206,52 @@ document.addEventListener('click', async e => {
     if (!S.sample) { try { await fetch('api/todo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, status: t.status }) }); } catch (err) { t.status = '待定'; render(); } }
     return;
   }
-  const tab = e.target.closest('.tab'); if (tab) show(tab.dataset.v);
-  const go = e.target.closest('[data-go]'); if (go) show(go.dataset.go);
-  if (e.target.closest('#waitBtn')) show('todo');
+  const o = e.target.closest('[data-open]'); if (o) { openAgent(o.dataset.open); return; }
+  if (e.target.closest('#waitBtn')) { openAgent('todo'); return; }
+  if (e.target.closest('#mClose') || e.target.id === 'modal') closeModal();
 });
-function show(v) {
-  document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.v === v)));
-  document.querySelectorAll('[data-pane]').forEach(p => { p.hidden = !(v === 'all' || p.dataset.pane === v); });
+addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+let cur = null, lastFocus = null;
+function closeModal() { $('#modal').hidden = true; cur = null; document.body.style.overflow = ''; if (lastFocus) lastFocus.focus(); }
+const todoHtml = list => list.length ? `<div class="todo">${list.map(t => `<div class="item" data-type="${esc(t.type)}"><div class="row"><span class="chip">${esc(t.type)}</span></div><div class="t">${esc(t.title)}</div><div class="d">${esc(t.detail)}</div><div class="row" data-id="${esc(t.id)}">${t.status === '待定' ? `<button class="btn yes" data-act="已同意">${t.type === '投放建议' ? '同意投放' : '知道了，去处理'}</button><button class="btn" data-act="不做">${t.type === '投放建议' ? '不投' : '不用管'}</button>` : `<span class="done">✓ ${esc(t.status)}</span>`}</div></div>`).join('')}</div>` : '<div class="empty">没有需要你处理的事。</div>';
+const adHtml = (h, why) => `<div class="ad"><div class="k"><b>${esc(h.plat)}·${esc(h.acc)}「${esc((h.title || '').slice(0, 22))}」</b><span class="mono">${fmt(h.views)}</span></div><div class="why">${h.date ? esc(h.date) + ' 发布 · ' : ''}${h.times != null ? '账号常态 ' + h.times + ' 倍 · ' : ''}互动率 ${h.engRate}%${why ? ' · ' + esc(why) : ''}${h.boosted ? ' · 已投流' : ''}</div></div>`;
+function openAgent(k) {
+  if (!$('#modal').hidden && cur === k) { /* 刷新 */ } else lastFocus = document.activeElement;
+  cur = k; const A = S.agents.find(a => a.key === k) || {}; const sheet = $('#sheet');
+  sheet.className = 'sheet hue-' + (A.hue || 'amber');
+  const R = S.rules || { scoreMin: 4.5, engXhs: 5, engDy: 3, minXhs: 1000, minDy: 3000, hotTimes: 2 };
+  const T = type => S.todos.filter(t => t.type === type || (type === '经营' && t.type === '营业异常'));
+  let title = '', sub = '', body = '';
+  if (k === 'biz') {
+    title = '经营 Agent'; sub = `${S.date}（周${S.weekday}）`;
+    const max = Math.max(...S.stores.map(r => r.revenue || 0), 1);
+    body = `<div class="blk"><h3>今天你要做的事 <span>${T('营业异常').filter(t => t.status === '待定').length} 件待定</span></h3>${todoHtml(T('营业异常'))}</div>
+      <div class="blk"><h3>昨天经营 <span>${esc(S.date)}</span></h3><div class="tbl"><table><thead><tr><th>门店</th><th>营业额</th><th>比上周同日</th><th>差评</th></tr></thead><tbody>${S.stores.map(r => `<tr><td>${esc(r.store)}<div class="bar"><i style="width:${(r.revenue || 0) / max * 100}%"></i></div></td><td class="mono">${fmt(r.revenue)}</td><td class="mono ${r.wow > 0 ? 'up' : r.wow < 0 ? 'down' : ''}">${pct(r.wow)}</td><td class="mono ${r.bad ? 'down' : ''}">${r.bad || ''}</td></tr>`).join('')}${S.missing.length ? `<tr><td colspan="4" style="color:var(--amber)">未收到日报：${esc(S.missing.join('、'))}</td></tr>` : ''}</tbody></table></div></div>
+      <div class="blk full"><h3>CEO Agent 的结论 <span>${S.briefAt ? new Date(S.briefAt + 8 * 3600e3).toISOString().slice(5, 16).replace('T', ' ') + ' 生成' : ''}</span></h3><div class="brief" style="max-height:none">${esc(S.brief || '今天的简报还没生成。在飞书「经营日报」群发「简报」可以马上生成。')}</div></div>`;
+  } else if (k === 'content') {
+    title = '内容 Agent'; sub = '最近 7 天的内容表现';
+    const C = S.content || {};
+    body = `<div class="full kpis">${Object.entries(C).map(([p, v]) => `<div class="kpi"><small>${esc(p)} · 昨天 / 近 7 天</small><b>${v.yesterday} / ${v.last7}</b></div>`).join('') || '<div class="empty">还没有内容数据</div>'}</div>
+      <div class="blk"><h3>今天数据好的 <span>近 14 天起量（账号常态 ${R.hotTimes} 倍以上）</span></h3>${(S.hot || []).length ? S.hot.map(h => adHtml(h, S.suggest.some(x => x.title === h.title && x.acc === h.acc) ? '✅ 值得投放' : h.why)).join('') : '<div class="empty">近 14 天没有起量的内容。</div>'}</div>
+      <div class="blk"><h3>近 7 天表现最好 <span>按播放 / 小眼睛</span></h3>${(S.top7 || []).length ? S.top7.map(h => adHtml(h)).join('') : '<div class="empty">近 7 天的作品还没有播放数据。</div>'}</div>`;
+  } else if (k === 'ads') {
+    title = '投放 Agent'; sub = `标准：起量（常态 ${R.hotTimes} 倍、小红书 ≥${R.minXhs} / 抖音 ≥${R.minDy}）＋ 互动率（小红书 ≥${R.engXhs}% / 抖音 ≥${R.engDy}%）＋ 还没投流`;
+    body = `<div class="blk"><h3>✅ 符合标准，适合推 <span>${S.suggest.length} 条</span></h3>${S.suggest.length ? S.suggest.map(h => adHtml(h)).join('') : '<div class="empty">今天没有完全达标的内容。</div>'}${T('投放建议').length ? '<div class="sec">待你拍板</div>' + todoHtml(T('投放建议')) : ''}</div>
+      <div class="blk"><h3>差一点 <span>数据好但没达标的原因</span></h3>${S.near.length ? S.near.map(h => adHtml(h, h.why)).join('') : '<div class="empty">无</div>'}</div>
+      <div class="blk full"><h3>投放渠道</h3><div class="ad"><div class="k"><b>推广通（大众点评）</b><span>等报表接入</span></div><div class="why">Debbie 每天 9:00 把门店报表发到「经营日报」群后，自动算每家店该加、该降、该停。</div></div><div class="ad"><div class="k"><b>聚光（小红书）</b><span>接口待申请</span></div></div><div class="ad"><div class="k"><b>本地推（抖音）</b><span>接口待申请</span></div></div><div class="ad"><div class="k"><b>抖加</b><span>人工投</span></div><div class="why">没有开放接口，按上面的建议人工投放。</div></div></div>`;
+  } else if (k === 'rep') {
+    title = '口碑 Agent'; sub = `评分低于 ${R.scoreMin} 或比前一天降 0.1 以上标红`;
+    const sc = (v, prev) => v == null ? '<span class="mono" style="color:var(--faint)">—</span>' : `<span class="mono ${v < R.scoreMin || (prev != null && prev - v >= 0.1 - 1e-9) ? 'low' : 'ok-t'}">${v}${prev != null && prev !== v ? `<small style="color:var(--faint)"> ←${prev}</small>` : ''}</span>`;
+    const rows = S.stores.slice().sort((a, b) => ((b.bad || 0) - (a.bad || 0)) || ((a.dp ?? 9) - (b.dp ?? 9)));
+    const abn = rows.filter(r => [r.dp, r.mt, r.wm, r.dy].some(v => v != null && v < R.scoreMin) || r.bad || (r.dpPrev != null && r.dp != null && r.dpPrev - r.dp >= 0.1 - 1e-9) || (r.mtPrev != null && r.mt != null && r.mtPrev - r.mt >= 0.1 - 1e-9));
+    body = `<div class="blk"><h3>⚠️ 有异常的门店 <span>${abn.length} 家</span></h3>${abn.length ? abn.map(r => { const L = []; [['点评', r.dp, r.dpBad], ['美团', r.mt, r.mtBad], ['外卖', r.wm, r.wmBad], ['抖音', r.dy, r.dyBad]].forEach(([n, v, b]) => { if (v != null && v < R.scoreMin) L.push(`${n} ${v} 低于 ${R.scoreMin}`); if (b) L.push(`${n}差评 ${b} 条`); }); if (r.dpPrev != null && r.dp != null && r.dpPrev - r.dp >= 0.1 - 1e-9) L.push(`点评 ${r.dpPrev}→${r.dp}`); if (r.mtPrev != null && r.mt != null && r.mtPrev - r.mt >= 0.1 - 1e-9) L.push(`美团 ${r.mtPrev}→${r.mt}`); if (!L.length && r.bad) L.push(`差评 ${r.bad} 条`); return `<div class="ad"><div class="k"><b>${esc(r.store)}</b></div><div class="why" style="color:var(--bad)">${esc(L.join('；'))}</div></div>`; }).join('') : '<div class="empty">各平台都正常。</div>'}${T('口碑').length ? '<div class="sec">待处理</div>' + todoHtml(T('口碑')) : ''}</div>
+      <div class="blk"><h3>各店评分 <span>${esc(S.date)}</span></h3><div class="tbl"><table><thead><tr><th>门店</th><th>点评</th><th>美团</th><th>外卖</th><th>抖音</th><th>差评</th></tr></thead><tbody>${rows.map(r => `<tr><td>${esc(r.store)}</td><td>${sc(r.dp, r.dpPrev)}</td><td>${sc(r.mt, r.mtPrev)}</td><td>${sc(r.wm)}</td><td>${sc(r.dy)}</td><td class="mono ${r.bad ? 'down' : ''}">${r.bad || ''}</td></tr>`).join('')}</tbody></table></div><div class="sec">外卖、抖音评分等华付数科日报加上后自动显示</div></div>`;
+  } else {
+    title = '等你拍板'; sub = `${S.todos.filter(t => t.status === '待定').length} 件待定`;
+    body = `<div class="blk full">${todoHtml(S.todos)}</div>`;
+  }
+  $('#mTitle').textContent = title; $('#mSub').textContent = sub; $('#mBody').innerHTML = body;
+  if ($('#modal').hidden) { $('#modal').hidden = false; document.body.style.overflow = 'hidden'; $('#mClose').focus(); }
 }
 function wires() {
   const svg = $('#wires'), tree = $('#tree'), ceo = document.querySelector('.ceo'); if (!svg || !ceo || getComputedStyle(svg).display === 'none') return;

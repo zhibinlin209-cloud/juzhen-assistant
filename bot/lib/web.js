@@ -47,7 +47,9 @@ function createWeb({ cfg, brief, log, activity, bossId, port }) {
           kids: F.stores.filter(r => r.dpScore != null || r.mtScore != null).slice(0, 6).map(r => { const b = r.dpBad + r.mtBad + (r.wmBad || 0) + (r.dyBad || 0); return { name: r.store.replace(/^(深圳|广州|佛山|珠海|东莞|惠州)/, ''), note: `点评 ${r.dpScore ?? '—'} · 美团 ${r.mtScore ?? '—'}`, val: b ? `差评 ${b}` : '0', tone: b ? 'bad' : 'ok' }; }) }
       ],
       todos: todos.filter(t => t.status === '待定' || Date.now() - t.last < 3 * DAY).slice(0, 20),
-      stores: F.stores.map(r => ({ store: r.store, revenue: r.revenue, wow: r.wow, bad: r.dpBad + r.mtBad + (r.wmBad || 0) + (r.dyBad || 0) })),
+      stores: F.stores.map(r => ({ store: r.store, revenue: r.revenue, wow: r.wow, bad: r.dpBad + r.mtBad + (r.wmBad || 0) + (r.dyBad || 0), dp: r.dpScore, mt: r.mtScore, wm: r.wmScore ?? null, dy: r.dyScore ?? null, dpBad: r.dpBad, mtBad: r.mtBad, wmBad: r.wmBad || 0, dyBad: r.dyBad || 0, dpPrev: r.dpScorePrev, mtPrev: r.mtScorePrev })),
+      rules: { scoreMin: cfg.scoreMin || 4.5, engXhs: 5, engDy: 3, minXhs: 1000, minDy: 3000, hotTimes: 2 },
+      content: F.content, top7: F.top7 || [], hot: F.hot,
       missing: F.missing, brief: last ? last.text : '', briefAt: last ? last.at : 0,
       suggest: F.suggest, near: F.hot.filter(h => !F.suggest.includes(h) && !h.boosted).slice(0, 6), spend: [], notes: F.notes
     };
@@ -59,7 +61,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port }) {
       const u = new URL(req.url, 'http://x'); let p = u.pathname.replace(/^\/cockpit/, '') || '/';
       if (p === '/login') { const who = verify(u.searchParams.get('t'), 'L'); if (!who) return send(res, 403, '<meta charset="utf-8"><p style="font:16px sans-serif;padding:24px">登录链接无效或已过期。请在飞书里给机器人的「经营日报」群发「驾驶舱」，拿一个新链接。</p>', 'text/html; charset=utf-8'); log('[驾驶舱] 老板登录'); return send(res, 302, '', 'text/plain', { location: base, 'set-cookie': `xck=${sign(who, Date.now() + 30 * DAY, 'S')}; Path=/cockpit/; Max-Age=${30 * 86400}; HttpOnly; Secure; SameSite=Lax` }); }
       const who = verify(cookie(req), 'S');
-      if (p === '/' || p === '/index.html') { const h = page('index.html'); if (!h) return send(res, 503, '驾驶舱页面还在更新，请 5 分钟后再刷新', 'text/plain; charset=utf-8'); if (!who) return send(res, 401, '<meta charset="utf-8"><meta name="viewport" content="width=device-width"><p style="font:16px sans-serif;padding:24px;line-height:1.7">这是禧聚的经营驾驶舱，需要登录。<br>请在飞书「经营日报」群里发「<b>驾驶舱</b>」，机器人会私聊你一个登录链接。</p>', 'text/html; charset=utf-8'); return send(res, 200, h, 'text/html; charset=utf-8'); }
+      if (p === '/' || p === '/index.html') { const h = page('index.html'); if (!h) return send(res, 503, '驾驶舱页面还在更新，请 5 分钟后再刷新', 'text/plain; charset=utf-8'); if (!who) return send(res, 401, '<meta charset="utf-8"><meta name="viewport" content="width=device-width"><p style="font:16px sans-serif;padding:24px;line-height:1.7">这是禧聚的经营驾驶舱，需要登录。<br>请在飞书「经营日报」群里发「<b>驾驶舱</b>」，机器人会私聊你一个登录链接。</p>', 'text/html; charset=utf-8'); return send(res, 200, '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="robots" content="noindex"><style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}</style></head><body>' + h + '</body></html>', 'text/html; charset=utf-8'); }
       if (!who) return send(res, 401, JSON.stringify({ error: '需要登录' }));
       if (p === '/api/state' && req.method === 'GET') return send(res, 200, JSON.stringify(await state()));
       if (p === '/api/todo' && req.method === 'POST') { let b = ''; for await (const c of req) { b += c; if (b.length > 4096) break; } const j = JSON.parse(b || '{}'); await brief.setTodo(String(j.id || ''), String(j.status || '')); cache = null; log(`[驾驶舱] 待办 ${j.id} → ${j.status}`); return send(res, 200, '{"ok":true}'); }

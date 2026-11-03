@@ -48,7 +48,7 @@ function createBrief({ cfg, api, log, llm }) {
   async function facts(now) {
     now = now || Date.now();
     const today = bjDay(now), y = today - 1, ly = y - 7;
-    const F = { rules: { 营业额跌幅标红: '-15%', 差评标红条数: RULE.badRed, 评分下降提醒: RULE.scoreDrop, 起量统计天数: RULE.hotDays, 起量倍数: RULE.hotTimes, 小红书起量最低小眼睛: RULE.minXhs, 抖音起量最低播放: RULE.minDy, 小红书互动率门槛: '5%', 抖音互动率门槛: '3%' }, date: dayStr(y), weekday: '日一二三四五六'[new Date(y * DAY).getUTCDay()], stores: [], missing: [], alerts: [], content: {}, hot: [], suggest: [], notes: [] };
+    const F = { rules: { 营业额跌幅标红: '-15%', 差评标红条数: RULE.badRed, 评分下降提醒: RULE.scoreDrop, 起量统计天数: RULE.hotDays, 起量倍数: RULE.hotTimes, 小红书起量最低小眼睛: RULE.minXhs, 抖音起量最低播放: RULE.minDy, 小红书互动率门槛: '5%', 抖音互动率门槛: '3%' }, date: dayStr(y), weekday: '日一二三四五六'[new Date(y * DAY).getUTCDay()], stores: [], missing: [], alerts: [], content: {}, hot: [], suggest: [], top7: [], notes: [] };
     // 营业日报（私密表格）
     if (cfg.dailyBaseUrl) {
       const priv = await appOf(cfg.dailyBaseUrl);
@@ -91,6 +91,7 @@ function createBrief({ cfg, api, log, llm }) {
         const persons = {}; yItems.forEach(x => { const k = x.person || '未填人员'; persons[k] = (persons[k] || 0) + 1; });
         F.content[D.plat] = { yesterday: yItems.length, last7: items.filter(x => x.d > y - 7 && x.d <= y).length, byPerson: persons };
         const med = {}; items.filter(x => x.d > today - 31 && x.views !== null).forEach(x => (med[x.acc] = med[x.acc] || []).push(x.views));
+        items.filter(x => x.d > y - 7 && x.d <= y && x.views !== null).forEach(x => { const m = median(med[x.acc] || []); F.top7.push({ plat: D.plat, acc: x.acc, title: x.title, date: dayStr(x.d), views: x.views, times: m ? Math.round(x.views / m * 10) / 10 : null, engRate: x.views ? Math.round(x.eng / x.views * 1000) / 10 : 0, boosted: x.boosted }); });
         for (const x of items.filter(x => x.d >= today - RULE.hotDays && x.views !== null)) {
           const m = median(med[x.acc] || []); const er = x.views ? x.eng / x.views : 0;
           if (x.views >= D.min && m && x.views >= m * RULE.hotTimes) {
@@ -100,7 +101,7 @@ function createBrief({ cfg, api, log, llm }) {
         }
       }
       F.hot.sort((a, b) => b.times - a.times); F.suggest.sort((a, b) => b.times - a.times);
-      F.hot = F.hot.slice(0, 10); F.suggest = F.suggest.slice(0, 8);
+      F.hot = F.hot.slice(0, 10); F.suggest = F.suggest.slice(0, 8); F.top7.sort((a, b) => b.views - a.views); F.top7 = F.top7.slice(0, 10);
     }
     return F;
   }
