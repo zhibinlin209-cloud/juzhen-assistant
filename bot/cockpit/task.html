@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>领稿</title>
+<style>
+:root { --ink:#1f2329; --mute:#646a73; --faint:#8f959e; --line:#dee0e3; --bg:#f2f3f5; --blue:#3370ff; --blue2:#e1eaff; --ok:#00a870; }
+* { box-sizing: border-box }
+body { margin:0; background:var(--bg); color:var(--ink); font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif; font-size:15px; line-height:1.6; padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0) }
+.wrap { max-width:560px; margin:0 auto; padding:12px }
+.card { background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden; margin-bottom:12px }
+.hd { background:var(--blue2); padding:14px 16px }
+.hd h1 { margin:0; font-size:18px }
+.hd .sub { font-size:13px; color:var(--mute) }
+.sec { padding:12px 16px; border-top:1px solid #f0f1f2 }
+.sec:first-of-type { border-top:0 }
+.lab { font-size:12px; color:var(--faint); display:flex; justify-content:space-between; align-items:center; gap:8px }
+.chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px }
+.chip { font-size:13px; padding:2px 10px; border-radius:6px; background:#f2f3f5; color:var(--mute) }
+.chip.main { background:#ffece8; color:#c52b1b; font-weight:600 }
+.txt { white-space:pre-wrap; word-break:break-word; margin-top:4px }
+.clip { max-height:9.6em; overflow:hidden; position:relative }
+.clip::after { content:""; position:absolute; left:0; right:0; bottom:0; height:2.4em; background:linear-gradient(transparent,#fff) }
+button, .btn { font:inherit; font-size:14px; border-radius:8px; border:1px solid var(--blue); background:#fff; color:var(--blue); padding:6px 14px; min-height:36px; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center }
+button.pri, .btn.pri { background:var(--blue); color:#fff; border-color:var(--blue) }
+button.dark { background:#1f2329; color:#fff; border-color:#1f2329 }
+button:disabled { opacity:.45; cursor:not-allowed }
+button.done { background:var(--ok); border-color:var(--ok); color:#fff }
+.grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin-top:6px }
+.grid a { display:block; aspect-ratio:3/4; border-radius:6px; overflow:hidden; background:#e5e6eb }
+.grid img { width:100%; height:100%; object-fit:cover; display:block }
+video { width:100%; border-radius:8px; background:#000; margin-top:6px }
+.loc { background:#f7f8fa; border-radius:8px; padding:8px 12px; font-size:14px; color:var(--mute) }
+.row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
+.row > * { flex:1 1 140px }
+textarea { width:100%; min-height:110px; font:inherit; font-size:14px; border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin-top:6px }
+.tip { font-size:12px; color:var(--faint); margin-top:6px }
+.res { white-space:pre-wrap; font-size:14px; margin-top:8px; background:#e8ffea; border-radius:8px; padding:8px 12px; display:none }
+.err { background:#ffece8 }
+.toast { position:fixed; left:50%; bottom:40px; transform:translateX(-50%); background:rgba(0,0,0,.78); color:#fff; padding:8px 16px; border-radius:20px; font-size:14px; display:none; z-index:9 }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><div class="card"><div class="sec">加载中…</div></div></div>
+<div class="toast" id="toast"></div>
+<script>
+const base = location.pathname.replace(/\/$/, '');
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let D = null;
+function toast(t) { const e = $('#toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(() => e.style.display = 'none', 1600); }
+async function copy(t, label) {
+  try { await navigator.clipboard.writeText(t); toast('已复制' + (label ? '：' + label : '')); }
+  catch (e) { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); toast('已复制' + (label ? '：' + label : '')); } catch (x) { toast('复制失败，请长按文字手动复制'); } a.remove(); }
+}
+function render() {
+  const d = D, main = d.platforms[0];
+  $('#app').innerHTML = `
+  <div class="card">
+    <div class="hd"><h1>${d.type === '视频' ? '🎬 今日视频' : '📮 今日稿件'} · @${esc(d.who || '—')}</h1><div class="sub">${esc([d.code, d.account && '账号 ' + d.account, d.store, d.date].filter(Boolean).join(' · '))}</div></div>
+    <div class="sec"><div class="lab">要发的平台</div><div class="chips">${d.platforms.map((p, i) => `<span class="chip ${i ? '' : 'main'}">${esc(p)}${i ? '' : '（主发）'}</span>`).join('')}</div></div>
+    <div class="sec"><div class="lab"><span>标题</span><button data-c="title">复制标题</button></div><div class="txt" style="font-weight:600">${esc(d.title || '—')}</div></div>
+    ${d.body && d.body !== d.title ? `<div class="sec"><div class="lab"><span>正文</span><button data-c="body">复制正文</button></div><div class="txt clip" id="body">${esc(d.body)}</div><button style="margin-top:6px;border:0;padding:0;min-height:0" id="more">展开全文</button></div>` : ''}
+    ${d.tags ? `<div class="sec"><div class="lab"><span>话题</span><button data-c="tags">复制话题</button></div><div class="txt" style="color:var(--blue)">${esc(d.tags)}</div></div>` : ''}
+    <div class="sec"><button class="pri" style="width:100%" data-c="all">一键复制全部文案（标题 + 正文 + 话题）</button></div>
+    ${d.images.length ? `<div class="sec"><div class="lab"><span>图片（按顺序发，共 ${d.images.length} 张）</span></div><div class="grid">${d.images.map((u, i) => `<a href="${u}" target="_blank" rel="noopener"><img src="${u}" loading="lazy" alt="第 ${i + 1} 张"></a>`).join('')}</div><div class="tip">点开大图后长按保存到相册；电脑上可点「下载全部」。</div><div class="row"><button id="dlall">⬇ 下载全部图片</button></div></div>` : ''}
+    ${d.videos.map(v => `<div class="sec"><div class="lab">视频</div><video src="${v.url}" controls playsinline preload="metadata"></video><div class="row"><a class="btn" href="${v.url}?dl=1" download="${esc(v.name)}">⬇ 下载视频</a></div><div class="tip">视频自带声音，不用加配乐。</div></div>`).join('')}
+    ${d.loc || d.dp ? `<div class="sec"><div class="loc">${d.loc ? `📍 ${d.type === '视频' ? '定位' : '小红书/携程定位'}：${esc(d.loc)}` : ''}${d.loc && d.dp ? '<br>' : ''}${d.dp ? `📍 点评定位：${esc(d.dp)}` : ''}</div></div>` : ''}
+    ${main === '抖音' ? `<div class="sec"><button class="dark" style="width:100%" disabled>一键发到抖音（标题、话题已填好）· 待开通</button><div class="tip">要先用公司主体申请抖音开放平台的分享能力，开通后这个按钮就能用。</div></div>` : ''}
+  </div>
+  <div class="card" id="done">
+    <div class="sec"><div class="lab">我发好了，贴链接</div>
+      <textarea id="links" placeholder="把各平台的分享链接粘贴在这里，一行一个或混在一起都行"></textarea>
+      <div class="row"><button class="pri" id="send">提交链接</button></div>
+      <div class="res" id="res"></div>
+      <div class="tip">${d.status === '已发布' ? '✅ 这条已经登记为「已发布」，再交一次会补充新链接。' : '提交后自动登记进数据表，派稿状态改成「已发布」。'}</div>
+    </div>
+  </div>`;
+  document.querySelectorAll('[data-c]').forEach(b => b.onclick = () => { const k = b.dataset.c; const t = k === 'all' ? [d.title, d.body !== d.title ? d.body : '', d.tags].filter(Boolean).join('\n\n') : d[k]; copy(t, { title: '标题', body: '正文', tags: '话题', all: '全部文案' }[k]); });
+  const more = $('#more'); if (more) more.onclick = () => { $('#body').classList.remove('clip'); more.remove(); };
+  const dl = $('#dlall'); if (dl) dl.onclick = async () => { for (let i = 0; i < d.images.length; i++) { const a = document.createElement('a'); a.href = d.images[i] + '?dl=1'; a.download = `${d.code}-${i + 1}.jpg`; document.body.appendChild(a); a.click(); a.remove(); await new Promise(r => setTimeout(r, 400)); } toast('已开始下载'); };
+  $('#send').onclick = async () => {
+    const t = $('#links').value.trim(); if (!t) return toast('先粘贴链接');
+    const btn = $('#send'); btn.disabled = true; btn.textContent = '登记中…';
+    try { const r = await fetch(base + '/links', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: t }) }).then(r => r.json()); const res = $('#res'); res.style.display = 'block'; res.classList.toggle('err', !r.ok); res.textContent = r.text || (r.ok ? '已登记' : '没登记成功'); if (r.ok) { btn.textContent = '✅ 已提交'; btn.classList.add('done'); $('#links').value = ''; setTimeout(() => { btn.disabled = false; btn.textContent = '再提交'; btn.classList.remove('done'); }, 2500); } else { btn.disabled = false; btn.textContent = '提交链接'; } }
+    catch (e) { btn.disabled = false; btn.textContent = '提交链接'; toast('网络出错，请重试'); }
+  };
+  if (location.hash === '#done') setTimeout(() => $('#done').scrollIntoView({ behavior: 'smooth' }), 200);
+}
+fetch(base + '/data').then(r => r.ok ? r.json() : Promise.reject(r.status)).then(j => { D = j; document.title = (j.type === '视频' ? '🎬 ' : '📮 ') + (j.code || '领稿'); render(); })
+  .catch(s => { $('#app').innerHTML = `<div class="card"><div class="sec">${s === 403 ? '这个领稿链接已失效，请让 PR 重新派一次，或在群里找最新的卡片。' : '加载失败，请稍后刷新。'}</div></div>`; });
+</script>
+</body>
+</html>

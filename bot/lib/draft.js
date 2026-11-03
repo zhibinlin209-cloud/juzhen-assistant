@@ -121,15 +121,25 @@ function createDispatch({ api, core, raw, log }) {
       { tag: 'div', text: { tag: 'lark_md', content: `**素材**\n${nImg ? `图片 ${nImg} 张（按顺序发）` : ''}${nImg && nVid ? '，' : ''}${nVid ? `视频 ${nVid} 个` : ''}${!files.length ? '⚠️ 还没有素材' : ''}` } }
     ];
     if (loc) el.push({ tag: 'div', text: { tag: 'lark_md', content: loc } });
-    el.push({ tag: 'hr' }, { tag: 'note', elements: [{ tag: 'plain_text', content: `👇 下面一条是完整文案和素材：长按复制、保存。发完把各平台链接回复在这张卡片下面，机器人自动登记。${type === '视频' ? '视频自带声音，不用加配乐。' : ''}` }] });
+    if (r.cover) el.push({ tag: 'img', img_key: r.cover, alt: { tag: 'plain_text', content: '素材预览' }, mode: 'fit_horizontal', preview: true });
+    if (r.link) el.push({ tag: 'action', layout: 'bisected', actions: [{ tag: 'button', type: 'primary', text: { tag: 'plain_text', content: '📋 打开领稿页（一键复制 · 下载素材）' }, url: r.link }, { tag: 'button', type: 'default', text: { tag: 'plain_text', content: '✅ 我发好了，贴链接' }, url: r.link + '#done' }] });
+    el.push({ tag: 'note', elements: [{ tag: 'plain_text', content: `领稿页里可以一键复制标题/正文/话题、下载${type === '视频' ? '视频' : '全部图片'}；发完在页面里贴链接，自动登记。${type === '视频' ? '视频自带声音，不用加配乐。' : ''}` }] });
     return { config: { wide_screen_mode: true }, header: { template: type === '视频' ? 'indigo' : 'blue', title: { tag: 'plain_text', content: `${type === '视频' ? '🎬 今日视频' : '📮 今日稿件'} · @${who}` } }, elements: [{ tag: 'div', text: { tag: 'lark_md', content: `${s('稿件编号') || s('文本')}${s('账号名称') ? ' · 账号 ' + s('账号名称') : ''}${s('门店') ? ' · ' + s('门店') : ''}${typeof f['派稿日期'] === 'number' ? ' · ' + new Date(f['派稿日期'] + 8 * 3600e3).toISOString().slice(5, 10).replace('-', '/') : ''}` } }].concat(el) };
   }
   // 发给某人/某群：卡片 → 文案+图片（富文本，长按可复制/保存）→ 视频文件
   async function send(r, receive) {
     const f = r.f, s = k => String(val(f[k]) || '').trim();
     const q = { receive_id_type: receive.type };
-    const sent = await api.call('POST', '/im/v1/messages', { receive_id: receive.id, msg_type: 'interactive', content: JSON.stringify(card(r)) }, q);
-    const files = f['素材'] || []; const imgs = [], vids = [];
+    const files = f['素材'] || [];
+    const first = files.find(x => !(/^video\//.test(x.type || '') || /\.(mp4|m4v|mov)$/i.test(x.name || '')));
+    if (first && !r.cover) { try { r.cover = await raw.imKey(await raw.download(first.url)); } catch (e) { log('[领稿] 封面图失败：' + e.message); } }
+    if (raw.taskLink) r.link = raw.taskLink(r.id);
+    await api.call('POST', '/im/v1/messages', { receive_id: receive.id, msg_type: 'interactive', content: JSON.stringify(card(r)) }, q);
+    log(`[领稿] 已发：${s('稿件编号')} → ${s('发布人员') || '?'}`);
+    return { link: r.link };
+  }
+  async function sendOld(r, receive, sent) {
+    const f = r.f, s = k => String(val(f[k]) || '').trim(); const files = f['素材'] || []; const imgs = [], vids = [];
     for (const x of files) { try { const buf = await raw.download(x.url); if (/^video\//.test(x.type || '') || /\.(mp4|m4v|mov)$/i.test(x.name || '')) vids.push({ buf, name: x.name }); else imgs.push(await raw.imKey(buf)); } catch (e) { log('[领稿] 素材下载失败：' + e.message); } }
     const text = [s('标题'), '', s('文案正文'), '', s('话题标签')].join('\n').replace(/\n{3,}/g, '\n\n').trim();
     const content = [[{ tag: 'text', text }]].concat(imgs.map(k => [{ tag: 'img', image_key: k }]));
@@ -138,6 +148,25 @@ function createDispatch({ api, core, raw, log }) {
     log(`[领稿] 已发：${s('稿件编号')} → ${s('发布人员') || '?'}`);
     return { imgs: imgs.length, vids: vids.length };
   }
-  return { today, card, send };
+  async function getRec(id) {
+    const app = await core.appToken(); const tid = await core.ensurePaigao();
+    const d = await api.call('GET', `/bitable/v1/apps/${app}/tables/${tid}/records/${id}`); return { id, f: (d.record || {}).fields || {} };
+  }
+  function view(r, mediaBase) {
+    const f = r.f, s = k => String(val(f[k]) || '').trim(); const files = f['素材'] || [];
+    const isVid = x => /^video\//.test(x.type || '') || /\.(mp4|m4v|mov)$/i.test(x.name || '');
+    return { code: s('稿件编号') || s('文本'), who: s('发布人员'), account: s('账号名称'), store: s('门店'), date: typeof f['派稿日期'] === 'number' ? new Date(f['派稿日期'] + 8 * 3600e3).toISOString().slice(5, 10).replace('-', '/') : '', type: s('内容类型') || '图文', platforms: (Array.isArray(f['发布平台']) ? f['发布平台'] : []).map(String), title: s('标题'), body: s('文案正文'), tags: s('话题标签'), loc: s('定位'), dp: (Array.isArray(f['发布平台']) && f['发布平台'].includes('大众点评')) ? s('点评定位') : '', status: s('状态'),
+      images: files.map((x, i) => isVid(x) ? null : `${mediaBase}/m/${i}`).filter(Boolean), videos: files.map((x, i) => isVid(x) ? { url: `${mediaBase}/m/${i}`, name: x.name || '视频.mp4' } : null).filter(Boolean) };
+  }
+  async function markDone(id, text) {
+    const app = await core.appToken(); const tid = await core.ensurePaigao(); const f = {};
+    const m = re => (String(text).match(re) || [])[0];
+    const x = m(/https?:\/\/(?:xhslink\.com|www\.xiaohongshu\.com)\/\S+/), d = m(/https?:\/\/(?:v\.douyin\.com|www\.douyin\.com|www\.iesdouyin\.com)\/\S+/), v = m(/https?:\/\/(?:weixin\.qq\.com\/sph|channels\.weixin\.qq\.com)\/\S+/);
+    if (x) f['小红书链接'] = { link: x, text: x }; if (d) f['抖音链接'] = { link: d, text: d }; if (v) f['视频号链接'] = { link: v, text: v };
+    if (x || d || v) f['状态'] = '已发布';
+    if (Object.keys(f).length) await api.call('PUT', `/bitable/v1/apps/${app}/tables/${tid}/records/${id}`, { fields: f });
+    return !!f['状态'];
+  }
+  return { today, card, send, getRec, view, markDone };
 }
 module.exports.createDispatch = createDispatch;

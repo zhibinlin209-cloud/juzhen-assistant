@@ -98,7 +98,7 @@ async function setup() {
   }
   async function dl(url) { const r = await fetch(url, { headers: { authorization: 'Bearer ' + await token() } }); if (!r.ok) throw new Error('下载失败 HTTP ' + r.status); return Buffer.from(await r.arrayBuffer()); }
   async function imKey(buf) { const fd = new FormData(); fd.append('image_type', 'message'); fd.append('image', new Blob([buf]), 'a.jpg'); const j = await fetch(`${API}/im/v1/images`, { method: 'POST', headers: { authorization: 'Bearer ' + await token() }, body: fd }).then(r => r.json()); if (j.code !== 0) throw new Error(`传图失败（${j.code}：${j.msg}）`); return j.data.image_key; }
-  async function imFile(buf, name) { const fd = new FormData(); fd.append('file_type', /\.mp4$/i.test(name) ? 'mp4' : 'stream'); fd.append('file_name', name); fd.append('file', new Blob([buf]), name); const j = await fetch(`${API}/im/v1/files`, { method: 'POST', headers: { authorization: 'Bearer ' + await token() }, body: fd }).then(r => r.json()); if (j.code !== 0) throw new Error(`传文件失败（${j.code}：${j.msg}）`); return j.data.file_key; }
+  async function imFile(buf, name) { const fd = new FormData(); fd.append('file_type', 'stream'); fd.append('file_name', name); fd.append('file', new Blob([buf]), name); const j = await fetch(`${API}/im/v1/files`, { method: 'POST', headers: { authorization: 'Bearer ' + await token() }, body: fd }).then(r => r.json()); if (j.code !== 0) throw new Error(`传文件失败（${j.code}：${j.msg}）`); return j.data.file_key; }
   async function fetchXhs(url) { // 打开小红书短链，拿笔记 ID / 作者 / 发布时间
     try {
       const r = await fetch(url, { redirect: 'follow', headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36' }, signal: AbortSignal.timeout(12000) });
@@ -141,7 +141,7 @@ async function setup() {
   const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log });
   await core.load(true);
   const draft = createDraft({ api: { call }, core, upload, log }); const lastVideo = new Map();
-  const dispatch = createDispatch({ api: { call }, core, raw: { download: dl, imKey, imFile }, log });
+  const rawIO = { download: dl, imKey, imFile }; const dispatch = createDispatch({ api: { call }, core, raw: rawIO, log });
   for (const n of (cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'])) { try { await core.loadT(n, true); } catch (e) { log('[表] 读不到 ' + n + '：', e.message); } }
 
   // 视频号历史数据一次性导入（做过就不再做；按链接去重）
@@ -302,7 +302,15 @@ async function setup() {
   let boss = cfg.bossOpenId || (() => { try { return fs.readFileSync(BOSS_FILE, 'utf8').trim(); } catch (e) { return ''; } })();
   function rememberBoss(id) { if (!id || id === boss) return; boss = id; try { fs.writeFileSync(BOSS_FILE, id); } catch (e) { } log('[简报] 记住了老板的飞书账号，以后简报私聊发送'); }
   const brief = createBrief({ cfg, api: { call }, log, llm: cfg.qwenKey ? chat : null });
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss });
+  async function registerLinks(text, who) { // 领稿页提交的链接 → 和群里贴链接一样登记进数据表
+    const out = [];
+    if (/xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(text)) { const r = await core.handleText(text, who); if (r) out.push(replyForText(r)); }
+    if (/v\.douyin\.com|iesdouyin\.com|douyin\.com\/(video|note)/.test(text)) { try { const r = await core.handleDouyin(text, who); if (r) out.push(replyForDouyin(r)); } catch (e) { out.push('⚠️ 抖音没登记上：' + e.message.slice(0, 60)); } }
+    if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
+    return out.filter(Boolean).join('\n');
+  }
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks });
+  rawIO.taskLink = id => web.taskLink(id);
   let briefState = {}; try { briefState = JSON.parse(fs.readFileSync(BRIEF_FILE, 'utf8')); } catch (e) { }
   let briefing = false;
   async function sendBrief(o) {
