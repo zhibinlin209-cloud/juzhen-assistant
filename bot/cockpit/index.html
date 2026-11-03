@@ -1,0 +1,196 @@
+<title>禧聚 AI 驾驶舱</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* 布局：指挥台。顶栏状态 → 人 → CEO Agent → 四个部门 Agent（连线）→ 三块工作区 */
+:root {
+  --ink: #e6edf7; --mute: #8b9bb4; --faint: #56657d;
+  --deep: #070d18; --panel: #0d1626; --panel2: #111d31; --line: #1e2c45;
+  --cyan: #4cc9f0; --amber: #ffb547; --good: #3ddc97; --bad: #ff6b6b; --warn: #ffb547;
+  --f-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --f-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box }
+body { background: radial-gradient(1200px 600px at 50% -10%, #12234080, transparent 70%), var(--deep); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.55; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 0 40px; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--deep) }
+.wrap { max-width: 1180px; margin: 0 auto }
+.mono { font-family: var(--f-data); font-variant-numeric: tabular-nums }
+/* 顶栏 */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 12px 0; background: linear-gradient(var(--deep) 70%, transparent); }
+.brand { font-weight: 900; letter-spacing: .08em; font-size: 13px } .brand b { color: var(--cyan) }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap }
+.tab { font: inherit; color: var(--mute); background: none; border: 1px solid transparent; border-radius: 6px; padding: 4px 10px; cursor: pointer }
+.tab[aria-selected="true"] { color: var(--ink); border-color: var(--line); background: var(--panel) }
+.tab .n { display: inline-block; min-width: 18px; margin-left: 4px; padding: 0 5px; border-radius: 9px; background: var(--amber); color: #201300; font-size: 11px; font-weight: 700; text-align: center }
+.status { margin-left: auto; display: flex; gap: 14px; color: var(--mute); font-size: 12px; align-items: center; flex-wrap: wrap }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); display: inline-block; margin-right: 6px; box-shadow: 0 0 8px var(--good) }
+.sample { font-size: 11px; color: var(--amber); border: 1px dashed #ffb54766; border-radius: 4px; padding: 1px 6px }
+/* 组织图 */
+.org { display: grid; justify-items: center; gap: 0; padding: 14px 0 4px }
+.node { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 16px; display: flex; gap: 12px; align-items: center }
+.me .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: var(--amber); color: #201300; font-weight: 900 }
+.me .who b { display: block; font-size: 15px } .me .who span { color: var(--mute); font-size: 12px }
+.wait { margin-left: 8px; background: #ffb5471f; color: var(--amber); border: 1px solid #ffb54755; border-radius: 6px; padding: 3px 9px; font-weight: 700; font-size: 12px; cursor: pointer }
+.link { width: 1px; height: 22px; background: linear-gradient(var(--line), var(--cyan)); position: relative }
+.link small { position: absolute; left: 10px; top: 2px; white-space: nowrap; font-size: 11px; color: var(--faint) }
+.ceo { min-width: min(420px, 100%); border-color: #4cc9f066; box-shadow: 0 0 0 1px #4cc9f022, 0 8px 40px -12px #4cc9f055; flex-direction: column; align-items: stretch; gap: 6px }
+.ceo h3 { margin: 0; font-size: 16px; display: flex; align-items: center; gap: 8px }
+.ring { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--cyan); border-right-color: transparent; animation: spin 3.5s linear infinite }
+@keyframes spin { to { transform: rotate(360deg) } }
+@media (prefers-reduced-motion: reduce) { .ring { animation: none } }
+.ceo p { margin: 0; color: var(--mute); font-size: 12px }
+.ceo .say { color: var(--ink); font-size: 13px; border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px }
+.agents { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; width: 100%; padding-top: 26px; margin-top: 0 }
+.agents::before { content: ""; position: absolute; top: 0; left: 12.5%; right: 12.5%; height: 1px; background: var(--line) }
+.agent { position: relative; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: grid; gap: 6px; cursor: pointer; text-align: left; font: inherit; color: inherit }
+.agent::before { content: ""; position: absolute; top: -26px; left: 50%; width: 1px; height: 26px; background: linear-gradient(var(--line), var(--cyan)) }
+.agent:hover, .agent:focus-visible { border-color: #4cc9f077; outline: none }
+.agent .hd { display: flex; justify-content: space-between; align-items: center; font-weight: 700 }
+.agent .big { font-family: var(--f-data); font-size: 22px; font-weight: 600; letter-spacing: -.01em }
+.agent .big small { font-size: 12px; color: var(--mute); font-family: var(--f-body); font-weight: 400; margin-left: 6px }
+.agent .meta { font-size: 11px; color: var(--faint); font-family: var(--f-data) }
+.agent .sub { display: grid; gap: 3px; border-top: 1px solid var(--line); padding-top: 6px; font-size: 12px }
+.agent .sub div { display: flex; justify-content: space-between; gap: 8px; color: var(--mute) } .agent .sub b { color: var(--ink); font-weight: 500; font-family: var(--f-data) }
+.st { font-size: 11px; font-weight: 500; padding: 1px 7px; border-radius: 10px; border: 1px solid }
+.st.ok { color: var(--good); border-color: #3ddc9755 } .st.wait { color: var(--amber); border-color: #ffb54755; background: none; margin: 0; font-weight: 500 } .st.off { color: var(--faint); border-color: var(--line) }
+/* 工作区 */
+.desk { display: grid; grid-template-columns: 1.05fr 1fr 1fr; gap: 14px; margin-top: 22px }
+.pane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0 }
+.pane h2 { margin: 0 0 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: baseline } .pane h2 span { color: var(--faint); font-weight: 400; font-size: 12px }
+.todo { display: grid; gap: 8px }
+.item { border: 1px solid var(--line); border-left: 3px solid var(--sev, var(--cyan)); border-radius: 6px; padding: 9px 10px; background: var(--panel2); display: grid; gap: 6px }
+.item[data-type="投放建议"] { --sev: var(--cyan) } .item[data-type="营业异常"] { --sev: var(--bad) } .item[data-type="口碑"] { --sev: var(--amber) }
+.item .t { font-weight: 500 } .item .d { color: var(--mute); font-size: 12px }
+.item .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.chip { font-size: 11px; color: var(--mute); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px }
+.btn { font: inherit; font-size: 12px; border-radius: 6px; padding: 3px 12px; cursor: pointer; border: 1px solid var(--line); background: none; color: var(--ink) }
+.btn.yes { background: var(--cyan); border-color: var(--cyan); color: #04121c; font-weight: 700 }
+.btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px }
+.done { color: var(--good); font-size: 12px }
+.brief { white-space: pre-wrap; color: var(--ink); font-size: 13px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; padding: 10px; max-height: 260px; overflow: auto }
+table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: right } th { color: var(--faint); font-weight: 400 } td:first-child, th:first-child { text-align: left }
+.bar { height: 4px; background: var(--line); border-radius: 2px; margin-top: 3px; overflow: hidden } .bar i { display: block; height: 100%; background: var(--cyan) }
+.up { color: var(--good) } .down { color: var(--bad) }
+.tbl { overflow-x: auto }
+.ad { display: grid; gap: 4px; padding: 8px 0; border-bottom: 1px solid var(--line) } .ad:last-child { border-bottom: 0 }
+.ad .k { display: flex; justify-content: space-between; gap: 8px } .ad .k b { font-weight: 500 } .ad .why { font-size: 12px; color: var(--mute) }
+.sec { font-size: 11px; color: var(--faint); letter-spacing: .08em; margin: 12px 0 4px }
+.empty { color: var(--faint); font-size: 12px; padding: 6px 0 }
+@media (max-width: 980px) { .desk { grid-template-columns: 1fr } }
+@media (max-width: 760px) { .agents { grid-template-columns: repeat(2, minmax(0, 1fr)) } .agents::before, .agent::before { display: none } .status { margin-left: 0 } }
+@media (max-width: 420px) { .agents { grid-template-columns: 1fr } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="brand">禧聚 <b>AI</b> 驾驶舱</div>
+    <nav class="tabs" role="tablist" aria-label="视图">
+      <button class="tab" role="tab" aria-selected="true" data-v="all" id="tab-all">总览</button>
+      <button class="tab" role="tab" aria-selected="false" data-v="biz" id="tab-biz">经营</button>
+      <button class="tab" role="tab" aria-selected="false" data-v="ads" id="tab-ads">投放</button>
+      <button class="tab" role="tab" aria-selected="false" data-v="todo" id="tab-todo">待拍板<span class="n" id="nTodo">0</span></button>
+    </nav>
+    <div class="status"><span id="sample" class="sample" hidden>示例数据</span><span><i class="dot"></i><span id="online">4/4 Agent 在岗</span></span><span class="mono" id="clock">--:--:--</span></div>
+  </header>
+
+  <section class="org" aria-label="Agent 组织">
+    <div class="node me"><div class="av">林</div><div class="who"><b id="bossName">林智斌</b><span>创始人 · 拍板定方向</span></div><button class="wait" id="waitBtn">等你 0 件</button></div>
+    <div class="link"><small id="linkTxt">汇报 每天 09:00</small></div>
+    <div class="node ceo">
+      <h3><span class="ring" aria-hidden="true"></span>CEO Agent</h3>
+      <p id="ceoMeta">每 10 分钟巡视 · 今天汇报 0 次</p>
+      <div class="say" id="ceoSay">—</div>
+    </div>
+    <div class="agents" id="agents"></div>
+  </section>
+
+  <section class="desk">
+    <div class="pane" data-pane="todo"><h2>今天你要做的事 <span id="todoSub"></span></h2><div class="todo" id="todo"></div></div>
+    <div class="pane" data-pane="biz"><h2>昨天经营 <span id="bizSub"></span></h2><div class="tbl"><table id="stores"><thead><tr><th>门店</th><th>营业额</th><th>比上周同日</th><th>差评</th></tr></thead><tbody></tbody></table></div><div class="sec">CEO AGENT 的结论</div><div class="brief" id="brief"></div></div>
+    <div class="pane" data-pane="ads"><h2>投放 <span id="adsSub">近 14 天</span></h2><div class="sec">值得投放、还没投</div><div id="sug"></div><div class="sec">数据好但暂不建议投</div><div id="near"></div><div class="sec">推广通 · 聚光 · 本地推</div><div id="spend"></div></div>
+  </section>
+</div>
+
+<script>
+// 页面数据：正式版从 /cockpit/api/state 读取（机器人提供）；样稿用下面的示例
+const SAMPLE = {
+  sample: true, boss: '林智斌', briefTime: '09:00', generatedAt: '2026-11-03T09:00:12+08:00', date: '11/02', weekday: '一',
+  ceo: { patrols: 54, reports: 1, say: '昨天 9 家店营业额合计 61.2 万，比上周同日 +4.1%；华强北 -18%、差评 2 条要看。小红书有 3 条起量但还没投流。' },
+  agents: [
+    { key: 'biz', name: '经营 Agent', status: 'ok', big: '612,380', unit: '元 · 昨天合计', last: '01:52 补收日报', next: '每 10 分钟', sub: [['日报已收', '9 / 11 家'], ['比上周同日', '+4.1%'], ['未收到', '水东街、陈家祠']] },
+    { key: 'content', name: '内容 Agent', status: 'ok', big: '23', unit: '条 · 昨天发布', last: '11:27 登记抖音', next: '随群消息', sub: [['近 7 天', '148 条'], ['截图更新', '17 条'], ['断更账号', '3 个']] },
+    { key: 'ads', name: '投放 Agent', status: 'wait', big: '3', unit: '条 · 建议投放', last: '09:00 筛选', next: '明天 09:00', sub: [['推广通报表', '等 Debbie 9:00 发'], ['聚光接口', '待申请'], ['本地推接口', '待申请']] },
+    { key: 'rep', name: '口碑 Agent', status: 'ok', big: '2', unit: '条 · 昨天差评', last: '01:52 读日报', next: '每 10 分钟', sub: [['点评评分下降', '1 家'], ['外卖评分', '日报待加'], ['抖音评分', '日报待加']] }
+  ],
+  todos: [
+    { id: 'a', type: '投放建议', title: '小红书·欧阳「去深圳必吃的大排档」值得投放', detail: '11/02 发布，3,000 小眼睛（账号常态 6 倍），互动率 6%，还没投流', status: '待定' },
+    { id: 'b', type: '营业异常', title: '深圳华强北燕南店 营业额 70,000，比上周同日 -22.2%', detail: '11/02 经营数据', status: '待定' },
+    { id: 'c', type: '口碑', title: '深圳华强北燕南店 昨天差评 2 条（点评 2、美团 0）', detail: '11/02 经营数据', status: '待定' }
+  ],
+  stores: [
+    { store: '深圳宝安HOP天地店', revenue: 96500, wow: .081, bad: 0 }, { store: '深圳白石洲店', revenue: 88200, wow: .124, bad: 0 }, { store: '珠海玖洲道店', revenue: 79100, wow: .032, bad: 0 },
+    { store: '深圳华强北燕南店', revenue: 70000, wow: -.222, bad: 2 }, { store: '广州江南西店', revenue: 66800, wow: .057, bad: 0 }, { store: '佛山灯湖西街', revenue: 61200, wow: -.041, bad: 1 },
+    { store: '东莞33小镇店', revenue: 58300, wow: .015, bad: 0 }, { store: '佛山创意产业园店', revenue: 52280, wow: .09, bad: 0 }, { store: '蛇口花园城店（粤迹）', revenue: 40000, wow: .2, bad: 0 }
+  ],
+  missing: ['惠州水东街店', '广州陈家祠店'],
+  brief: '结论：整体比上周同日涨 4.1%，但华强北掉了 22%，同时有 2 条点评差评，可能和出餐或服务有关，建议今天问一下店长。\n\n📝 内容与投放：小红书·欧阳「去深圳必吃的大排档」3,000 小眼睛、互动 6%，达标且没投流，建议投聚光。\n\n🙋 需要你拍板：是否投上面这条；华强北要不要临时加推广通预算。',
+  suggest: [{ plat: '小红书', acc: '欧阳', title: '去深圳必吃的大排档', views: 3000, times: 6, engRate: 6, date: '11/02' }],
+  near: [{ plat: '小红书', acc: 'Liu in', title: '11-12月去佛山旅游｜这些地方很适合', views: 24000, times: 9.4, engRate: 3.6, why: '互动率 3.6% 低于门槛 5%' }, { plat: '抖音矩阵号', acc: '还能吃一些香菜', title: '老广爱的镬气小炒', views: 7861, times: 2.6, engRate: .5, why: '互动率 0.5% 低于门槛 3%' }],
+  spend: []
+};
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = n => n == null ? '—' : Math.round(n).toLocaleString('en-US');
+const pct = x => x == null ? '—' : (x > 0 ? '+' : '') + (Math.round(x * 1000) / 10) + '%';
+let S = SAMPLE;
+
+function render() {
+  $('#sample').hidden = !S.sample;
+  const open = S.todos.filter(t => t.status === '待定');
+  $('#nTodo').textContent = open.length; $('#waitBtn').textContent = `等你 ${open.length} 件`;
+  $('#bossName').textContent = S.boss; $('#linkTxt').textContent = `汇报 每天 ${S.briefTime}`;
+  $('#ceoMeta').textContent = `每 10 分钟巡视 · 今天巡视 ${S.ceo.patrols} 轮 · 汇报 ${S.ceo.reports} 次`;
+  $('#ceoSay').textContent = S.ceo.say;
+  $('#online').textContent = `${S.agents.filter(a => a.status !== 'off').length}/${S.agents.length} Agent 在岗`;
+  const stTxt = { ok: ['ok', '运行中'], wait: ['wait', '等你'], off: ['off', '未接入'] };
+  $('#agents').innerHTML = S.agents.map(a => `<button class="agent" data-go="${a.key === 'ads' ? 'ads' : a.key === 'biz' || a.key === 'rep' ? 'biz' : 'all'}" id="ag-${a.key}"><div class="hd"><span>${esc(a.name)}</span><span class="st ${stTxt[a.status][0]}">${stTxt[a.status][1]}</span></div><div class="big">${esc(a.big)}<small>${esc(a.unit)}</small></div><div class="meta">上次 ${esc(a.last)} · 下次 ${esc(a.next)}</div><div class="sub">${a.sub.map(([k, v]) => `<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join('')}</div></button>`).join('');
+  $('#todoSub').textContent = open.length ? `${open.length} 件待定` : '都处理完了';
+  $('#todo').innerHTML = S.todos.length ? S.todos.map(t => `<div class="item" data-type="${esc(t.type)}"><div class="row"><span class="chip">${esc(t.type)}</span></div><div class="t">${esc(t.title)}</div><div class="d">${esc(t.detail)}</div><div class="row" data-id="${esc(t.id)}">${t.status === '待定' ? `<button class="btn yes" data-act="已同意">${t.type === '投放建议' ? '同意投放' : '知道了，去处理'}</button><button class="btn" data-act="不做">${t.type === '投放建议' ? '不投' : '不用管'}</button>` : `<span class="done">✓ ${esc(t.status)}</span>`}</div></div>`).join('') : '<div class="empty">今天没有需要你拍板的事。</div>';
+  $('#bizSub').textContent = `${S.date}（周${S.weekday}）`;
+  const max = Math.max(...S.stores.map(r => r.revenue || 0), 1);
+  $('#stores tbody').innerHTML = S.stores.map(r => `<tr><td>${esc(r.store)}<div class="bar"><i style="width:${(r.revenue || 0) / max * 100}%"></i></div></td><td class="mono">${fmt(r.revenue)}</td><td class="mono ${r.wow > 0 ? 'up' : r.wow < 0 ? 'down' : ''}">${pct(r.wow)}</td><td class="mono ${r.bad ? 'down' : ''}">${r.bad || ''}</td></tr>`).join('') + (S.missing.length ? `<tr><td colspan="4" style="color:var(--amber)">未收到日报：${esc(S.missing.join('、'))}</td></tr>` : '');
+  $('#brief').textContent = S.brief || '今天的简报还没生成。';
+  const ad = (h, extra) => `<div class="ad"><div class="k"><b>${esc(h.plat)}·${esc(h.acc)}「${esc(h.title.slice(0, 18))}」</b><span class="mono">${fmt(h.views)}</span></div><div class="why">常态 ${h.times} 倍 · 互动 ${h.engRate}%${extra ? ' · ' + esc(extra) : ''}</div></div>`;
+  $('#sug').innerHTML = S.suggest.length ? S.suggest.map(h => ad(h, h.date + ' 发布')).join('') : '<div class="empty">今天没有完全达标的投放候选。</div>';
+  $('#near').innerHTML = S.near.length ? S.near.map(h => ad(h, h.why)).join('') : '<div class="empty">无</div>';
+  $('#spend').innerHTML = S.spend.length ? S.spend.map(x => `<div class="ad"><div class="k"><b>${esc(x.name)}</b><span class="mono">${fmt(x.cost)}</span></div><div class="why">${esc(x.note)}</div></div>`).join('') : '<div class="empty">推广通：等 Debbie 每天 9:00 把报表发到群里后自动接入。聚光、本地推：接口申请后接入。</div>';
+}
+
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]');
+  if (b) {
+    const id = b.parentElement.dataset.id, t = S.todos.find(x => x.id === id); if (!t) return;
+    t.status = b.dataset.act; render();
+    if (!S.sample) { try { await fetch('api/todo', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, status: t.status }) }); } catch (err) { t.status = '待定'; render(); } }
+    return;
+  }
+  const tab = e.target.closest('.tab'); if (tab) show(tab.dataset.v);
+  const go = e.target.closest('[data-go]'); if (go) show(go.dataset.go);
+  if (e.target.closest('#waitBtn')) show('todo');
+});
+function show(v) {
+  document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', String(t.dataset.v === v)));
+  document.querySelectorAll('[data-pane]').forEach(p => { p.hidden = !(v === 'all' || p.dataset.pane === v); });
+}
+function tick() { const d = new Date(Date.now() + (8 * 60 + new Date().getTimezoneOffset()) * 6e4); $('#clock').textContent = d.toTimeString().slice(0, 8); }
+setInterval(tick, 1000); tick();
+
+(async () => {
+  render();
+  if (location.protocol.startsWith('http') && !/claude|claudeusercontent/.test(location.host)) {
+    try { const r = await fetch('api/state', { cache: 'no-store' }); if (r.ok) { S = await r.json(); render(); } } catch (e) { }
+  }
+})();
+</script>
