@@ -86,7 +86,7 @@ function createBrief({ cfg, api, log, llm }) {
           const m = median(med[x.acc] || []); const er = x.views ? x.eng / x.views : 0;
           if (x.views >= D.min && m && x.views >= m * RULE.hotTimes) {
             const h = { plat: D.plat, acc: x.acc, store: x.store, title: x.title, date: dayStr(x.d), views: x.views, times: Math.round(x.views / m * 10) / 10, engRate: Math.round(er * 1000) / 10, boosted: x.boosted };
-            F.hot.push(h); if (!x.boosted && er >= D.engMin) F.suggest.push(h);
+            if (x.boosted) h.why = '已投流'; else if (er < D.engMin) h.why = `互动率 ${h.engRate}% 低于门槛 ${Math.round(D.engMin * 100)}%`; F.hot.push(h); if (!x.boosted && er >= D.engMin) F.suggest.push(h);
           }
         }
       }
@@ -135,7 +135,7 @@ function createBrief({ cfg, api, log, llm }) {
 1. 只能使用数据里出现的数字（包括 rules 里的判断标准），不许自己计算新数字、不许编造；数据里没有的就说「数据缺」。
 2. 日期：简报说的是「昨天（${F.date}）」的情况，不要写成今天。
 3. 格式：飞书纯文本，不要用 # 标题、不要用 ** 加粗、不要用表格。用 emoji 小标题分块：先 1–2 句结论，再「💰营业」「⭐口碑」「📝内容与投放」「🙋需要你拍板」。手机一屏读完（450 字以内）。
-4. 「建议投放」只能从 suggest 列表里选（写账号+标题前几个字+为什么）；suggest 为空就明确说「今天没有完全达标的投放候选」。hot 里没进 suggest 的，只能写成「数据好但互动不够，暂不建议投」，并说出差在哪个标准。
+4. 「建议投放」只能从 suggest 列表里选（写账号+标题前几个字+为什么）；suggest 为空就明确说「今天没有完全达标的投放候选」。hot 里没进 suggest 的，原因一律照抄它的 why 字段（不要自己推断），写成「数据好但暂不建议投：原因」。
 5. missing 里的门店写「还没收到日报」；不确定的原因用「可能」，给可执行的建议。不要客套话，不要「请审阅」之类的结尾。
 【老板档案】
 ${prof || '（还没有档案）'}
@@ -145,7 +145,7 @@ ${JSON.stringify(F)}`;
       const text = (await llm(prompt)).trim();
       const ok = allowed(F); const bad = numbersIn(text).filter(n => !ok.has(n) && !ok.has(Math.abs(n)));
       if (bad.length) { log('[简报] AI 写的数字对不上：' + bad.slice(0, 8).join(',') + '，改发纯数字版'); return { text: plain(F) + '\n\n（AI 分析里有数字和数据对不上，这次先发纯数字版）', by: '纯数字（AI 核对没过）' }; }
-      return { text: `📊 ${F.date}（周${F.weekday}）经营简报\n\n` + text.replace(/^📊[^\n]*\n+/, ''), by: 'AI' };
+      return { text: `📊 ${F.date}（周${F.weekday}）经营简报\n\n` + text.replace(/^\s*(?:📊|📅|🗓)?[^\n]{0,20}简报[^\n]{0,10}\n+/, ''), by: 'AI' };
     } catch (e) { log('[简报] AI 出错：' + e.message); return { text: plain(F) + '\n\n（AI 暂时不可用，这次是纯数字版）', by: '纯数字（AI 出错）' }; }
   }
 
