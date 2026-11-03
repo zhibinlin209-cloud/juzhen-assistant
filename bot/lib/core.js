@@ -228,7 +228,7 @@ function createCore({ cfg, api, log }) {
     const miss = SPH_COLS.filter(([n]) => !types.has(n));
     if (miss.length && !sphNoAdd) for (const [name, type] of miss) { try { await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, { field_name: name, type }); types.set(name, type); log('[视频号] 补建列：' + name); } catch (e) { sphNoAdd = true; log('[视频号] 没权限补建列（只写已有的列）：' + miss.map(x => x[0]).join('、')); break; } }
     const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
-    const rows = recs.map(r => { const f = r.fields || {}; return { id: r.record_id, title: titleOf(f['标题']), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, person: String(val(f['发布人员']) || '').trim(), link: String(val(f['视频号链接']) || ''), reg: typeof f['登记时间'] === 'number' ? f['登记时间'] : 0, cur: { views: num(f['播放']), likes: num(f['点赞']), comments: num(f['评论']), shares: num(f['转发']) } }; });
+    const rows = recs.map(r => { const f = r.fields || {}; return { id: r.record_id, title: titleOf(f['标题']), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, person: String(val(f['发布人员']) || '').trim(), acc: String(val(f['账号名称']) || '').trim(), kind: String(val(f['账号类型']) || '').trim(), link: String(val(f['视频号链接']) || ''), reg: typeof f['登记时间'] === 'number' ? f['登记时间'] : 0, cur: { views: num(f['播放']), likes: num(f['点赞']), comments: num(f['评论']), shares: num(f['转发']) } }; });
     // 表是人手建的，列类型可能和预设不同（文本/日期/链接/数字/单选/人员），按实际类型转换写入值
     const ymd = t => { const d = new Date(t + 8 * 3600e3); return `${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')}`; };
     const fit = f => { const o = {}; for (const [k, v] of Object.entries(f)) { const ty = types.get(k); if (v === null || v === undefined || ty === undefined) continue; const isUrl = v && typeof v === 'object' && v.link; const isDate = /日期|时间|更新于/.test(k) && typeof v === 'number';
@@ -246,7 +246,7 @@ function createCore({ cfg, api, log }) {
     const links = [...new Set((String(text).match(/https?:\/\/(?:weixin\.qq\.com\/sph\/[A-Za-z0-9_-]+|channels\.weixin\.qq\.com\/[^\s，。)）]+)/g) || []))];
     if (!links.length) return null;
     const T = await sphTable(); const out = { created: [], dups: [] }; const add = []; const now = Date.now();
-    for (const u of links) { if (T.rows.some(r => sphKey(r.link) === sphKey(u))) { out.dups.push(u); continue; } const f = { 视频号链接: { link: u, text: u }, 发布日期: dayStart(now), 登记时间: now }; if (sender) f['发布人员'] = sender; add.push({ fields: T.fit(f) }); out.created.push(u); }
+    for (const u of links) { const ex = T.rows.find(r => sphKey(r.link) === sphKey(u)); if (ex) { out.dups.push(u); (out.dupInfo = out.dupInfo || []).push([ex.kind, ex.person, ex.acc, ex.title ? ex.title.slice(0, 16) : '标题待补', ex.date ? new Date(ex.date + 8 * 3600e3).toISOString().slice(5, 10).replace('-', '/') : ''].filter(Boolean).join(' · ')); continue; } const f = { 视频号链接: { link: u, text: u }, 发布日期: dayStart(now), 登记时间: now }; if (sender) f['发布人员'] = sender; add.push({ fields: T.fit(f) }); out.created.push(u); }
     if (add.length) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_create`, { records: add });
     return out;
   }
@@ -254,6 +254,7 @@ function createCore({ cfg, api, log }) {
   async function sphFill(list, sender) {
     if (!list.length) return; let T; try { T = await sphTable(); } catch (e) { if (e.message === 'NO_SPH_TABLE') return; throw e; }
     const recs = []; const now = Date.now(); const used = new Set();
+    if (sender && !T.rows.some(r => r.person === sender && r.title)) sender = '';
     for (const x of list) {
       const t = P.norm(x.n.title); let row = T.rows.filter(r => r.title && !used.has(r.id)).map(r => ({ r, s: sim(t, P.norm(r.title)) })).filter(o => o.s >= 0.85).sort((a, b) => b.s - a.s)[0];
       let fillTitle = false;
@@ -440,7 +441,7 @@ function replyForImage(r) {
 function replyForChannels(r) {
   if (!r) return ''; const L = [];
   if (r.created.length) L.push(`✅ 视频号已登记 ${r.created.length} 条（标题先空着，一周后发数据截图会自动补上标题和播放）`);
-  if (r.dups.length) L.push(`↩️ ${r.dups.length} 条视频号之前登记过了，没重复登记`);
+  if (r.dups.length) L.push(`↩️ ${r.dups.length} 条视频号之前登记过了，没重复登记` + (r.dupInfo ? '\n' + r.dupInfo.map(x => '· 在：' + x).join('\n') : ''));
   return L.join('\n');
 }
 function replyForDouyin(r) {
