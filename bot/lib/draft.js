@@ -116,6 +116,7 @@ function createDispatch({ api, core, raw, log }) {
     const who = s('发布人员') || '（还没选发布人员）'; const type = s('内容类型') || '图文';
     const loc = [s('定位') && `📍 ${/抖音/.test(plats.join()) && type === '视频' ? '定位' : '小红书/携程定位'}：${s('定位')}`, s('点评定位') && plats.includes('大众点评') && `📍 点评定位：${s('点评定位')}`].filter(Boolean).join('\n');
     const el = [
+      ...(r.at ? [{ tag: 'div', text: { tag: 'lark_md', content: `<at id=${r.at}></at> 今天的稿件来啦 👇` } }] : []),
       { tag: 'div', text: { tag: 'lark_md', content: `**要发的平台**\n${plats.map((p, i) => i === 0 ? `**${p}（主发）**` : p).join(' · ') || '—'}` } },
       { tag: 'div', text: { tag: 'lark_md', content: `**标题**\n${s('标题') || '—'}` } },
       { tag: 'div', text: { tag: 'lark_md', content: `**素材**\n${nImg ? `图片 ${nImg} 张（按顺序发）` : ''}${nImg && nVid ? '，' : ''}${nVid ? `视频 ${nVid} 个` : ''}${!files.length ? '⚠️ 还没有素材' : ''}` } }

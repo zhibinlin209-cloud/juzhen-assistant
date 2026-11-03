@@ -191,12 +191,14 @@ async function setup() {
       try {
         const list = await dispatch.today(); if (!list.length) { await reply(m.message_id, '今天没有「派稿日期 = 今天、状态 = 待发布」的稿件'); return; }
         const members = {}; try { let pt = ''; do { const d = await call('GET', `/im/v1/chats/${m.chat_id}/members`, null, Object.assign({ member_id_type: 'open_id', page_size: 100 }, pt ? { page_token: pt } : {})); (d.items || []).forEach(x => { if (x.name) members[x.name.trim()] = x.member_id; }); pt = d.has_more ? d.page_token : ''; } while (pt); } catch (e) { log('[领稿] 读不到群成员（@ 不了人）：' + e.message); }
-        let n = 0, noAt = []; for (const r of list) { const who = String((r.f['发布人员'] && (r.f['发布人员'].text || r.f['发布人员'])) || '').trim(); r.at = members[who] || ''; if (!r.at && who) noAt.push(who); await dispatch.send(r, { type: 'chat_id', id: m.chat_id }); n++; }
-        try { fs.writeFileSync(path.join(DATA_DIR, 'publish-chat.txt'), m.chat_id); } catch (e) { }
+        const DF = path.join(DATA_DIR, 'dispatched.json'); let dsp = {}; try { dsp = JSON.parse(fs.readFileSync(DF, 'utf8')); } catch (e) { }
+        let n = 0, noAt = []; for (const r of list) { dsp[r.id] = { chat: m.chat_id, day: Math.floor((Date.now() + 8 * 3600e3) / 864e5), at: r.at || '' }; const who = String((r.f['发布人员'] && (r.f['发布人员'].text || r.f['发布人员'])) || '').trim(); r.at = members[who] || ''; if (!r.at && who) noAt.push(who); await dispatch.send(r, { type: 'chat_id', id: m.chat_id }); n++; }
+        try { fs.writeFileSync(path.join(DATA_DIR, 'publish-chat.txt'), m.chat_id); fs.writeFileSync(DF, JSON.stringify(dsp)); } catch (e) { }
         log(`[领稿] 派到群 ${n} 张`); if (noAt.length) await reply(m.message_id, `已派 ${n} 张。这些发布人员不在本群或名字对不上，没能 @ 到：${[...new Set(noAt)].join('、')}`);
       } catch (e) { log('[领稿] 派稿出错：' + e.message); await reply(m.message_id, '⚠️ 派稿没发出去：' + e.message.replace(/\/bitable\S*/g, '').slice(-120)); }
       return;
     }
+    if (text && /^\s*(进度|派稿进度|发布进度)\s*$/.test(text)) { try { await reply(m.message_id, await progress(m.chat_id, false)); } catch (e) { log('[领稿] 进度出错：' + e.message); } return; }
     if (text && /^\s*(派稿预览|领稿预览)\s*$/.test(text) && m.chat_id === dailyChatNow()) {
       try { const list = await dispatch.today(); if (!list.length) { await reply(m.message_id, '今天没有「派稿日期 = 今天、状态 = 待发布」的稿件'); return; } if (!boss) { await reply(m.message_id, '还不知道你的飞书账号，先在这个群里随便说句话'); return; } for (const r of list) await dispatch.send(r, { type: 'open_id', id: boss }); await reply(m.message_id, `✅ ${list.length} 张领稿卡片已私聊发给你（样卡）`); } catch (e) { log('[领稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 样卡没发出去：' + e.message.replace(/\/bitable\S*/g, '').slice(-120)); }
       return;
@@ -341,6 +343,25 @@ async function setup() {
     } catch (e) { log('[简报] 生成失败：', e.message); if (o.replyTo) await reply(o.replyTo, '⚠️ 简报生成失败：' + e.message.slice(0, 80)); }
     finally { briefing = false; }
   }
+  // 派稿进度：今天在这个群派出的稿件，哪些发了、哪些还没发
+  async function progress(chatId, remind) {
+    const DF = path.join(DATA_DIR, 'dispatched.json'); let dsp = {}; try { dsp = JSON.parse(fs.readFileSync(DF, 'utf8')); } catch (e) { }
+    const today = Math.floor((Date.now() + 8 * 3600e3) / 864e5); const ids = Object.keys(dsp).filter(k => dsp[k].day === today && (!chatId || dsp[k].chat === chatId));
+    if (!ids.length) return remind ? '' : '今天这个群还没有派过稿（在群里发「派稿」才会记录进度）';
+    const rows = []; for (const id of ids) { try { const r = await dispatch.getRec(id); rows.push({ id, v: dispatch.view(r, ''), at: dsp[id].at }); } catch (e) { } }
+    const done = rows.filter(x => x.v.status === '已发布'), todo = rows.filter(x => x.v.status !== '已发布');
+    if (remind) return todo.length ? '⏰ 今天的稿件还没发的提醒一下，发完在领稿页贴链接就行：\n' + todo.map(x => (x.at ? `<at user_id="${x.at}"></at>` : '@' + (x.v.who || '?')) + ` ${x.v.code}`).join('\n') : '';
+    return `📋 今日派稿进度：派出 ${rows.length} 条，已发布 ${done.length} 条，还没发 ${todo.length} 条` + (todo.length ? '\n\n还没发：\n' + todo.map(x => `· ${x.v.who || '?'} · ${x.v.code}`).join('\n') : '\n\n🎉 全部发完了') + (done.length ? '\n\n已发布：\n' + done.map(x => `· ${x.v.who || '?'} · ${x.v.code}`).join('\n') : '');
+  }
+  const PST = path.join(DATA_DIR, 'publish-state.json'); let pst = {}; try { pst = JSON.parse(fs.readFileSync(PST, 'utf8')); } catch (e) { }
+  setInterval(async () => { // 20:00 群里 @ 还没发的人；21:30 群里发当天进度
+    const bj = new Date(Date.now() + 8 * 3600e3), hh = bj.getUTCHours(), mm = bj.getUTCMinutes(), day = Math.floor((Date.now() + 8 * 3600e3) / 864e5);
+    let chat = ''; try { chat = fs.readFileSync(path.join(DATA_DIR, 'publish-chat.txt'), 'utf8').trim(); } catch (e) { return; } if (!chat) return;
+    try {
+      if (hh === 20 && pst.remind !== day) { pst.remind = day; fs.writeFileSync(PST, JSON.stringify(pst)); const t = await progress(chat, true); if (t) await call('POST', '/im/v1/messages', { receive_id: chat, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'chat_id' }); }
+      if (hh === 21 && mm >= 30 && pst.sum !== day) { pst.sum = day; fs.writeFileSync(PST, JSON.stringify(pst)); const t = await progress(chat, false); if (!/还没有派过稿/.test(t)) await call('POST', '/im/v1/messages', { receive_id: chat, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'chat_id' }); }
+    } catch (e) { log('[领稿] 定时提醒出错：' + e.message); }
+  }, 60e3);
   async function sendAds(o) {
     o = o || {};
     try {
