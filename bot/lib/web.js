@@ -5,7 +5,7 @@
 const http = require('http'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 
-function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib }) {
+function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official }) {
   const key = crypto.createHash('sha256').update('xiju-cockpit:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (who, exp, kind) => { const body = `${kind}.${who}.${exp}`; return b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url'); };
@@ -92,11 +92,15 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
     try {
       const u = new URL(req.url, 'http://x'); let p = u.pathname.replace(/^\/cockpit/, '') || '/';
       if (p.startsWith('/t/')) return await task(req, res, p);
-      if (p.startsWith('/lib/') && ownlib) { // 插件「自家内容入库」
-        if (!ownlib.okKey(req.headers['x-rm-key'])) return send(res, 403, JSON.stringify({ ok: false, error: '入库口令不对' }));
-        if (p === '/lib/todo' && req.method === 'GET') return send(res, 200, JSON.stringify(Object.assign({ ok: true }, await ownlib.todo(u.searchParams.get('limit')), { stats: ownlib.stats() })));
-        if (p === '/lib/note' && req.method === 'POST') { let b = ''; for await (const c of req) { b += c; if (b.length > 600000) return send(res, 413, '{"ok":false,"error":"太大"}'); } try { return send(res, 200, JSON.stringify(await ownlib.ingest(JSON.parse(b || '{}')))); } catch (e) { log('[内容库] 入库失败：' + e.message); return send(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 120) })); } }
-        return send(res, 404, '{}');
+      if (p.startsWith('/lib/') && ownlib) { // 插件「自家内容入库」/ 官方号同步（凭口令，允许从创作者后台页面直接提交）
+        const cors = { 'access-control-allow-origin': req.headers.origin && /^https:\/\/(creator\.douyin\.com|channels\.weixin\.qq\.com)$/.test(req.headers.origin) ? req.headers.origin : 'null', 'access-control-allow-headers': 'content-type, x-rm-key', 'access-control-allow-methods': 'GET, POST' };
+        if (req.method === 'OPTIONS') return send(res, 204, '', 'text/plain', cors);
+        const sendc = (r, c, b, t, e) => send(r, c, b, t, Object.assign({}, cors, e || {}));
+        if (!ownlib.okKey(req.headers['x-rm-key'])) return sendc(res, 403, JSON.stringify({ ok: false, error: '入库口令不对' }));
+        if (p === '/lib/todo' && req.method === 'GET') return sendc(res, 200, JSON.stringify(Object.assign({ ok: true }, await ownlib.todo(u.searchParams.get('limit')), { stats: ownlib.stats() })));
+        if (p === '/lib/note' && req.method === 'POST') { let b = ''; for await (const c of req) { b += c; if (b.length > 600000) return sendc(res, 413, '{"ok":false,"error":"太大"}'); } try { return sendc(res, 200, JSON.stringify(await ownlib.ingest(JSON.parse(b || '{}')))); } catch (e) { log('[内容库] 入库失败：' + e.message); return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 120) })); } }
+        if (p === '/lib/official' && req.method === 'POST' && official) { let b = ''; for await (const c of req) { b += c; if (b.length > 4e6) return sendc(res, 413, '{"ok":false,"error":"太大"}'); } try { return sendc(res, 200, JSON.stringify(await official.sync(JSON.parse(b || '{}')))); } catch (e) { log('[官方号] 同步失败：' + e.message); return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 120) })); } }
+        return sendc(res, 404, '{}');
       }
       if (p === '/login') { const who = verify(u.searchParams.get('t'), 'L'); if (!who) return send(res, 403, '<meta charset="utf-8"><p style="font:16px sans-serif;padding:24px">登录链接无效或已过期。请在飞书里给机器人的「经营日报」群发「驾驶舱」，拿一个新链接。</p>', 'text/html; charset=utf-8'); log('[驾驶舱] 老板登录'); return send(res, 302, '', 'text/plain', { location: base, 'set-cookie': `xck=${sign(who, Date.now() + 30 * DAY, 'S')}; Path=/cockpit/; Max-Age=${30 * 86400}; HttpOnly; Secure; SameSite=Lax` }); }
       const who = verify(cookie(req), 'S');

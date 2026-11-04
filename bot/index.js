@@ -15,6 +15,7 @@ const { createPeople } = require('./lib/people');
 const { createSettle, replyForSettle } = require('./lib/settle');
 const { createHits } = require('./lib/hits');
 const { createOwnLib } = require('./lib/ownlib');
+const { createOfficial } = require('./lib/official');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
@@ -151,6 +152,7 @@ async function setup() {
   const settle = createSettle({ cfg, api: { call }, core, people, log });
   const ownlib = createOwnLib({ cfg, api: { call }, core, upload, download: dl, log, dataDir: DATA_DIR });
   setTimeout(() => ownlib.backfill().catch(() => { }), 90e3); setInterval(() => ownlib.backfill(200).catch(() => { }), 30 * 60e3);
+  const official = createOfficial({ cfg, api: { call }, log });
   const hits = createHits({ api: { call }, core, llm: cfg.qwenKey ? chat : null, log });
   async function sendHits(replyTo) {
     const r = await hits.report(); try { fs.writeFileSync(path.join(DATA_DIR, 'hits-latest.json'), JSON.stringify({ at: Date.now(), text: r.text, by: r.by })); } catch (e) { }
@@ -372,7 +374,7 @@ async function setup() {
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib });
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official });
   rawIO.taskLink = id => web.taskLink(id);
   let briefState = {}; try { briefState = JSON.parse(fs.readFileSync(BRIEF_FILE, 'utf8')); } catch (e) { }
   let briefing = false;

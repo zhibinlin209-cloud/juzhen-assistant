@@ -95,6 +95,37 @@
     finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; S.busy = false; S.cur = ''; S.paused = ''; refresh(); }
   }
 
+  // ---------- 官方号数据（抖音蓝 V / 视频号）：读创作者后台作品数据 ----------
+  const O = { busy: false, log: [] };
+  const olog = t => { O.log.unshift(new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '  ' + t); O.log = O.log.slice(0, 20); forceRender(); };
+  async function bgTab(url, host) {
+    const tabs = await chrome.tabs.query({ url: `https://${host}/*` }); if (tabs.length) return { tab: tabs[0].id, own: false };
+    const w = await chrome.windows.create({ url, focused: false, width: 1200, height: 860, type: 'normal' }); const t = w.tabs[0].id; await waitLoad(t, 30000); await sleep(4000); return { tab: t, own: true, win: w.id };
+  }
+  async function syncDouyin() {
+    if (O.busy) return; O.busy = true; forceRender(); let bt = null;
+    try {
+      bt = await bgTab('https://creator.douyin.com/creator-micro/content/manage', 'creator.douyin.com');
+      olog('读取抖音创作者中心当前登录的账号…');
+      const [r] = await chrome.scripting.executeScript({ target: { tabId: bt.tab }, world: 'MAIN', func: async () => {
+        const u = await fetch('/web/api/media/user/info/', { credentials: 'include' }).then(r => r.json()).catch(() => ({}));
+        const nick = u && u.user && u.user.nickname; if (!nick) return { error: '没登录抖音创作者中心：请在这个浏览器打开 creator.douyin.com 扫码登录蓝 V' };
+        const items = []; let cur = '', n = 0;
+        do {
+          const j = await fetch('/web/api/creator/item/list?count=20&fields=metrics%2Cvideo_info' + (cur ? '&max_cursor=' + cur : ''), { credentials: 'include' }).then(r => r.json());
+          (j.items || []).forEach(x => items.push({ id: String(x.id), create_time: x.create_time, description: x.description, video_info: x.video_info ? { duration: x.video_info.duration } : null, metrics: x.metrics, cover: { url_list: (((x.cover || {}).url_list) || []).slice(-1) } }));
+          cur = j.has_more ? j.max_cursor : ''; n++; await new Promise(r => setTimeout(r, 700 + Math.random() * 600));
+        } while (cur && n < 200);
+        return { nick, items };
+      } });
+      const d = r && r.result; if (!d || d.error) throw new Error((d && d.error) || '读取失败');
+      olog(`「${d.nick}」读到 ${d.items.length} 条作品，交给机器人…`);
+      const j = await srv('/lib/official', { platform: 'douyin', account: d.nick, items: d.items });
+      olog(`✓ 「${d.nick}」已同步：新增 ${j.added}，更新 ${j.updated}`); toast(`${d.nick} 同步完成`);
+    } catch (e) { olog('✗ ' + e.message); toast(e.message); }
+    finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } O.busy = false; forceRender(); }
+  }
+
   function view() {
     const I = S.info; const has = CFG().key;
     return `<div class="section-h"><h2>自家内容入库</h2><span class="hint">把我们自己发过的小红书笔记一条条读进「自家内容库」（标题、正文、话题、全部图片、赞藏评、热门评论），机器人再用通义千问分析封面和图片，升级爆款公式</span></div>
@@ -108,9 +139,15 @@
         <button class="btn primary" data-action="fs-own-run" ${S.busy || !has ? 'disabled' : ''}>${S.busy ? '读取中…' : '开始入库'}</button></div>
       ${S.busy ? `<div class="hint"><b>${S.paused ? '⏸ 等你在小红书窗口里完成验证…' : `进行中 ${S.i}/${S.n}：${h(S.cur)}`}</b> · 成功 ${S.ok} · 失败 ${S.fail}</div>` : ''}
       ${S.log.length ? `<pre class="small-pre">${h(S.log.slice(0, 12).join('\n'))}</pre>` : ''}
+    </div>
+    <div class="section-h"><h2>官方号数据</h2><span class="hint">读抖音蓝 V（YES 也是大排档、粤迹）的创作者后台：每条作品的播放、完播率、2 秒跳出、涨粉、主页访问，写进私密表格「官方号作品数据」</span></div>
+    <div class="panel stack">
+      <div class="row"><span class="hint grow">读的是这个浏览器里 creator.douyin.com <b>当前登录</b>的账号。两个蓝 V：同步完一个，在创作者中心右上角头像「切换账号」换另一个，再点一次。约 1 分钟。</span>
+        <button class="btn primary" data-action="fs-own-dy" ${O.busy || !has ? 'disabled' : ''}>${O.busy ? '同步中…' : '同步抖音蓝 V'}</button></div>
+      ${O.log.length ? `<pre class="small-pre">${h(O.log.slice(0, 8).join('\n'))}</pre>` : ''}
     </div>`;
   }
-  async function act(action) { if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
+  async function act(action) { if (action === 'fs-own-dy') syncDouyin(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
   function attach(root) {
     if (!S.info && CFG().key) refresh();
     root.addEventListener('change', e => { const t = e.target; if (t.dataset && t.dataset.own === 'batch') S.batch = +t.value || 100; });
