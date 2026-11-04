@@ -183,7 +183,9 @@ async function setup() {
   { const CF3 = path.join(DATA_DIR, 'daily-create.json'); let ds = {}; try { ds = JSON.parse(fs.readFileSync(CF3, 'utf8')); } catch (e) { }
     setInterval(async () => { if (cfg.dailyDrafts === 0) return; const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 8 || b.getUTCMinutes() < 20 || ds.day === d) return; ds.day = d; try { fs.writeFileSync(CF3, JSON.stringify(ds)); } catch (e) { }
       try { let stores = ''; try { const st = await studio.libStats(); stores = Object.entries(st.by || {}).filter(([k]) => k !== '未标').sort((a, b) => (b[1]['可用'] || 0) - (a[1]['可用'] || 0)).slice(0, cfg.dailyDrafts || 5).map(x => x[0]).join(','); } catch (e) { }
-        await sendCreate({ n: cfg.dailyDrafts || 5, store: stores }); } catch (e) { log('[创作] 每日写稿失败：' + e.message); } }, 3 * 60e3); }
+        await sendCreate({ n: cfg.dailyDrafts || 5, store: stores }); } catch (e) { log('[创作] 每日写稿失败：' + e.message); } }, 3 * 60e3);
+    // 11/4 晚上补一批（重启打断了），只跑一次
+    setTimeout(async () => { const b = new Date(Date.now() + 8 * 3600e3); if (b.toISOString().slice(0, 10) !== '2026-11-04' || b.getUTCHours() >= 23 || ds.eve) return; ds.eve = 1; try { fs.writeFileSync(CF3, JSON.stringify(ds)); } catch (e) { } try { await sendCreate({ n: 5, store: '江南西,玖洲道,千灯湖,前海,白石洲' }); } catch (e) { log('[创作] 晚间写稿失败：' + e.message); } }, 90e3); }
   // 每周一 10:40（内容分析 10:00 之后）自动写一批
   { const CF2 = path.join(DATA_DIR, 'create-state.json'); let cs = {}; try { cs = JSON.parse(fs.readFileSync(CF2, 'utf8')); } catch (e) { }
     setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCDay() !== 1 || b.getUTCHours() !== 10 || b.getUTCMinutes() < 40 || cs.week === d) return; cs.week = d; try { fs.writeFileSync(CF2, JSON.stringify(cs)); } catch (e) { } try { await sendCreate({ n: cfg.weeklyDrafts || 8 }); } catch (e) { log('[创作] 每周写稿失败：' + e.message); } }, 5 * 60e3); }
