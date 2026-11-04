@@ -22,6 +22,7 @@ function createDeep({ cfg, api, core, llm, log, dataDir }) {
   const bucket = (n, cuts, labels) => { if (n == null) return null; for (let i = 0; i < cuts.length; i++) if (n <= cuts[i]) return labels[i]; return labels[cuts.length]; };
   const markHits = (items, min) => { const accMed = {}; [...new Set(items.map(x => x.acc))].forEach(a => { accMed[a] = median(items.filter(x => x.acc === a).map(x => x.views)); }); const s = items.map(x => x.views).sort((a, b) => b - a); const p90 = s[Math.max(0, Math.floor(s.length * 0.1) - 1)]; items.forEach(x => { x.hit = !!((x.views >= min && accMed[x.acc] && x.views >= accMed[x.acc] * 2) || x.views >= p90); }); return accMed; };
 
+  let lastOwn = null;
   async function xhs() {
     const dir = path.join(dataDir, 'ownlib'); let files = []; try { files = fs.readdirSync(dir).filter(f => f.endsWith('.json')); } catch (e) { }
     if (!files.length) return null;
@@ -39,7 +40,7 @@ function createDeep({ cfg, api, core, llm, log, dataDir }) {
         emo: lines.filter(l => /^\p{Extended_Pictographic}/u.test(l)).length, addr: /地址|📍|人均|营业时间|¥|￥|\d+元/.test(desc), c, col: +n.collects || 0, cm: (j.comments || []).filter(x => !x.author).map(x => String(x.text || '')) });
     }
     if (N.length < 30) return { 说明: `已入库、发布满 7 天的自然流笔记只有 ${N.length} 条，太少，等入库多一些再分析` };
-    const am = markHits(N, 1000); N.forEach(x => { x.ratio = am[x.acc] ? x.views / am[x.acc] : null; x.sr = x.views ? x.col / x.views : 0; });
+    lastOwn = N; const am = markHits(N, 1000); N.forEach(x => { x.ratio = am[x.acc] ? x.views / am[x.acc] : null; x.sr = x.views ? x.col / x.views : 0; });
     const hits = N.filter(x => x.hit);
     // 分组：[名称, 条数, 爆款率%, 中位小眼睛, 同账号倍数中位（扣掉账号大小的影响，>1 说明比这个号平时好）, 收藏率%]
     const G = (key, min = 6) => { const g = {}; N.forEach(x => [].concat(key(x)).filter(k => k != null && k !== '').forEach(k => (g[k] = g[k] || []).push(x))); return Object.entries(g).filter(([, a]) => a.length >= min).map(([k, a]) => [String(k), a.length, pct(a.filter(x => x.hit).length, a.length), Math.round(median(a.map(x => x.views)) || 0), Math.round((median(a.map(x => x.ratio)) || 0) * 10) / 10, Math.round((median(a.map(x => x.sr)) || 0) * 1000) / 10]).sort((x, y) => y[4] - x[4] || y[2] - x[2]).slice(0, 12); };
@@ -72,6 +73,28 @@ function createDeep({ cfg, api, core, llm, log, dataDir }) {
     };
   }
 
+  // 同类爆款（别人家近期高赞图文）的特征分布，和自家爆款/普通对比
+  function market(own) {
+    const dir = path.join(dataDir, 'market'); let files = []; try { files = fs.readdirSync(dir).filter(f => f.endsWith('.json')); } catch (e) { }
+    if (files.length < 20) return files.length ? { 说明: `同类爆款库只有 ${files.length} 篇，太少` } : null;
+    const M = files.map(f => { try { const j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); const n = j.note || {}; let c = {}; try { c = JSON.parse(j.cover || '{}'); } catch (e) { } const desc = String(n.desc || ''); const body = desc.replace(/#\S+/g, ''); const lines = body.split('\n').map(x => x.trim()).filter(Boolean);
+      return { kw: j.kw, title: String(n.title || ''), likes: +n.likes || 0, collects: +n.collects || 0, imgs: (n.images || []).length, len: body.replace(/\s/g, '').length, ntag: (n.tags || []).length, emo: lines.filter(l => /^\p{Extended_Pictographic}/u.test(l)).length, addr: /地址|📍|人均|营业时间|¥|￥|\d+元/.test(desc), c, cm: (j.comments || []).filter(x => !x.author).map(x => String(x.text || '')) }; } catch (e) { return null; } }).filter(Boolean);
+    // 分布：每个分组占比 %（同类爆款 / 自家爆款 / 自家普通）
+    const share = (arr, key) => { const g = {}; arr.forEach(x => [].concat(key(x)).filter(k => k != null && k !== '').forEach(k => g[k] = (g[k] || 0) + 1)); return g; };
+    const cmp = key => { const a = share(M, key), h = own ? share(own.filter(x => x.hit), key) : {}, r = own ? share(own.filter(x => !x.hit), key) : {}; const na = M.length, nh = own ? own.filter(x => x.hit).length : 0, nr = own ? own.filter(x => !x.hit).length : 0;
+      return [...new Set([...Object.keys(a), ...Object.keys(h)])].map(k => [k, pct(a[k] || 0, na), nh ? pct(h[k] || 0, nh) : null, nr ? pct(r[k] || 0, nr) : null]).filter(v => v[1] >= 5 || (v[2] || 0) >= 5).sort((x, y) => y[1] - x[1]).slice(0, 8); };
+    const FE = FEATS.concat([['J人/攻略人设', t => /J人|i人|e人|P人|整理|做的/.test(t)], ['避雷/不踩雷', t => /雷|踩坑|避坑|别去|不踩/.test(t)]]);
+    const Q = [['在哪/地址', /在哪|地址|位置|怎么去|哪里|定位/], ['人均/价格', /人均|多少钱|价格|贵|便宜/], ['排队', /排队|等位|人多/], ['营业时间', /几点|营业|开门|宵夜|夜宵/], ['真假/踩雷', /真的|踩雷|值得|水军|广告/], ['点什么', /点什么|必点|招牌/]];
+    const all = M.flatMap(x => x.cm);
+    return { 样本: `同类爆款库 ${M.length} 篇（小红书搜同类关键词、近期高赞图文），中位点赞 ${Math.round(median(M.map(x => x.likes)))}、中位收藏 ${Math.round(median(M.map(x => x.collects)))}`,
+      列说明: '每项 [分组, 同类爆款里占比%, 自家爆款里占比%, 自家普通里占比%]；同类爆款和自家爆款都高、自家普通低的，就是该多做的',
+      封面形式: cmp(x => x.c.封面形式), 封面主体: cmp(x => x.c.主体), 封面大字: cmp(x => x.c.封面形式 ? (yes(x.c.封面有大字) ? '有大字' : '无大字') : null),
+      图片张数: cmp(x => bucket(x.imgs, [1, 3, 6, 8, 9], ['1张', '2-3张', '4-6张', '7-8张', '9张', '10张以上'])), 正文字数: cmp(x => bucket(x.len, [100, 250, 450], ['≤100字', '101-250字', '251-450字', '450字以上'])),
+      话题数: cmp(x => bucket(x.ntag, [2, 5, 9], ['0-2个', '3-5个', '6-9个', '10个以上'])), 正文分条清单: cmp(x => x.emo >= 3 ? '是' : '否'), 标题特征: cmp(x => FE.filter(([, f]) => f(x.title)).map(([k]) => k)),
+      评论区问题: Q.map(([k, re]) => [k, all.filter(t => re.test(t)).length]).filter(v => v[1]).sort((a, b) => b[1] - a[1]),
+      高赞样本: M.sort((a, b) => b.likes - a.likes).slice(0, 15).map(x => ({ 关键词: x.kw, 标题: x.title, 点赞: x.likes, 收藏: x.collects, 封面: x.c.封面形式, 封面文字: String(x.c.封面文字 || '').slice(0, 40), 吸引点: x.c.封面吸引点, 图片张数: x.imgs })) };
+  }
+
   async function official() {
     const A = priv(); if (!A) return null; const t = (await tables(A)).find(x => x.name === '官方号作品数据'); if (!t) return null;
     const now = Date.now(); const all = (await recs(A, t.table_id)).map(r => r.fields || {}).map(f => ({ plat: val(f['平台']), acc: val(f['账号']), title: String(val(f['标题']) || '').split('\n')[0].replace(/#\S+/g, '').trim(), views: +f['播放'] || 0, d: f['发布时间'], dur: f['时长秒'], c5: f['5秒完播率%'], b2: f['2秒跳出率%'], flip: f['快速划走率%'], full: f['完播率%'], fans: f['涨粉'] || 0, er: f['互动率%'] }))
@@ -100,11 +123,12 @@ function createDeep({ cfg, api, core, llm, log, dataDir }) {
   }
 
   async function report() {
-    const F = { 小红书: await xhs().catch(e => ({ 说明: '读取出错：' + e.message })), 官方号: await official().catch(e => { log('[深度分析] 官方号出错：' + e.message); return null; }) };
+    const F = { 小红书: await xhs().catch(e => ({ 说明: '读取出错：' + e.message })), 官方号: await official().catch(e => { log('[深度分析] 官方号出错：' + e.message); return null; }) }; try { const m = market(lastOwn); if (m) F.同类爆款 = m; } catch (e) { log('[深度分析] 同类爆款出错：' + e.message); }
     if (!F.小红书 && !F.官方号) return { text: '内容库和官方号数据都还没有，先让插件入库/同步', F, by: '无' };
     if (!llm) return { text: plain(F), F, by: '纯数字' };
     const prompt = `你是禧聚餐饮（YES也是大排档 / 粤迹岭南家宴）的内容策略分析师。下面是程序算好的两部分数据：
 ① 小红书自家内容库：每条笔记的封面看图标签（封面形式/主体/有无大字/色调/价格/地名）、图片张数、正文字数和结构、话题数、标题特征，按「爆款率」做了分组对比；附爆款笔记的封面吸引点和热门评论原文。全部是自然流（没投流）。
+②′ 同类爆款（如有）：小红书上同类关键词近期高赞图文的特征分布，和自家爆款、自家普通对比，找出「别人爆款都在做、我们普通笔记没做」的差距。
 ② 抖音蓝 V 和视频号官方号：爆款和普通作品的 5 秒完播、2 秒跳出、快速划走、完播率、时长、互动率对比，时长分组、标题特征、发布星期，以及爆款样本。
 请写「爆款公式」给老板林智斌，直接指导后续出图、写文案、拍视频。
 要求：
@@ -112,6 +136,7 @@ function createDeep({ cfg, api, core, llm, log, dataDir }) {
 1.5 账号之间流量差距很大，判断内容好坏优先看「同账号倍数」（扣掉账号大小的影响），爆款率只作参考；先用一段话说明账号差距有多大、这意味着什么（比如换号比换内容影响更大时要直说）。
 2. 小红书部分：封面怎么做（形式、主体、要不要大字、写什么字）、放几张图、正文写多长写成什么结构、话题带几个、标题怎么起；从热门评论归纳「用户最关心什么」，建议正文里提前回答。
 3. 官方号部分：开头几秒怎么留人（结合 5 秒完播 / 2 秒跳出差异）、视频多长最好、什么人设/选题容易爆。
+3.5 有同类爆款数据时，单独写一段「和同类爆款比，我们差在哪」：列 3–5 条最大差距和对应改法。
 4. 最后给「下周直接可用」：小红书 3 条（标题 + 封面怎么做 + 第 2–N 张拍什么），蓝 V 视频 2 条（标题 + 开头 3 秒拍什么）。
 5. 飞书纯文本，不要 # 和 **，不要表格，用 emoji 小标题分块，1200 字以内。
 【数据】
