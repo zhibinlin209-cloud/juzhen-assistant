@@ -41,7 +41,8 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
   }
   async function todo(limit) {
     const list = await source(); const left = list.filter(x => !S.done[x.rec] || /^retry/.test(S.done[x.rec]));
-    return { total: list.length, done: list.length - left.length, left: left.length, items: left.slice(0, Math.min(+limit || 50, 300)).map(x => ({ rec: x.rec, link: x.link, acc: x.acc, home: /user\/profile\/[0-9a-f]{24}/.test(x.home) ? x.home : '' })) };
+    const hm = {}; list.forEach(x => { if (x.acc && /user\/profile\/[0-9a-f]{24}/.test(x.home)) hm[x.acc] = x.home; }); // 同一个账号别的行登记过主页也能用
+    return { total: list.length, done: list.length - left.length, left: left.length, items: left.slice(0, Math.min(+limit || 50, 300)).map(x => ({ rec: x.rec, link: x.link, acc: x.acc, home: /user\/profile\/[0-9a-f]{24}/.test(x.home) ? x.home : (hm[x.acc] || '') })) };
   }
 
   async function getImg(u) {
