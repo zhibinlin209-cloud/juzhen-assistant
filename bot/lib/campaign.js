@@ -40,6 +40,28 @@ function createCampaign({ cfg, api, upload, log }) {
     return { table: name, added: add.length, existed: rows.length - add.length };
   }
 
+  async function fieldsOf(r, d, A, stat) {
+    stat = stat || { reasons: {} }; stat.reasons = stat.reasons || {};
+        const f = { 最近读取: Date.now() }; if (!r.fields['首次读取']) f.首次读取 = Date.now();
+        if (d.gone) { f.笔记状态 = '已删除/不可见'; stat.gone = (stat.gone || 0) + 1; }
+        else if (d.blocked) { f.笔记状态 = '待插件读取'; stat.blocked = (stat.blocked || 0) + 1; stat.reasons[d.blocked] = (stat.reasons[d.blocked] || 0) + 1; }
+        else {
+          Object.assign(f, { 笔记状态: '正常', 标题: d.title.slice(0, 200), 作者: d.author, 笔记形式: d.type, 图片数: d.images.length, 正文: d.desc.slice(0, 3000), 话题: d.tags.map(x => '#' + x).join(' '), 笔记ID: d.id });
+          ['likes:点赞', 'collects:收藏', 'comments:评论', 'shares:分享'].forEach(p => { const [k, c] = p.split(':'); if (d[k] != null) f[c] = d[k]; });
+          f.互动合计 = (d.likes || 0) + (d.collects || 0) + (d.comments || 0); if (d.time) f.发布时间 = d.time;
+          if (!r.fields['封面'] && d.images[0] && upload) { try { const ir = await fetch(d.images[0], { headers: { 'user-agent': UA, referer: 'https://www.xiaohongshu.com/' }, signal: AbortSignal.timeout(15000) }); if (ir.ok) f.封面 = [{ file_token: await upload(Buffer.from(await ir.arrayBuffer()), (d.id || 'cover') + '.jpg', 'bitable_image', A) }]; } catch (e) { } }
+          stat.ok = (stat.ok || 0) + 1;
+        }
+    return f;
+  }
+  // 插件读回来的笔记写进表（note 字段同 readXhs 的返回；error 表示读不到）
+  async function writeNote(name, rec, note, err) {
+    const A = priv(); const t = (await tables()).find(x => x.name === name); if (!t) throw new Error('没有这张表');
+    const r = (await api.call('GET', `/bitable/v1/apps/${A}/tables/${t.table_id}/records/${rec}`)).record;
+    const d = err ? (/删除|不可见|不存在/.test(err) ? { gone: true } : { blocked: err }) : { id: note.id, title: note.title || '', desc: String(note.desc || ''), tags: note.tags || [], type: note.type === 'video' ? '视频' : '图文', images: note.images || [], likes: num(note.likes), collects: num(note.collects), comments: num(note.comments), shares: num(note.shares), author: note.author || '', time: note.time || null };
+    const f = await fieldsOf(r, d, A); if (d.blocked) f.笔记状态 = '读取失败：' + String(err).slice(0, 20);
+    await api.call('PUT', `/bitable/v1/apps/${A}/tables/${t.table_id}/records/${rec}`, { fields: f }); return { ok: true };
+  }
   // 读一张表里的全部链接（或只读还没读过的），写回数据
   const running = new Set();
   async function crawl(name, opt) {
@@ -51,16 +73,7 @@ function createCampaign({ cfg, api, upload, log }) {
       for (const r of list) {
         const link = val(r.fields['链接']).trim(); if (!link) continue; stat.total++;
         let d; try { d = await readXhs(link); } catch (e) { d = { blocked: '打不开：' + e.message.slice(0, 30) }; }
-        const f = { 最近读取: Date.now() }; if (!r.fields['首次读取']) f.首次读取 = Date.now();
-        if (d.gone) { f.笔记状态 = '已删除/不可见'; stat.gone++; }
-        else if (d.blocked) { f.笔记状态 = '待插件读取'; stat.blocked++; stat.reasons[d.blocked] = (stat.reasons[d.blocked] || 0) + 1; }
-        else {
-          Object.assign(f, { 笔记状态: '正常', 标题: d.title.slice(0, 200), 作者: d.author, 笔记形式: d.type, 图片数: d.images.length, 正文: d.desc.slice(0, 3000), 话题: d.tags.map(x => '#' + x).join(' '), 笔记ID: d.id });
-          ['likes:点赞', 'collects:收藏', 'comments:评论', 'shares:分享'].forEach(p => { const [k, c] = p.split(':'); if (d[k] != null) f[c] = d[k]; });
-          f.互动合计 = (d.likes || 0) + (d.collects || 0) + (d.comments || 0); if (d.time) f.发布时间 = d.time;
-          if (!r.fields['封面'] && d.images[0] && upload) { try { const ir = await fetch(d.images[0], { headers: { 'user-agent': UA, referer: 'https://www.xiaohongshu.com/' }, signal: AbortSignal.timeout(15000) }); if (ir.ok) f.封面 = [{ file_token: await upload(Buffer.from(await ir.arrayBuffer()), (d.id || 'cover') + '.jpg', 'bitable_image', A) }]; } catch (e) { } }
-          stat.ok++;
-        }
+        const f = await fieldsOf(r, d, A, stat);
         await api.call('PUT', `/bitable/v1/apps/${A}/tables/${t.table_id}/records/${r.record_id}`, { fields: f });
         await new Promise(s => setTimeout(s, 2500 + Math.random() * 3500)); // 慢一点，像正常打开
         if (stat.blocked >= 8 && stat.ok === 0) { stat.stopped = '服务器连续被拦，剩下的交给插件读'; break; }
@@ -70,10 +83,10 @@ function createCampaign({ cfg, api, upload, log }) {
     return stat;
   }
   // 插件读取用：被拦的链接清单 / 写回
-  async function pending(name) { const t = (await tables()).find(x => x.name === name); if (!t) return []; return (await recs(t.table_id)).filter(r => /待/.test(val(r.fields['笔记状态']))).map(r => ({ rec: r.record_id, link: val(r.fields['链接']).trim() })); }
+  async function pending(name, all) { const t = (await tables()).find(x => x.name === name); if (!t) return []; return (await recs(t.table_id)).filter(r => all ? !/删除/.test(val(r.fields['笔记状态'])) : /待|失败/.test(val(r.fields['笔记状态']))).map(r => ({ rec: r.record_id, link: val(r.fields['链接']).trim() })); }
   async function list() { return (await tables()).map(x => x.name); }
   async function status(name) { const t = (await tables()).find(x => x.name === name); if (!t) return null; const R = await recs(t.table_id); const by = {}; R.forEach(r => { const k = val(r.fields['笔记状态']) || '（空）'; by[k] = (by[k] || 0) + 1; }); const ok = R.filter(r => val(r.fields['笔记状态']) === '正常'); const sum = k => ok.reduce((a, r) => a + (+r.fields[k] || 0), 0);
     return { name, total: R.length, by, running: running.has(name), 点赞: sum('点赞'), 收藏: sum('收藏'), 评论: sum('评论'), top: ok.sort((a, b) => (+b.fields['互动合计'] || 0) - (+a.fields['互动合计'] || 0)).slice(0, 5).map(r => [val(r.fields['昵称']) || val(r.fields['作者']), val(r.fields['标题']).slice(0, 30), +r.fields['互动合计'] || 0]) }; }
-  return { create, crawl, pending, list, status, readXhs };
+  return { create, crawl, pending, list, status, writeNote, readXhs };
 }
 module.exports = { createCampaign, readXhs };

@@ -161,6 +161,7 @@ async function setup() {
   const histImport = HIST.createDailyImport({ cfg, api: { call }, core, log });
   const campaign = createCampaign({ cfg, api: { call }, upload, log });
   { const CF = path.join(DATA_DIR, 'campaigns.json'); let C = []; try { C = JSON.parse(fs.readFileSync(CF, 'utf8')); } catch (e) { }
+    campaign.names = () => C.slice();
     campaign.remember = n => { if (!C.includes(n)) { C.push(n); fs.writeFileSync(CF, JSON.stringify(C)); } };
     // 每天 11 点把登记过的链接追踪表重读一遍，更新赞藏评
     let lastDay = -1; setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 11 || lastDay === d) return; lastDay = d; for (const n of C) { try { await campaign.crawl(n); } catch (e) { log('[链接追踪] 每日重读失败：' + e.message); } } }, 10 * 60e3); }

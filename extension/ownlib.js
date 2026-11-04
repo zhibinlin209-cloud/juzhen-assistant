@@ -188,6 +188,28 @@
     finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; R.busy = false; forceRender(); }
   }
 
+  // ---------- 链接追踪：代发/投放的一批小红书链接，插件逐条读赞藏评写回飞书 ----------
+  const T = { names: null, cur: '', busy: false, stop: false, log: [], i: 0, n: 0 };
+  const tlog = t => { T.log.unshift(new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '  ' + t); T.log = T.log.slice(0, 20); forceRender(); };
+  async function campLoad() { try { T.names = (await srv('/lib/camp/list')).names || []; if (!T.cur) T.cur = T.names[T.names.length - 1] || ''; } catch (e) { T.names = []; } forceRender(); }
+  async function campRun(all) {
+    if (T.busy || S.busy || R.busy) return toast('先等其他读取任务跑完'); if (!T.cur) return toast('还没有链接追踪表');
+    T.busy = true; T.stop = false; T.i = 0; forceRender();
+    try {
+      const items = (await srv('/lib/camp/pending?name=' + encodeURIComponent(T.cur) + (all ? '&all=1' : ''))).items || []; T.n = items.length;
+      tlog(`「${T.cur}」要读 ${items.length} 条`);
+      for (const it of items) {
+        if (T.stop) break; T.i++; forceRender();
+        const r = await readOne({ link: it.link }); if (r.stop) break;
+        await srv('/lib/camp/note', r.err ? { name: T.cur, rec: it.rec, error: r.err } : { name: T.cur, rec: it.rec, note: r.note });
+        tlog(r.err ? `✗ 第 ${T.i} 条：${r.err}` : `✓ 第 ${T.i} 条《${(r.note.title || '').slice(0, 16)}》赞 ${r.note.likes} 藏 ${r.note.collects}`);
+        await sleep(rand(6000, 11000)); if (T.i % 25 === 0) await sleep(rand(40000, 60000));
+      }
+      tlog('完成'); toast('链接追踪读取完成');
+    } catch (e) { tlog('出错：' + e.message); }
+    finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; T.busy = false; forceRender(); }
+  }
+
   function view() {
     const I = S.info; const has = CFG().key;
     return `<div class="section-h"><h2>自家内容入库</h2><span class="hint">把我们自己发过的小红书笔记一条条读进「自家内容库」（标题、正文、话题、全部图片、赞藏评、热门评论），机器人再用通义千问分析封面和图片，升级爆款公式</span></div>
@@ -201,6 +223,14 @@
         <button class="btn primary" data-action="fs-own-run" ${S.busy || !has ? 'disabled' : ''}>${S.busy ? '读取中…' : '开始入库'}</button></div>
       ${S.busy ? `<div class="hint"><b>${S.paused ? '⏸ 等你在小红书窗口里完成验证…' : `进行中 ${S.i}/${S.n}：${h(S.cur)}`}</b> · 成功 ${S.ok} · 失败 ${S.fail}</div>` : ''}
       ${S.log.length ? `<pre class="small-pre">${h(S.log.slice(0, 12).join('\n'))}</pre>` : ''}
+    </div>
+    <div class="section-h"><h2>链接追踪</h2><span class="hint">代发、达人投放的一批小红书链接：逐条读标题、作者、发布时间、赞藏评，写回飞书私密表格里对应的表（重读可更新数字）</span></div>
+    <div class="panel stack"><div class="row">
+      <label class="f grow"><span>追踪表</span><select data-own="camp">${(T.names || []).map(n => `<option ${n === T.cur ? 'selected' : ''}>${h(n)}</option>`).join('') || '<option value="">（还没有，发表格给 Claude 登记）</option>'}</select></label>
+      ${T.busy ? '<button class="btn sm" data-action="fs-own-tstop">停止</button>' : ''}
+      <button class="btn primary sm" data-action="fs-own-tnew" ${T.busy || !has ? 'disabled' : ''}>${T.busy ? `读取中 ${T.i}/${T.n}…` : '读未读的'}</button>
+      <button class="btn sm" data-action="fs-own-tall" ${T.busy || !has ? 'disabled' : ''}>全部重读（更新数字）</button></div>
+      ${T.log.length ? `<pre class="small-pre">${h(T.log.slice(0, 8).join('\n'))}</pre>` : ''}
     </div>
     <div class="section-h"><h2>同类爆款调研</h2><span class="hint">在小红书搜和我们同类的关键词，读回近期高赞图文（标题、正文、前 6 张图、赞藏评、热门评论），存进「同类爆款库」，和自家内容对比</span></div>
     <div class="panel stack">
@@ -221,10 +251,11 @@
       ${O.log.length ? `<pre class="small-pre">${h(O.log.slice(0, 8).join('\n'))}</pre>` : ''}
     </div>`;
   }
-  async function act(action) { if (action === 'fs-own-dy') syncDouyin(); if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
+  async function act(action) { if (action === 'fs-own-dy') syncDouyin(); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
   function attach(root) {
     if (!S.info && CFG().key) refresh();
-    root.addEventListener('change', e => { const t = e.target; const k = t.dataset && t.dataset.own; if (k === 'batch') S.batch = +t.value || 100; if (k === 'per' || k === 'minLike' || k === 'days') R[k] = +t.value; });
+    if (!T.names && CFG().key) campLoad();
+    root.addEventListener('change', e => { const t = e.target; const k = t.dataset && t.dataset.own; if (k === 'batch') S.batch = +t.value || 100; if (k === 'per' || k === 'minLike' || k === 'days') R[k] = +t.value; if (k === 'camp') T.cur = t.value; });
     root.addEventListener('input', e => { const t = e.target; if (t.dataset && t.dataset.own === 'kw') R.kw = t.value; });
   }
   window.OwnLib = { view, act, attach, _s: S };
