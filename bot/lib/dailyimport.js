@@ -66,6 +66,17 @@ function createDailyImport({ cfg, api, core, log }) {
     log(`[历史日报] 新增 ${add.length}，表里已有跳过 ${parsedList.length - add.length}（数字不一致 ${diff.length}）`);
     return { added: add.length, existed: parsedList.length - add.length, diff };
   }
-  return { run };
+  // 核对用：每家店的天数、起止、来源、营业额合计
+  async function check() {
+    const app = await core.dailyAppToken(); const name = cfg.dailyTable || '门店营业日报';
+    const tabs = (await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []; const t = tabs.find(x => x.name === name);
+    const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { field_names: ['日期', '门店', '总营业额', '来源'] }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const v = x => Array.isArray(x) ? x.map(y => (y && y.text) || y).join('') : (x ?? '');
+    const S = {}; const seen = {}; let dup = 0;
+    recs.forEach(r => { const f = r.fields; const s = v(f['门店']) || '（空）'; const dd = Math.floor(((f['日期'] || 0) + TZ) / DAY); const k = s + '|' + dd; if (seen[k]) dup++; seen[k] = 1; const o = S[s] = S[s] || { n: 0, min: Infinity, max: 0, sum: 0, src: {} }; o.n++; o.min = Math.min(o.min, dd); o.max = Math.max(o.max, dd); o.sum += +f['总营业额'] || 0; const so = v(f['来源']) || '（空）'; o.src[so] = (o.src[so] || 0) + 1; });
+    Object.values(S).forEach(o => { o.min = new Date(o.min * DAY).toISOString().slice(0, 10); o.max = new Date(o.max * DAY).toISOString().slice(0, 10); o.sum = Math.round(o.sum); });
+    return { total: recs.length, dupStoreDay: dup, stores: S };
+  }
+  return { run, check };
 }
 module.exports = { isHistory, parse, createDailyImport };
