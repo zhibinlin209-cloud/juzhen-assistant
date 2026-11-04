@@ -90,7 +90,7 @@ ${formula ? '【上周 AI 内容分析结论】' + formula.text.slice(0, 2500) :
       const code = `AI-${day}-${String(i + 1).padStart(2, '0')}`;
       const plan = `【AI稿 · ${model}】封面：${d.封面形式 || ''}「${d.封面大字 || ''}」\n图片清单：\n${(d.图片清单 || []).join('\n')}\n依据：${d.依据 || ''}\n⚠️ 发布前请 PR 核对店名、菜名，配真实照片；AI 辅助创作内容按平台要求标注。`;
       recs.push({ fields: { 文本: code, 标题: title, 稿件编号: code, 写手: 'AI·' + model, 分发类别: '小红书矩阵号', 内容类型: '图文', 发布平台: ['小红书', '大众点评', '携程', '微信贴图'], 门店: st.s, 文案正文: body, 话题标签: tags, 定位: st.area, 点评定位: st.dp, 状态: 'AI待审', 备注: plan, 派稿人: 'AI创作' } });
-      out.push({ code, store: st.s, title });
+      out.push({ code, store: st.s, title, body, tags, plan });
     });
     const A = app; for (let i = 0; i < recs.length; i += 100) await api.call('POST', `/bitable/v1/apps/${A}/tables/${PG.t.table_id}/records/batch_create`, { records: recs.slice(i, i + 100) });
     log(`[创作] ${model} 写了 ${out.length} 篇进派稿记录（AI待审）：${out.map(x => x.title).join('｜')}`);
