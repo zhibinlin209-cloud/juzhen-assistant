@@ -37,6 +37,9 @@ function createAnnual({ cfg, api, core, llm, log }) {
       const ytdMonths = yoy.map(x => x[0].slice(5)); const ytdA = mine.filter(x => x.y === curY && ytdMonths.includes(String(x.m).padStart(2, '0'))), ytdB = mine.filter(x => x.y === curY - 1 && ytdMonths.includes(String(x.m).padStart(2, '0')));
       // 近 90 天 vs 去年同期 90 天（往前 364 天）
       const r90 = mine.filter(x => x.ts > maxTs - 90 * DAY), l90 = mine.filter(x => x.ts > maxTs - 364 * DAY - 90 * DAY && x.ts <= maxTs - 364 * DAY);
+      const isWk = x => x.wd >= 1 && x.wd <= 4; const yoyPart = f => (l90.length >= 30 ? pct(avg(r90.filter(f).map(x => x.tot)), avg(l90.filter(f).map(x => x.tot))) : null);
+      const delShare = arr => r1(avg(arr.filter(x => x.del != null).map(x => x.del / x.tot * 100)));
+      const old = mine.filter(x => x.ts <= maxTs - 90 * DAY && x.ts > maxTs - 120 * DAY).sort((a, b) => b.ts - a.ts)[0];
       const wd = [0, 1, 2, 3, 4, 5, 6].map(w => r0(avg(mine.filter(x => x.wd === w && x.ts > maxTs - 180 * DAY).map(x => x.tot))));
       const lastMonths = mine.filter(x => x.ts > maxTs - 90 * DAY);
       per[s] = {
@@ -45,7 +48,7 @@ function createAnnual({ cfg, api, core, llm, log }) {
         今年至今日均: r0(avg(ytdA.map(x => x.tot))), 去年同期日均: r0(avg(ytdB.map(x => x.tot))), 今年至今同比: pct(avg(ytdA.map(x => x.tot)), avg(ytdB.map(x => x.tot))),
         近90天日均: r0(avg(r90.map(x => x.tot))), 去年同期90天日均: l90.length >= 30 ? r0(avg(l90.map(x => x.tot))) : null, 近90天同比: l90.length >= 30 ? pct(avg(r90.map(x => x.tot)), avg(l90.map(x => x.tot))) : null,
         近半年星期日均: { 周日: wd[0], 周一: wd[1], 周二: wd[2], 周三: wd[3], 周四: wd[4], 周五: wd[5], 周六: wd[6] },
-        近90天外卖占比: r1(avg(lastMonths.filter(x => x.del != null).map(x => x.del / x.tot * 100))), 近90天午市占比: lastMonths.some(x => x.lunch) ? r1(avg(lastMonths.filter(x => x.lunch != null && x.dinner != null && (x.lunch + x.dinner) > 0).map(x => x.lunch / (x.lunch + x.dinner) * 100))) : null,
+        近90天工作日同比: yoyPart(isWk), 近90天周末同比: yoyPart(x => !isWk(x)), 近90天外卖占比: delShare(r90), 去年同期外卖占比: l90.length >= 30 ? delShare(l90) : null, 近90天外卖日均同比: l90.length >= 30 ? pct(avg(r90.map(x => x.del || 0)), avg(l90.map(x => x.del || 0))) : null, 近90天到店日均同比: l90.length >= 30 ? pct(avg(r90.map(x => x.din || 0)), avg(l90.map(x => x.din || 0))) : null, '3个月前点评/美团评分': old ? [old.dp, old.mt] : null, 近90天午市占比: lastMonths.some(x => x.lunch) ? r1(avg(lastMonths.filter(x => x.lunch != null && x.dinner != null && (x.lunch + x.dinner) > 0).map(x => x.lunch / (x.lunch + x.dinner) * 100))) : null,
         近90天采购占营业额: r1(lastMonths.reduce((a, x) => a + (x.pur || 0), 0) / lastMonths.reduce((a, x) => a + x.tot, 0) * 100), 近90天人均产值: r0(avg(lastMonths.map(x => x.per))), 近90天日均上班人数: r1(avg(lastMonths.map(x => x.staff))),
         点评评分最新: lastMonths.length ? lastMonths.sort((a, b) => b.ts - a.ts)[0].dp : null, 美团评分最新: lastMonths.length ? lastMonths[0].mt : null, 近90天差评: lastMonths.reduce((a, x) => a + x.dpBad + x.mtBad, 0)
       };
@@ -68,11 +71,11 @@ function createAnnual({ cfg, api, core, llm, log }) {
   async function report() {
     const F = await facts(); if (!llm) return { text: plain(F), F, by: '纯数字' };
     const prompt = `你是禧聚餐饮（YES也是大排档 + 粤迹岭南家宴）的经营分析师，给老板林智斌写「经营复盘」。下面是程序从门店营业日报（2025-01 起）算好的数据。
-团队分工（写负责人时只能用这些）：各门店店长（门店运营、服务、排班）；洛琳（增长负责人、投流）；DAVID（点评/美团/外卖评分和榜单、推广通）；君游（内容编辑、评论私信）；慧琦（达人媒介）；阿威（官方号视频）；林总（拍板）。
+团队分工（写负责人时只能按这个职责派）：各门店店长（门店运营、服务、出品、排班、工作日引流活动落地）；洛琳（增长策略、小红书聚光/抖音本地推投流）；DAVID（点评/美团/外卖评分和榜单、大众点评推广通团购投放）；君游（小红书内容和评论私信）；慧琦（达人探店媒介）；阿威（YES/粤迹两个抖音蓝V官方号视频，不负责单店）；林总（拍板）。
 硬性要求：
 1. 数字只能照抄数据里出现的，不许自己算新数字；没有去年同期的店（白石洲、粤迹花园城）单独说明。
 2. 季节判断只看「季节_每店每天平均营业额」，星期判断只看「星期_近半年每店每天平均」；最后一个月（不完整）不许当成淡季。
-3. 讲原因时必须指明依据哪项数据（如「外卖占比 X%」「点评评分 X」「周一日均 X」）；数据里没有的原因（商圈、客流、竞争）只能写成「需要核实」，不能当结论。
+3. 诊断原因要用「对比」：工作日同比 vs 周末同比（看是哪段时间掉的）、到店日均同比 vs 外卖日均同比（看是哪个渠道掉的）、外卖占比今年 vs 去年同期、评分现在 vs 3 个月前。只写有明显差异的点；增长门店不用硬找原因。数据里没有的原因（商圈、竞争、客流）只能写「需要核实」。
 4. 不建议降价、打折、促销活动；建议要落到具体门店 + 上面团队里的具体人。
 5. 格式：飞书纯文本。禁止出现 #、*、**、[ ]、称呼和落款，直接从结论开始。用 emoji 小标题分块，1200 字以内。
 结构：① 一句话总判断 ② 门店分三档（增长/持平/下滑），每家一行：近 90 天同比、今年至今同比、掉得最多的月份（看「同月同比日均」）、数据能支持的原因方向 ③ 季节和星期规律及对排班、投流节奏的含义 ④ 成本效率异常（采购占营业额、人均产值）⑤ 接下来 30 天最该做的 3–5 件事（门店 + 负责人 + 怎么验证效果）。
@@ -81,7 +84,7 @@ ${JSON.stringify(F)}`;
     try {
       const text = (await llm(prompt)).trim().replace(/^#+\s*/gm, '').replace(/\*\*/g, '').replace(/^\s*[-*]\s+/gm, '· ').replace(/\n*(祝好|此致|\[您的名字\]|希望以上分析)[\s\S]*$/, '').trim();
       const ok = new Set(); const walk = o => { if (o == null) return; if (typeof o === 'number') { [o, Math.round(o), r1(o), Math.round(o / 1000), Math.round(o / 10000), r1(o / 10000), Math.round(o / 100) / 100 / 100].forEach(x => ok.add(x)); } else if (typeof o === 'string') (o.replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).forEach(k => ok.add(+k)); else if (Array.isArray(o)) o.forEach(walk); else Object.values(o).forEach(walk); };
-      walk(F); for (let i = 0; i <= 31; i++) ok.add(i); [30, 60, 90, 100, 180, 364, 2025, 2026, 2027].forEach(x => ok.add(x));
+      walk(F); [...ok].forEach(x => ok.add(Math.abs(x))); for (let i = 0; i <= 31; i++) ok.add(i); [30, 60, 90, 100, 180, 364, 2025, 2026, 2027].forEach(x => ok.add(x));
       const bad = (text.replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).map(Number).filter(k => !ok.has(k));
       if (bad.length > 5) { log('[经营复盘] AI 数字对不上：' + bad.slice(0, 10).join(',')); return { text: plain(F) + '\n\n（AI 解读里有数字对不上，这次先给纯数字版）', F, by: '纯数字（AI 核对没过）', raw: text, bad }; }
       return { text, F, by: 'AI' };
