@@ -205,9 +205,18 @@
     try {
       const items = (await srv('/lib/camp/pending?name=' + encodeURIComponent(T.cur) + (all ? '&all=1' : ''))).items || []; T.n = items.length;
       tlog(`「${T.cur}」要读 ${items.length} 条`);
+      // 代发笔记大多是几个月前的分享链接，已过期：有「主页链接」的先去作者主页拿新地址；没有的跳过、留待补主页
+      const fresh = {}, homesDone = new Set();
+      const noteIdOf = async link => { const m0 = link.match(/(?:explore|item)\/([0-9a-f]{24})/); if (m0) return m0[1]; try { const r = await fetch(link, { credentials: 'include' }); const u = decodeURIComponent(r.url || ''); const m = u.match(/(?:explore|item)\/([0-9a-f]{24})/); return m ? m[1] : ''; } catch (e) { return ''; } };
+      let skipped = 0;
       for (const it of items) {
         if (T.stop) break; T.i++; forceRender();
-        const r = await readOne({ link: it.link }); if (r.stop) break;
+        const nid = await noteIdOf(it.link); const linkOld = /apptime=|xhslink/.test(it.link);
+        if (nid && !fresh[nid] && it.home && !homesDone.has(it.home)) { homesDone.add(it.home); await nav(it.home); const res = await msg({ type: 'rm:collectProfile', limit: 120 }, 300000); ((res && res.list) || []).forEach(x => { if (x.id && x.url && /xsec_token=/.test(x.url)) fresh[x.id] = x.url; }); await sleep(rand(3000, 6000)); }
+        if (!(nid && fresh[nid]) && !it.home && T.tried && T.tried[it.rec]) { skipped++; continue; }
+        T.tried = T.tried || {}; T.tried[it.rec] = 1;
+        const r = await readOne({ link: nid && fresh[nid] ? fresh[nid] : it.link }); if (r.stop) break;
+        if (r.err && /没读到/.test(r.err) && !it.home) { await srv('/lib/camp/note', { name: T.cur, rec: it.rec, error: '链接过期，需补主页链接' }); tlog(`✗ 第 ${T.i} 条：链接过期，表里补「主页链接」后再读`); await sleep(rand(1500, 3000)); continue; }
         await srv('/lib/camp/note', r.err ? { name: T.cur, rec: it.rec, error: r.err } : { name: T.cur, rec: it.rec, note: r.note });
         tlog(r.err ? `✗ 第 ${T.i} 条：${r.err}` : `✓ 第 ${T.i} 条《${(r.note.title || '').slice(0, 16)}》赞 ${r.note.likes} 藏 ${r.note.collects}`);
         await sleep(rand(6000, 11000)); if (T.i % 25 === 0) await sleep(rand(40000, 60000));

@@ -3,7 +3,7 @@
  * → 每天自动重读一次更新数字；服务器读不到的（被拦/要登录）标「待插件读取」
  */
 'use strict';
-const COLS = [['序号', 2], ['类型', 1], ['昵称', 1], ['链接', 15], ['合作码', 1], ['笔记状态', 1], ['标题', 1], ['作者', 1], ['发布时间', 5], ['笔记形式', 1], ['图片数', 2], ['点赞', 2], ['收藏', 2], ['评论', 2], ['分享', 2], ['互动合计', 2], ['正文', 1], ['话题', 1], ['封面', 17], ['笔记ID', 1], ['首次读取', 5], ['最近读取', 5]];
+const COLS = [['序号', 2], ['类型', 1], ['昵称', 1], ['链接', 15], ['主页链接', 15], ['合作码', 1], ['笔记状态', 1], ['标题', 1], ['作者', 1], ['发布时间', 5], ['笔记形式', 1], ['图片数', 2], ['点赞', 2], ['收藏', 2], ['评论', 2], ['分享', 2], ['互动合计', 2], ['正文', 1], ['话题', 1], ['封面', 17], ['笔记ID', 1], ['首次读取', 5], ['最近读取', 5]];
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36';
 const val = v => Array.isArray(v) ? v.map(x => (x && typeof x === 'object') ? (x.text || x.link || '') : String(x)).join('') : (v && typeof v === 'object') ? (v.text || v.link || '') : (v ?? '');
 const num = v => { const m = String(v ?? '').replace(/,/g, '').match(/([\d.]+)\s*(万|w)?/i); return m ? parseFloat(m[1]) * (m[2] ? 1e4 : 1) : null; };
@@ -84,7 +84,7 @@ function createCampaign({ cfg, api, upload, log }) {
     return stat;
   }
   // 插件读取用：被拦的链接清单 / 写回
-  async function pending(name, all) { const A = home(name); const t = (await tables(A)).find(x => x.name === name); if (!t) return []; return (await recs(t.table_id, A)).filter(r => all ? !/删除/.test(val(r.fields['笔记状态'])) : /待|失败/.test(val(r.fields['笔记状态']))).map(r => ({ rec: r.record_id, link: val(r.fields['链接']).trim() })); }
+  async function pending(name, all) { const A = home(name); const t = (await tables(A)).find(x => x.name === name); if (!t) return []; try { const fd = await api.call('GET', `/bitable/v1/apps/${A}/tables/${t.table_id}/fields`, null, { page_size: 200 }); if (!(fd.items || []).some(f => f.field_name === '主页链接')) await api.call('POST', `/bitable/v1/apps/${A}/tables/${t.table_id}/fields`, { field_name: '主页链接', type: 15 }); } catch (e) { } return (await recs(t.table_id, A)).filter(r => all ? !/删除/.test(val(r.fields['笔记状态'])) : /待|失败/.test(val(r.fields['笔记状态']))).map(r => ({ rec: r.record_id, link: val(r.fields['链接']).trim(), home: (val(r.fields['主页链接']).match(/https?:\/\/[^\s]*user\/profile\/[0-9a-f]{24}[^\s]*/) || [''])[0] })); }
   async function list() { return (await tables()).map(x => x.name); }
   // 把一张追踪表复制到另一个多维表格（如营销部），之后读写都改到那边；原表不删（由林总自己删）
   async function move(name, toApp, dl) {
