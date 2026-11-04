@@ -149,7 +149,8 @@ async function setup() {
   const draft = createDraft({ api: { call }, core, upload, log, resolver }); const lastVideo = new Map(), lastInstr = new Map(), draftMsg = new Map();
   const accounts = createAccounts({ api: { call }, core, log, people });
   const settle = createSettle({ cfg, api: { call }, core, people, log });
-  const ownlib = createOwnLib({ cfg, api: { call }, core, upload, log, dataDir: DATA_DIR });
+  const ownlib = createOwnLib({ cfg, api: { call }, core, upload, download: dl, log, dataDir: DATA_DIR });
+  setTimeout(() => ownlib.backfill().catch(() => { }), 90e3); setInterval(() => ownlib.backfill(200).catch(() => { }), 30 * 60e3);
   const hits = createHits({ api: { call }, core, llm: cfg.qwenKey ? chat : null, log });
   async function sendHits(replyTo) {
     const r = await hits.report(); try { fs.writeFileSync(path.join(DATA_DIR, 'hits-latest.json'), JSON.stringify({ at: Date.now(), text: r.text, by: r.by })); } catch (e) { }

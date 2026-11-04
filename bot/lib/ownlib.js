@@ -12,7 +12,8 @@ const linkOf = v => { const m = JSON.stringify(v ?? '').match(/https?:\/\/[^"\s\
 const num = v => { if (typeof v === 'number') return v; const s = val(v); const n = parseFloat(String(s).replace(/,/g, '')); return isFinite(n) ? n * (/万|w/i.test(s) ? 1e4 : 1) : null; };
 const maxOf = (...a) => { const n = a.map(num).filter(x => x != null); return n.length ? Math.max(...n) : null; };
 
-function createOwnLib({ cfg, api, core, upload, log, dataDir }) {
+function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
+  const VLS = [...new Set([cfg.qwenModel, 'qwen3-vl-plus', 'qwen-vl-max-latest', 'qwen2.5-vl-72b-instruct', 'qwen-vl-max', 'qwen-vl-plus', 'qwen2.5-vl-32b-instruct'].filter(Boolean))]; let vlOk = null; const vlBad = new Set();
   const FILE = path.join(dataDir, 'ownlib.json'); const KEYF = path.join(dataDir, 'ingest-key.txt');
   let S = { done: {} }; try { S = Object.assign(S, JSON.parse(fs.readFileSync(FILE, 'utf8'))); } catch (e) { }
   const saveS = () => { try { fs.writeFileSync(FILE, JSON.stringify(S)); } catch (e) { } };
@@ -54,11 +55,12 @@ function createOwnLib({ cfg, api, core, upload, log, dataDir }) {
     let pick = imgs.slice(0, 4); if (pick.reduce((s, x) => s + x.buf.length, 0) > 7e6) pick = imgs.slice(0, 1);
     const prompt = `这是一条小红书餐饮笔记（标题：${title || '无'}）的封面${pick.length > 1 ? `和后面 ${pick.length - 1} 张图` : ''}。只按看到的内容回答，输出一行 JSON，不要别的文字：
 {"封面形式":"单图/拼图/大字报/攻略长图/地图路线/菜单价目/前后对比/其他","拼图格数":数字,"封面有大字":true/false,"封面文字":"封面上的大字原文，没有就空","主体":"菜品特写/多菜摆满桌/人物出镜/店面门头/环境装修/地图/文字为主","色调":"暖色/冷色/高饱和/低饱和","有价格信息":true/false,"有地名或路名":true/false,"后续图片内容":"一句话概括第2张起都在拍什么","封面吸引点":"一句话"}`;
-    for (const model of ['qwen-vl-max', 'qwen-vl-plus']) {
+    for (const model of (vlOk ? [vlOk] : []).concat(VLS.filter(m => m !== vlOk && !vlBad.has(m)))) {
       try {
         const r = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.qwenKey }, signal: AbortSignal.timeout(90000),
           body: JSON.stringify({ model, temperature: 0.1, max_tokens: 600, messages: [{ role: 'user', content: pick.map(x => ({ type: 'image_url', image_url: { url: `data:${x.ct};base64,` + x.buf.toString('base64') } })).concat([{ type: 'text', text: prompt }]) }] }) });
-        const j = await r.json().catch(() => ({})); if (!r.ok) { log(`[内容库] 看图模型 ${model}：${(j.error && j.error.message) || r.status}`); continue; }
+        const j = await r.json().catch(() => ({})); if (!r.ok) { const em = (j.error && j.error.message) || String(r.status); if (/not exist|not found|model/i.test(em)) vlBad.add(model); log(`[内容库] 看图模型 ${model}：${em}`); continue; }
+        if (vlOk !== model) { vlOk = model; log('[内容库] 看图模型用 ' + model); }
         const t = (((j.choices || [])[0] || {}).message || {}).content || ''; const m = t.match(/\{[\s\S]*\}/); if (!m) return t.slice(0, 500);
         try { return JSON.stringify(JSON.parse(m[0])); } catch (e) { return m[0].slice(0, 800); }
       } catch (e) { log('[内容库] 看图出错：' + e.message); }
@@ -93,7 +95,24 @@ function createOwnLib({ cfg, api, core, upload, log, dataDir }) {
     log(`[内容库] 入库 ${f.账号 || ''}《${String(n.title || '').slice(0, 20)}》图 ${toks.length}/${images.length}${cover ? ' · 已看图' : ''}`);
     return { ok: true, images: toks.length };
   }
+  // 补看图：表里有封面但没有「封面分析」的，从飞书附件取图重新看
+  let filling = false;
+  async function backfill(max) {
+    if (filling || !cfg.qwenKey || !download) return 0; filling = true; let n = 0;
+    try {
+      const A = priv(), T = await table(); const all = await recs(A, T);
+      for (const r of all) {
+        if (n >= (max || 2000)) break; const f = r.fields || {}; if (f['封面分析'] || !Array.isArray(f['封面'])) continue;
+        const atts = f['封面'].concat(Array.isArray(f['图片']) ? f['图片'] : []).slice(0, 4); const imgs = [];
+        for (const a of atts) { try { imgs.push({ buf: await download(a.url || a.tmp_url), ct: a.type || 'image/jpeg' }); } catch (e) { } }
+        const c = await tag(imgs, val(f['标题'])); if (!c) { if (!vlOk) break; continue; }
+        await api.call('PUT', `/bitable/v1/apps/${A}/tables/${T}/records/${r.record_id}`, { fields: { 封面分析: c } }); n++;
+      }
+      if (n) log(`[内容库] 补看图 ${n} 条`);
+    } catch (e) { log('[内容库] 补看图出错：' + e.message); } finally { filling = false; }
+    return n;
+  }
   function stats() { const v = Object.values(S.done); return { ok: v.filter(x => /^ok/.test(x)).length, fail: v.filter(x => /^fail/.test(x)).length, retry: v.filter(x => /^retry/.test(x)).length }; }
-  return { okKey, todo, ingest, stats, table };
+  return { okKey, todo, ingest, stats, table, backfill };
 }
 module.exports = { createOwnLib };
