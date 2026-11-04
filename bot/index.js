@@ -16,6 +16,7 @@ const { createSettle, replyForSettle } = require('./lib/settle');
 const { createHits } = require('./lib/hits');
 const { createOwnLib } = require('./lib/ownlib');
 const { createOfficial } = require('./lib/official');
+const { createDeep } = require('./lib/deep');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
@@ -131,11 +132,11 @@ async function setup() {
   }
 
 
-  async function chat(prompt) { // 通义千问文字模型（写简报）
+  async function chat(prompt, maxTokens) { // 通义千问文字模型（写简报）
     const models = [cfg.briefModel || 'qwen-max', 'qwen-plus'];
     let last = '';
     for (const model of models) {
-      const r = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.qwenKey }, body: JSON.stringify({ model, temperature: 0.3, max_tokens: 1500, messages: [{ role: 'user', content: prompt }] }), signal: AbortSignal.timeout(90000) });
+      const r = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.qwenKey }, body: JSON.stringify({ model, temperature: 0.3, max_tokens: maxTokens || 1500, messages: [{ role: 'user', content: prompt }] }), signal: AbortSignal.timeout(90000) });
       const j = await r.json().catch(() => ({}));
       if (r.ok) return ((j.choices || [])[0] || {}).message.content || '';
       last = (j.error && (j.error.message || j.error.code)) || ('HTTP ' + r.status); log(`[简报] 模型 ${model} 不可用：${last}`);
@@ -154,6 +155,15 @@ async function setup() {
   setTimeout(() => ownlib.backfill().catch(() => { }), 90e3); setInterval(() => ownlib.backfill(200).catch(() => { }), 30 * 60e3);
   const official = createOfficial({ cfg, api: { call }, log });
   const hits = createHits({ api: { call }, core, llm: cfg.qwenKey ? chat : null, log });
+  const deep = createDeep({ cfg, api: { call }, core, llm: cfg.qwenKey ? (p => chat(p, 3000)) : null, log, dataDir: DATA_DIR });
+  async function sendDeep(replyTo) {
+    const r = await deep.report(); try { fs.writeFileSync(path.join(DATA_DIR, 'deep-latest.json'), JSON.stringify({ at: Date.now(), text: r.text, by: r.by, F: r.F })); } catch (e) { }
+    log('[深度分析] 已生成（' + r.by + '）\n' + deep.plain(r.F || {}));
+    const text = `🔬 爆款公式 2.0（${new Date(Date.now() + 8 * 3600e3).toISOString().slice(5, 10).replace('-', '/')} · 小红书内容库 + 抖音蓝V/视频号）\n\n` + r.text;
+    if (boss) { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text }) }, { receive_id_type: 'open_id' }); if (replyTo) await reply(replyTo, '✅ 爆款公式 2.0 已私聊发给你'); } else if (replyTo) await reply(replyTo, text);
+  }
+  // 内容库全部读完后自动出一次 2.0 报告
+  setInterval(async () => { try { const f = path.join(DATA_DIR, 'deep-auto.json'); if (fs.existsSync(f)) return; const t = await ownlib.todo(1); if (t.total && t.left === 0 && t.done >= 300) { fs.writeFileSync(f, JSON.stringify({ at: Date.now() })); await sendDeep(); } } catch (e) { log('[深度分析] 自动出报告失败：' + e.message); } }, 30 * 60e3);
   async function sendHits(replyTo) {
     const r = await hits.report(); try { fs.writeFileSync(path.join(DATA_DIR, 'hits-latest.json'), JSON.stringify({ at: Date.now(), text: r.text, by: r.by })); } catch (e) { }
     log('[爆款公式] 已生成（' + r.by + '）\n' + hits.plain(r.F || { 平台: {} }));
@@ -236,6 +246,7 @@ async function setup() {
       return;
     }
     { const sm = text && text.trim().match(/^结算(?:\s*(\d{4})?[-年./]?\s*(\d{1,2})\s*月?)?$/); if (sm && m.chat_id === dailyChatNow()) { const y = sm[1] || String(new Date(Date.now() + 8 * 3600e3).getUTCFullYear()); const mon = sm[2] ? `${y}-${String(sm[2]).padStart(2, '0')}` : lastMonth(); try { await reply(m.message_id, '⏳ 正在算 ' + mon + ' 的结算…'); await reply(m.message_id, await runSettle(mon)); } catch (e) { log('[结算] 出错：' + e.message); await reply(m.message_id, '⚠️ 结算没算出来：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); } return; } }
+    if (text && /^\s*(深度分析|爆款公式\s*2(\.0)?|内容库分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, '⏳ 正在做深度分析（小红书内容库 + 官方号），大概 1–2 分钟…'); await sendDeep(m.message_id); } catch (e) { log('[深度分析] 出错：' + e.message); await reply(m.message_id, '⚠️ 深度分析没跑出来：' + e.message.slice(0, 80)); } return; }
     if (text && /^\s*(爆款分析|爆款公式)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, '⏳ 正在分析自家内容，大概 1 分钟…'); await sendHits(m.message_id); } catch (e) { log('[爆款公式] 出错：' + e.message); await reply(m.message_id, '⚠️ 爆款分析没跑出来：' + e.message.slice(0, 80)); } return; }
     if (text && /^\s*(投放分析|推广通分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendAds({ replyTo: m.message_id }); return; }
     if (text && /^\s*(重新识别日报|重读日报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { rereadDaily(m.message_id); return; }

@@ -84,4 +84,4 @@ ${JSON.stringify(F)}`;
   }
   return { facts, report, plain };
 }
-module.exports = { createHits };
+module.exports = { createHits, FEATS, median, pct, val, num, maxOf, titleOf };
