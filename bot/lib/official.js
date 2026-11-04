@@ -5,7 +5,7 @@
 'use strict';
 const NAME = '官方号作品数据';
 const COLS = [['平台', 1], ['账号', 1], ['作品ID', 1], ['发布时间', 5], ['标题', 1], ['形式', 1], ['时长秒', 2], ['播放', 2], ['点赞', 2], ['评论', 2], ['分享', 2], ['收藏', 2], ['涨粉', 2], ['主页访问', 2],
-  ['完播率%', 2], ['5秒完播率%', 2], ['2秒跳出率%', 2], ['平均播放秒', 2], ['平均播放占比%', 2], ['粉丝观看占比%', 2], ['封面点击率%', 2], ['互动率%', 2], ['封面图', 15], ['同步时间', 5]];
+  ['完播率%', 2], ['5秒完播率%', 2], ['2秒跳出率%', 2], ['快速划走率%', 2], ['平均播放秒', 2], ['平均播放占比%', 2], ['粉丝观看占比%', 2], ['封面点击率%', 2], ['互动率%', 2], ['封面图', 15], ['同步时间', 5]];
 const val = v => Array.isArray(v) ? v.map(x => (x && typeof x === 'object') ? (x.text || x.name || '') : String(x)).join('') : (v ?? '');
 const n = v => { const x = parseFloat(v); return isFinite(x) ? x : null; };
 const pct = v => { const x = n(v); return x == null ? null : Math.round(x * 10000) / 100; };
@@ -35,7 +35,7 @@ function createOfficial({ cfg, api, log }) {
   function fromChannels(x, acc) {
     const view = n(x.views); const eng = (n(x.likes) || 0) + (n(x.comments) || 0) + (n(x.shares) || 0) + (n(x.favs) || 0);
     return { 平台: '视频号', 账号: acc, 作品ID: String(x.id), 发布时间: x.time || null, 标题: String(x.title || '').slice(0, 500), 形式: x.form || (x.duration ? '视频' : '图文'), 时长秒: n(x.duration),
-      播放: view, 点赞: n(x.likes), 评论: n(x.comments), 分享: n(x.shares), 收藏: n(x.favs), 涨粉: n(x.follows), '完播率%': x.completion != null ? n(x.completion) : null, 平均播放秒: n(x.avgSec),
+      播放: view, 点赞: n(x.likes), 评论: n(x.comments), 分享: n(x.shares), 收藏: n(x.favs), 涨粉: n(x.follows), '完播率%': x.completion != null ? Math.round(n(x.completion) * 100) / 100 : null, '快速划走率%': x.flip != null ? Math.round(n(x.flip) * 100) / 100 : null, 平均播放秒: n(x.avgSec),
       '互动率%': view ? Math.round(eng / view * 10000) / 100 : null, 封面图: x.cover ? { link: x.cover, text: '封面' } : null };
   }
   let busy = Promise.resolve();

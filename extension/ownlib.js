@@ -126,6 +126,36 @@
     finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } O.busy = false; forceRender(); }
   }
 
+  async function syncChannels() {
+    if (O.busy) return; O.busy = true; forceRender(); let bt = null;
+    try {
+      bt = await bgTab('https://channels.weixin.qq.com/platform/post/list', 'channels.weixin.qq.com');
+      olog('读取视频号助手当前登录的账号…');
+      const [r] = await chrome.scripting.executeScript({ target: { tabId: bt.tab }, world: 'MAIN', func: async () => {
+        const post = (p, b) => fetch(p, { method: 'POST', credentials: 'include', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ timestamp: String(Date.now()), _log_finder_uin: '', rawKeyBuff: null, pluginSessionId: null, scene: 7, reqScene: 7 }, b)) }).then(r => r.json());
+        const a = await post('/cgi-bin/mmfinderassistant-bin/auth/auth_data', { _log_finder_id: '' }).catch(() => ({}));
+        const fu = (a.data && a.data.finderUser) || {}; if (!fu.finderUsername) return { error: '没登录视频号助手：请在这个浏览器打开 channels.weixin.qq.com 用微信扫码登录' };
+        const items = [];
+        for (const type of [11, 13]) {
+          for (let page = 1; page <= 60; page++) {
+            const l = await post('/micro/content/cgi-bin/mmfinderassistant-bin/post/post_list', { pageSize: 20, currentPage: page, userpageType: type, stickyOrder: true, _log_finder_id: fu.finderUsername }).catch(() => ({}));
+            const list = (l.data && l.data.list) || []; if (l.errCode || !list.length) break;
+            list.forEach(x => { const d = x.desc || {}; const m = (d.media || [])[0] || {}; items.push({ id: x.exportId || x.objectId, time: x.createTime ? x.createTime * 1000 : null, title: d.description || ((d.shortTitle || [])[0] || {}).shortTitle || '', form: (d.mediaType || m.mediaType) === 4 ? '视频' : '图文', duration: m.videoPlayLen || null,
+              views: x.readCount, likes: x.likeCount, comments: x.commentCount, shares: x.forwardCount, favs: x.favCount, follows: x.followCount, completion: x.fullPlayRate != null ? x.fullPlayRate * 100 : null, flip: x.fastFlipRate != null ? x.fastFlipRate * 100 : null, avgSec: x.avgPlayTimeSec != null ? Math.round(x.avgPlayTimeSec * 10) / 10 : null, cover: m.coverUrl || m.thumbUrl || '' }); });
+            if (list.length < 20 || (l.data.totalCount && items.length >= l.data.totalCount && type === 11)) break;
+            await new Promise(r => setTimeout(r, 800 + Math.random() * 600));
+          }
+        }
+        const seen = new Set(); return { nick: fu.nickname, items: items.filter(x => x.id && !seen.has(x.id) && seen.add(x.id)) };
+      } });
+      const d = r && r.result; if (!d || d.error) throw new Error((d && d.error) || '读取失败');
+      olog(`视频号「${d.nick}」读到 ${d.items.length} 条，交给机器人…`);
+      const j = await srv('/lib/official', { platform: 'channels', account: d.nick, items: d.items });
+      olog(`✓ 视频号「${d.nick}」已同步：新增 ${j.added}，更新 ${j.updated}`); toast(`视频号 ${d.nick} 同步完成`);
+    } catch (e) { olog('✗ ' + e.message); toast(e.message); }
+    finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } O.busy = false; forceRender(); }
+  }
+
   function view() {
     const I = S.info; const has = CFG().key;
     return `<div class="section-h"><h2>自家内容入库</h2><span class="hint">把我们自己发过的小红书笔记一条条读进「自家内容库」（标题、正文、话题、全部图片、赞藏评、热门评论），机器人再用通义千问分析封面和图片，升级爆款公式</span></div>
@@ -140,14 +170,15 @@
       ${S.busy ? `<div class="hint"><b>${S.paused ? '⏸ 等你在小红书窗口里完成验证…' : `进行中 ${S.i}/${S.n}：${h(S.cur)}`}</b> · 成功 ${S.ok} · 失败 ${S.fail}</div>` : ''}
       ${S.log.length ? `<pre class="small-pre">${h(S.log.slice(0, 12).join('\n'))}</pre>` : ''}
     </div>
-    <div class="section-h"><h2>官方号数据</h2><span class="hint">读抖音蓝 V（YES 也是大排档、粤迹）的创作者后台：每条作品的播放、完播率、2 秒跳出、涨粉、主页访问，写进私密表格「官方号作品数据」</span></div>
+    <div class="section-h"><h2>官方号数据</h2><span class="hint">读抖音蓝 V（YES 也是大排档、粤迹）的创作者后台和视频号助手：每条作品的播放、完播率、2 秒跳出、涨粉、主页访问，写进私密表格「官方号作品数据」</span></div>
     <div class="panel stack">
       <div class="row"><span class="hint grow">读的是这个浏览器里 creator.douyin.com <b>当前登录</b>的账号。两个蓝 V：同步完一个，在创作者中心右上角头像「切换账号」换另一个，再点一次。约 1 分钟。</span>
-        <button class="btn primary" data-action="fs-own-dy" ${O.busy || !has ? 'disabled' : ''}>${O.busy ? '同步中…' : '同步抖音蓝 V'}</button></div>
+        <button class="btn primary" data-action="fs-own-dy" ${O.busy || !has ? 'disabled' : ''}>${O.busy ? '同步中…' : '同步抖音蓝 V'}</button>
+        <button class="btn primary" data-action="fs-own-sph" ${O.busy || !has ? 'disabled' : ''}>同步视频号</button></div>
       ${O.log.length ? `<pre class="small-pre">${h(O.log.slice(0, 8).join('\n'))}</pre>` : ''}
     </div>`;
   }
-  async function act(action) { if (action === 'fs-own-dy') syncDouyin(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
+  async function act(action) { if (action === 'fs-own-dy') syncDouyin(); if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
   function attach(root) {
     if (!S.info && CFG().key) refresh();
     root.addEventListener('change', e => { const t = e.target; if (t.dataset && t.dataset.own === 'batch') S.batch = +t.value || 100; });
