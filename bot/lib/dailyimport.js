@@ -17,7 +17,7 @@ function day(v) {
   return null;
 }
 const MAP = { 顾客到店: '到店消费', 外卖平台: '外卖', 午市营业额: '午市', 晚市营业额: '晚市', 总营业额: '总营业额', 营业总额: '总营业额', 报损金额: '报损', 总仓订货: '总仓订货', 海鲜采购: '海鲜采购', 蔬菜采购: '蔬菜采购', 鲜肉采购: '鲜肉采购', 其它杂项: '其它杂项', 当天采购总金额: '采购总额', 营业额占比: '采购占比%',
-  楼面上班人数: '楼面人数', 厨房上班人数: '厨房人数', 共计上班人数: '上班人数', 人均产值: '人均产值', 休假人数: '休假人数', 点评评分: '点评评分', '【大众点评】好评数': '点评好评', '【大众点评】差评数': '点评差评', 美团评分: '美团评分', '【美团】好评数': '美团好评', '【美团】差评数': '美团差评', 收藏打卡人数: '收藏打卡' };
+  楼面上班人数: '楼面人数', 厨房上班人数: '厨房人数', 共计上班人数: '上班人数', 人均产值: '人均产值', 休假人数: '休假人数', 点评评分: '点评评分', '【大众点评】好评数': '点评好评', '【大众点评】差评数': '点评差评', 美团评分: '美团评分', '【美团】好评数': '美团好评', '【美团】差评数': '美团差评', 收藏打卡人数: '收藏打卡', 鸡佬采购: '鸡佬采购', 生鲜采购: '生鲜采购' };
 
 function isHistory(rows) { const h = (rows[0] || []).map(x => String(x || '').trim()); return h.includes('日期') && h.includes('门店名称') && h.includes('顾客到店'); }
 
@@ -51,6 +51,7 @@ function createDailyImport({ cfg, api, core, log }) {
     const app = await core.dailyAppToken(); if (app === await core.appToken()) throw new Error('私密表格配置不对');
     const name = cfg.dailyTable || '门店营业日报';
     const tabs = (await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []; const t = tabs.find(x => x.name === name); if (!t) throw new Error('没找到表：' + name);
+    { const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const hv = new Set((fd.items || []).map(f => f.field_name)); const need = new Set(); parsedList.forEach(x => Object.keys(x.f).forEach(k => { if (!hv.has(k)) need.add(k); })); for (const k of need) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, { field_name: k, type: 2 }); }
     const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { field_names: ['日期', '门店', '总营业额'] }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
     const v = x => Array.isArray(x) ? x.map(y => (y && y.text) || y).join('') : (x ?? '');
     const k = (ts, s) => `${Math.floor((ts + TZ) / DAY)}|${String(s).trim()}`;
