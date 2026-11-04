@@ -142,7 +142,7 @@ function createDeep({ cfg, api, core, llm, log, dataDir }) {
 【数据】
 ${JSON.stringify(F)}`;
     try {
-      const text = (await llm(prompt)).trim();
+      const text = (await llm(prompt)).trim().replace(/^#+\s*/gm, '').replace(/\*\*/g, '').replace(/^\s*[-*]\s+/gm, '· ').replace(/\n*(祝好|此致|\[您的名字\]|希望以上分析)[\s\S]*$/, '').trim();
       const ok = new Set(); const walk = o => { if (o == null) return; if (typeof o === 'number') { [o, Math.round(o), Math.round(o * 10) / 10].forEach(v => ok.add(v)); } else if (typeof o === 'string') (o.replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).forEach(n => ok.add(+n)); else if (Array.isArray(o)) o.forEach(walk); else Object.values(o).forEach(walk); };
       walk(F); for (let i = 0; i <= 31; i++) ok.add(i); [60, 100, 120, 150, 240, 400, 1000, 3000].forEach(v => ok.add(v));
       const bad = (text.replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).map(Number).filter(n => !ok.has(n));

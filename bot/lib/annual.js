@@ -53,8 +53,12 @@ function createAnnual({ cfg, api, core, llm, log }) {
     // 全集团月度（同店口径：两年同月都有数据的店）
     const months = [...new Set(R.map(ym))].sort();
     const group = months.map(k => { const xs = R.filter(x => ym(x) === k); return [k, new Set(xs.map(x => x.s)).size, r0(xs.reduce((a, x) => a + x.tot, 0)), new Set(xs.map(x => x.ts)).size]; });
+    // 季节：按自然月算「每店每天」平均营业额（同店口径，去掉不满 20 天的月份）
+    const byMonth = {}; months.forEach(k => { const xs = R.filter(x => ym(x) === k); const days = new Set(xs.map(x => x.ts)).size; if (days < 20) return; const mm = k.slice(5); (byMonth[mm] = byMonth[mm] || []).push(xs.reduce((a, x) => a + x.tot, 0) / xs.length); });
+    const season = Object.entries(byMonth).map(([mm, a]) => [mm + '月', r0(avg(a)), a.length]).sort((a, b) => b[1] - a[1]);
+    const wdAll = [0, 1, 2, 3, 4, 5, 6].map(w => r0(avg(R.filter(x => x.wd === w && x.ts > maxTs - 180 * DAY).map(x => x.tot))));
     const rank = stores.map(s => [s, per[s].近90天日均, per[s].近90天同比, per[s].今年至今同比]).sort((a, b) => (b[1] || 0) - (a[1] || 0));
-    return { 截至: last.toISOString().slice(0, 10), 口径: '营业额=总营业额；只算有数据的天（春节闭店、水东街装修、录错剔除的天不算）；同比按同月日均、或近 90 天 vs 往前 364 天的同期 90 天', 全集团月度: { 列: '[月份, 有数据的店数, 营业额合计, 有数据的天数]（最后一个月可能只有几天，不能和整月比）', 数据: group }, 门店排行_近90天: { 列: '[门店, 近90天日均, 近90天同比%, 今年至今同比%]', 数据: rank }, 门店: per,
+    return { 截至: last.toISOString().slice(0, 10), 口径: '营业额=总营业额；只算有数据的天（春节闭店、水东街装修、录错剔除的天不算）；同比按同月日均、或近 90 天 vs 往前 364 天的同期 90 天', 全集团月度: { 列: '[月份, 有数据的店数, 营业额合计, 有数据的天数]（最后一个月可能只有几天，不能和整月比）', 数据: group }, 季节_每店每天平均营业额: { 列: '[月份, 每店每天平均, 有几年的数据]（只算满 20 天的月份，当前不完整的月份不算）', 数据: season }, 星期_近半年每店每天平均: { 周日: wdAll[0], 周一: wdAll[1], 周二: wdAll[2], 周三: wdAll[3], 周四: wdAll[4], 周五: wdAll[5], 周六: wdAll[6] }, 门店排行_近90天: { 列: '[门店, 近90天日均, 近90天同比%, 今年至今同比%]', 数据: rank }, 门店: per,
       备注: ['佛山保利西街店 = 千灯湖/灯湖西街', '惠州水东街 2026 年初有一段停业装修', '深圳白石洲 2026-03-05 开业、粤迹花园城数据从 2025-11-25 开始，没有去年同期', '陈家祠已闭店，不在数据里'] };
   }
 
@@ -63,16 +67,19 @@ function createAnnual({ cfg, api, core, llm, log }) {
   }
   async function report() {
     const F = await facts(); if (!llm) return { text: plain(F), F, by: '纯数字' };
-    const prompt = `你是禧聚餐饮（YES也是大排档 + 粤迹岭南家宴）的经营分析师。下面是程序从门店营业日报（2025-01 起）算好的数据：每家店每月营业天数/合计/日均、同月同比、今年至今同比、近 90 天同比、近半年星期规律、外卖占比、午市占比、采购占营业额、人均产值、评分和差评，以及集团月度合计和门店排行。
-请写一份「经营复盘」给老板林智斌。要求：
-1. 数字只能用数据里出现的，不许自己算新数字；样本少或没有去年同期的店要说明。
-2. 结构：① 一句话总判断（集团整体是涨是跌、主要靠谁拖累谁）② 门店分三档（增长/持平/下滑），每家一两句：同比多少、哪几个月掉得最多、可能原因方向（只说数据能支持的，比如工作日弱、外卖占比变化、评分下降）③ 季节和星期规律（哪几个月旺/淡，周几最强最弱，对排班和投放的含义）④ 成本效率（采购占比、人均产值哪家异常）⑤ 接下来 30 天最该做的 3–5 件事（落到门店和负责人方向）。
-3. 不要编造原因，用「可能」「需要核实」；不要建议降价打折。
-4. 飞书纯文本，不要 # 和 **，不要表格，用 emoji 小标题，1500 字以内。
+    const prompt = `你是禧聚餐饮（YES也是大排档 + 粤迹岭南家宴）的经营分析师，给老板林智斌写「经营复盘」。下面是程序从门店营业日报（2025-01 起）算好的数据。
+团队分工（写负责人时只能用这些）：各门店店长（门店运营、服务、排班）；洛琳（增长负责人、投流）；DAVID（点评/美团/外卖评分和榜单、推广通）；君游（内容编辑、评论私信）；慧琦（达人媒介）；阿威（官方号视频）；林总（拍板）。
+硬性要求：
+1. 数字只能照抄数据里出现的，不许自己算新数字；没有去年同期的店（白石洲、粤迹花园城）单独说明。
+2. 季节判断只看「季节_每店每天平均营业额」，星期判断只看「星期_近半年每店每天平均」；最后一个月（不完整）不许当成淡季。
+3. 讲原因时必须指明依据哪项数据（如「外卖占比 X%」「点评评分 X」「周一日均 X」）；数据里没有的原因（商圈、客流、竞争）只能写成「需要核实」，不能当结论。
+4. 不建议降价、打折、促销活动；建议要落到具体门店 + 上面团队里的具体人。
+5. 格式：飞书纯文本。禁止出现 #、*、**、[ ]、称呼和落款，直接从结论开始。用 emoji 小标题分块，1200 字以内。
+结构：① 一句话总判断 ② 门店分三档（增长/持平/下滑），每家一行：近 90 天同比、今年至今同比、掉得最多的月份（看「同月同比日均」）、数据能支持的原因方向 ③ 季节和星期规律及对排班、投流节奏的含义 ④ 成本效率异常（采购占营业额、人均产值）⑤ 接下来 30 天最该做的 3–5 件事（门店 + 负责人 + 怎么验证效果）。
 【数据】
 ${JSON.stringify(F)}`;
     try {
-      const text = (await llm(prompt)).trim();
+      const text = (await llm(prompt)).trim().replace(/^#+\s*/gm, '').replace(/\*\*/g, '').replace(/^\s*[-*]\s+/gm, '· ').replace(/\n*(祝好|此致|\[您的名字\]|希望以上分析)[\s\S]*$/, '').trim();
       const ok = new Set(); const walk = o => { if (o == null) return; if (typeof o === 'number') { [o, Math.round(o), r1(o), Math.round(o / 1000), Math.round(o / 10000), r1(o / 10000), Math.round(o / 100) / 100 / 100].forEach(x => ok.add(x)); } else if (typeof o === 'string') (o.replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).forEach(k => ok.add(+k)); else if (Array.isArray(o)) o.forEach(walk); else Object.values(o).forEach(walk); };
       walk(F); for (let i = 0; i <= 31; i++) ok.add(i); [30, 60, 90, 100, 180, 364, 2025, 2026, 2027].forEach(x => ok.add(x));
       const bad = (text.replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).map(Number).filter(k => !ok.has(k));

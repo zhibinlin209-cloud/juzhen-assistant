@@ -5,7 +5,7 @@
 const http = require('http'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 
-function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts }) {
+function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts }) {
   const key = crypto.createHash('sha256').update('xiju-cockpit:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (who, exp, kind) => { const body = `${kind}.${who}.${exp}`; return b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url'); };
@@ -102,6 +102,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
         if (p === '/lib/market' && req.method === 'POST') { let b = ''; for await (const c of req) { b += c; if (b.length > 600000) return sendc(res, 413, '{"ok":false}'); } try { return sendc(res, 200, JSON.stringify(await ownlib.market(JSON.parse(b || '{}')))); } catch (e) { log('[同类爆款] 入库失败：' + e.message); return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 120) })); } }
         if (p === '/lib/market-seen' && req.method === 'GET') return sendc(res, 200, JSON.stringify({ ok: true, ids: ownlib.marketSeen() }));
         if (p === '/lib/latest' && req.method === 'GET') return sendc(res, 200, JSON.stringify(await brief.latestKind(String(u.searchParams.get('kind') || '经营复盘'))));
+        if (p === '/lib/draft' && req.method === 'GET' && drafts) { const k = u.searchParams.get('kind'); const r = await (k === 'deep' ? drafts.deep() : drafts.annual()); return sendc(res, 200, JSON.stringify({ text: r.text, by: r.by })); }
         if (p === '/lib/annualfacts' && req.method === 'GET' && annualFacts) return sendc(res, 200, JSON.stringify(await annualFacts()));
         if (p === '/lib/dailycheck' && req.method === 'GET' && dailyCheck) return sendc(res, 200, JSON.stringify(await dailyCheck()));
         if (p === '/lib/export' && req.method === 'GET' && exporter) return sendc(res, 200, JSON.stringify(await exporter()));
