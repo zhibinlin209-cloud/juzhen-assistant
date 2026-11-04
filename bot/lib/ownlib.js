@@ -52,7 +52,7 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
   // 通义千问看图：封面 + 前 3 张，输出结构化标签
   async function tag(imgs, title) {
     if (!cfg.qwenKey || !imgs.length) return '';
-    let pick = imgs.slice(0, 4); if (pick.reduce((s, x) => s + x.buf.length, 0) > 7e6) pick = imgs.slice(0, 1);
+    let pick = imgs.slice(0, 2); if (pick.reduce((s, x) => s + x.buf.length, 0) > 5e6) pick = imgs.slice(0, 1);
     const prompt = `这是一条小红书餐饮笔记（标题：${title || '无'}）的封面${pick.length > 1 ? `和后面 ${pick.length - 1} 张图` : ''}。只按看到的内容回答，输出一行 JSON，不要别的文字：
 {"封面形式":"单图/拼图/大字报/攻略长图/地图路线/菜单价目/前后对比/其他","拼图格数":数字,"封面有大字":true/false,"封面文字":"封面上的大字原文，没有就空","主体":"菜品特写/多菜摆满桌/人物出镜/店面门头/环境装修/地图/文字为主","色调":"暖色/冷色/高饱和/低饱和","有价格信息":true/false,"有地名或路名":true/false,"后续图片内容":"一句话概括第2张起都在拍什么","封面吸引点":"一句话"}`;
     for (const model of (vlOk ? [vlOk] : []).concat(VLS.filter(m => m !== vlOk && !vlBad.has(m)))) {
@@ -103,7 +103,7 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
       const A = priv(), T = await table(); const all = await recs(A, T);
       for (const r of all) {
         if (n >= (max || 2000)) break; const f = r.fields || {}; if (f['封面分析'] || !Array.isArray(f['封面'])) continue;
-        const atts = f['封面'].concat(Array.isArray(f['图片']) ? f['图片'] : []).slice(0, 4); const imgs = [];
+        const atts = f['封面'].concat(Array.isArray(f['图片']) ? f['图片'] : []).slice(0, 2); const imgs = [];
         for (const a of atts) { try { imgs.push({ buf: await download(a.url || a.tmp_url), ct: a.type || 'image/jpeg' }); } catch (e) { } }
         const c = await tag(imgs, val(f['标题'])); if (!c) { if (!vlOk) break; continue; }
         await api.call('PUT', `/bitable/v1/apps/${A}/tables/${T}/records/${r.record_id}`, { fields: { 封面分析: c } }); n++;
