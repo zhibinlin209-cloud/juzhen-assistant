@@ -83,7 +83,7 @@ ${JSON.stringify(F)}`;
       const ok = new Set(); const walk = o => { if (o == null) return; if (typeof o === 'number') { [o, Math.round(o), r1(o), Math.round(o / 1000), Math.round(o / 10000), r1(o / 10000), Math.round(o / 100) / 100 / 100].forEach(x => ok.add(x)); } else if (typeof o === 'string') (o.replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).forEach(k => ok.add(+k)); else if (Array.isArray(o)) o.forEach(walk); else Object.values(o).forEach(walk); };
       walk(F); for (let i = 0; i <= 31; i++) ok.add(i); [30, 60, 90, 100, 180, 364, 2025, 2026, 2027].forEach(x => ok.add(x));
       const bad = (text.replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).map(Number).filter(k => !ok.has(k));
-      if (bad.length > 5) { log('[经营复盘] AI 数字对不上：' + bad.slice(0, 10).join(',')); return { text: plain(F) + '\n\n（AI 解读里有数字对不上，这次先给纯数字版）', F, by: '纯数字（AI 核对没过）' }; }
+      if (bad.length > 5) { log('[经营复盘] AI 数字对不上：' + bad.slice(0, 10).join(',')); return { text: plain(F) + '\n\n（AI 解读里有数字对不上，这次先给纯数字版）', F, by: '纯数字（AI 核对没过）', raw: text, bad }; }
       return { text, F, by: 'AI' };
     } catch (e) { log('[经营复盘] AI 出错：' + e.message); return { text: plain(F), F, by: '纯数字（AI 出错）' }; }
   }
