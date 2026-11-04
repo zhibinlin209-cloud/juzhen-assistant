@@ -139,12 +139,13 @@ function createDeep({ cfg, api, core, llm, log, dataDir }) {
 3.5 只有数据里有「同类爆款」这一项时，才写「和同类爆款比，我们差在哪」；没有就完全不写这一段，也不许凭空说「我们的封面大多…」。
 3.6 小红书每个结论先写「同账号倍数」（如「拼图封面 1.1 倍」），爆款率放括号里作参考；倍数 ≤1 的特征不要当成推荐。
 4. 选题必须是我们自己的门店和菜（YES也是大排档 水东街/华强北/白石洲/前海/江南西/玖洲道/千灯湖/创意产业园/33小镇，粤迹·岭南家宴 花园城），攻略类要把我们的店放进清单里；不要写纯景点/交通攻略。
+4.05 官方号视频选题只能用「爆款样本」里出现过的菜和人设，不要编菜单里可能没有的新菜；条数 <10 的分组（如视频号）标「样本少」。
 4.1 最后给「下周直接可用」：小红书 3 条（标题 + 封面怎么做 + 第 2–N 张拍什么），蓝 V 视频 2 条（标题 + 开头 3 秒拍什么）。
 5. 飞书纯文本，不要 # 和 **，不要表格，用 emoji 小标题分块，1200 字以内。
 【数据】
 ${JSON.stringify(F)}`;
     try {
-      const text = (await llm(prompt)).trim().replace(/^#+\s*/gm, '').replace(/\*\*/g, '').replace(/^\s*[-*]\s+/gm, '· ').replace(/\n*(祝好|此致|\[您的名字\]|希望以上分析)[\s\S]*$/, '').trim();
+      const text = (await llm(prompt)).trim().replace(/^#+\s*/gm, '').replace(/\*\*/g, '').replace(/^\s*[-*]\s+/gm, '· ').replace(/\n*(祝好|此致|\[您的名字\]|希望(以上|这些))[\s\S]*$/, '').trim();
       const ok = new Set(); const walk = o => { if (o == null) return; if (typeof o === 'number') { [o, Math.round(o), Math.round(o * 10) / 10].forEach(v => ok.add(v)); } else if (typeof o === 'string') (o.replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).forEach(n => ok.add(+n)); else if (Array.isArray(o)) o.forEach(walk); else Object.values(o).forEach(walk); };
       walk(F); for (let i = 0; i <= 31; i++) ok.add(i); [60, 100, 120, 150, 240, 400, 1000, 3000].forEach(v => ok.add(v));
       const bad = (text.replace(/,/g, '').match(/\d+(?:\.\d+)?/g) || []).map(Number).filter(n => !ok.has(n));
