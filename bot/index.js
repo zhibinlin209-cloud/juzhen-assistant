@@ -418,6 +418,14 @@ async function setup() {
       if (hh === 21 && mm >= 30 && pst.sum !== day) { pst.sum = day; fs.writeFileSync(PST, JSON.stringify(pst)); const t = await progress(chat, false); if (!/还没有派过稿/.test(t)) await call('POST', '/im/v1/messages', { receive_id: chat, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'chat_id' }); }
     } catch (e) { log('[领稿] 定时提醒出错：' + e.message); }
   }, 60e3);
+  setTimeout(async () => { // 自检：经营日报群昨晚到现在的消息（谁发的、是不是日报）和群成员
+    try { const chat = dailyChatNow(); if (!chat) return; const start = Math.floor(Date.now() / 1000) - 16 * 3600; const ms = []; let pt = '';
+      do { const d = await call('GET', '/im/v1/messages', null, Object.assign({ container_id_type: 'chat', container_id: chat, start_time: String(start), sort_type: 'ByCreateTimeAsc', page_size: 50 }, pt ? { page_token: pt } : {})); ms.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+      log(`[自检·日报群] 近 16 小时 ${ms.length} 条消息：` + ms.map(x => { const f = flatten(x.msg_type, (x.body || {}).content); return `${new Date(+x.create_time + 8 * 3600e3).toISOString().slice(5, 16)} ${(x.sender || {}).sender_type}/${String((x.sender || {}).id || '').slice(-6)} ${x.msg_type} ${(f.text || '').replace(/\s+/g, ' ').slice(0, 40)}`; }).join(' | '));
+      const mm = await call('GET', `/im/v1/chats/${chat}/members`, null, { member_id_type: 'open_id', page_size: 100 }); log(`[自检·日报群] 成员：${(mm.items || []).map(x => x.name).join('、')}`);
+      const ci = await call('GET', `/im/v1/chats/${chat}`, null, {}); log(`[自检·日报群] 群信息：人数 ${ci.user_count}，机器人数 ${ci.bot_count}，外部群 ${ci.external}`);
+    } catch (e) { log('[自检·日报群] 出错：' + e.message.slice(0, 160)); }
+  }, 35e3);
   setTimeout(async () => { // 自检：能不能读发布群成员、读到人名（决定卡片能不能真 @ 到人）
     try { const chat = fs.readFileSync(path.join(DATA_DIR, 'publish-chat.txt'), 'utf8').trim(); const d = await call('GET', `/im/v1/chats/${chat}/members`, null, { member_id_type: 'open_id', page_size: 100 }); const ns = (d.items || []).map(x => x.name); log(`[自检] 发布群成员 ${ns.length} 人：${ns.slice(0, 20).join('、')}`); if (d.items && d.items[0]) { const n = await senderName(d.items[0].member_id); log('[自检] 读人名：' + (n || '读不到')); } } catch (e) { log('[自检] 读群成员失败：' + e.message.slice(0, 160)); }
   }, 25e3);
