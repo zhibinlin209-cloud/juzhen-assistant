@@ -135,6 +135,12 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
       return { done, ok, left: rows.filter(r => !val(r.fields['AI识别'])).length - done };
     } finally { tagging = false; }
   }
+  async function libStats() {
+    await ensure(); const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const by = {}; const samples = [];
+    for (const r of rows) { const f = r.fields; const st = val(f['门店']) || '未标'; const o = by[st] = by[st] || { 总: 0, 已打标: 0, 可用: 0 }; o.总++; if (val(f['AI识别'])) { o.已打标++; if (samples.length < 40) samples.push(val(f['AI识别'])); } if (val(f['可用']) === '可用') o.可用++; }
+    return { total: rows.length, by, samples, libDone: Object.keys(S.libDone || {}).length };
+  }
   async function dishes(store) {
     if (!S.app || !S.libT) return []; const key = String(store || '').replace(/^(深圳|广州|惠州|珠海|佛山|东莞)/, '').replace(/店$/, ''); const alias = { 保利西街: '千灯湖', 蛇口招商花园城: '花园城', 东城33小镇: '33小镇', 华强北燕南: '华强北', 前海HOP: '前海' }; const want = alias[key] || key;
     const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '可用', operator: 'is', value: ['可用'] }] } }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
@@ -192,6 +198,6 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     for (const r of out) { const k = val(r.fields['标题']).trim(); if (!k) continue; if (seen.has(k)) { if (val(r.fields['状态']) !== '退回') { await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.draftT}/records/${r.record_id}`, { fields: { 状态: '退回', 审核意见: '重复稿（系统搬迁时重复写入），可直接删除' } }); n++; } } else seen.add(k); }
     return { total: out.length, unique: seen.size, marked: n };
   }
-  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups, importLib, pickImages, makeCover, coverize, coverTest, tagLib, dishes };
+  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups, importLib, pickImages, makeCover, coverize, coverTest, tagLib, dishes, libStats };
 }
 module.exports = { createStudio };
