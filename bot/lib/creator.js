@@ -24,7 +24,15 @@ const BRAND = {
 // 广告法极限词（违禁 / 易被限流）
 const BANNED = /最好吃|最便宜|第一名|全网第一|史上最|顶级|极品|国家级|绝对|100%|百分百|唯一|首选|王牌|销量第一|无敌/g;
 
-function createCreator({ cfg, api, core, deep, brief, studio, log }) {
+function createCreator({ cfg, api, core, deep, brief, studio, log, dataDir }) {
+  // 周边店名：从我们写手实地写过的自家笔记里提（emoji 开头的条目第一行），按商圈汇总——AI 只能用这些真实店名
+  function nearby() {
+    const fs = require('fs'), path = require('path'); const dir = path.join(dataDir || '', 'ownlib'); const by = {};
+    let files = []; try { files = fs.readdirSync(dir).filter(f => f.endsWith('.json')); } catch (e) { return by; }
+    for (const f of files) { try { const j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); const st = String((j.src || {}).store || ''); const desc = String((j.note || {}).desc || '');
+      desc.split('\n').forEach(l => { const m = l.trim().match(/^\p{Extended_Pictographic}\uFE0F?\s*([^\s，,。！!｜|：:（(]{2,14})\s*$/u); if (m && !/YES|也是大排档|粤迹|早餐|午餐|晚餐|宵夜|下午茶|总结|tips|Tips|地址|人均|营业/.test(m[1])) { (by[st] = by[st] || {}); by[st][m[1]] = (by[st][m[1]] || 0) + 1; } }); } catch (e) { } }
+    const out = {}; Object.entries(by).forEach(([k, o]) => { out[k] = Object.entries(o).sort((a, b) => b[1] - a[1]).slice(0, 25).map(x => x[0]); }); return out;
+  }
   async function llm(prompt) {
     const models = cfg.writerModels || ['deepseek-v4-pro', 'deepseek-v3.2', 'deepseek-v3', 'qwen-max'];
     let last = '';
@@ -63,14 +71,15 @@ function createCreator({ cfg, api, core, deep, brief, studio, log }) {
     let F = null; try { F = await deep().xhs(); } catch (e) { }
     const formula = await brief().latestKind('内容分析').catch(() => null);
     const facts = F && F.样本 ? { 爆款判定: F.判定, 内容类型: F.内容类型, 封面形式: F.封面形式, 图片张数: F.图片张数, 正文字数: F.正文字数, 话题数: F.话题数, 标题特征: F.标题特征, 评论区问题: F.评论区问题, 爆款样本: (F.爆款样本 || []).slice(0, 10) } : null;
+    const NB = nearby();
     const prompt = `你是禧聚餐饮（YES也是大排档 / 粤迹·岭南家宴）的小红书内容编辑，给我们的素人矩阵号写图文笔记稿。写完会交给 PR 审核、配真实照片后发布。
 【品牌】${JSON.stringify(BRAND)}
 【爆款公式（程序统计，列为 [分组, 条数, 爆款率%, 中位小眼睛, 同账号倍数, 收藏率%]，同账号倍数越高越好）】${facts ? JSON.stringify(facts) : '暂无'}
 ${formula ? '【上周 AI 内容分析结论】' + formula.text.slice(0, 2500) : ''}
 【最近已经写过/发过的标题（不要重复或只改几个字）】${titles.slice(-80).join(' | ')}
-【本次要写的门店，按顺序一店一篇，共 ${stores.length} 篇】${JSON.stringify(stores.map(x => ({ 门店: x.s, 品牌: x.b, 城市: x.city, 商圈关键词: x.key })))}
+【本次要写的门店，按顺序一店一篇，共 ${stores.length} 篇】${JSON.stringify(stores.map(x => ({ 门店: x.s, 品牌: x.b, 城市: x.city, 商圈关键词: x.key, 可用周边店名: (NB[x.key] || []).slice(0, 20) })))}
 写作要求：
-1. 素人口吻，像本地人/攻略党写的真实分享，不要像广告；我们的店要自然放进去（攻略清单里写 1 家我们的店 + 周边 3–8 家不同品类的街坊小店/小吃/糖水，其他店写泛称或你确定存在的老字号，不确定就写品类不写店名）。
+1. 素人口吻，像本地人/攻略党写的真实分享，不要像广告；我们的店要自然放进去（攻略清单里写 1 家我们的店 + 周边 3–8 家不同品类的小店）。周边店名【只能】从该门店的「可用周边店名」里选（这些是我们写手实地去过的）；列表里没有的，只写品类（如「街口一家老牌牛杂档」），绝不能自己编店名、路名、开店年数。
 2. 标题 ≤20 字，带城市或商圈地名，可用「本地人」「避雷」「J人整理」「X家」这类在公式里倍数高的说法；不要用极限词（最/第一/顶级/绝对/100%/唯一 等）。
 3. 正文 250–450 字，用 emoji 开头的分条清单；每家店一两句具体吃什么；写到我们的店时只用品牌里给的招牌菜和卖点，不许编价格、地址、营业时间、优惠。
 4. 话题 8–10 个，含城市/商圈/美食/攻略类。
