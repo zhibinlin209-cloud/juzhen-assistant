@@ -24,7 +24,7 @@ const BRAND = {
 // 广告法极限词（违禁 / 易被限流）
 const BANNED = /最好吃|最便宜|第一名|全网第一|史上最|顶级|极品|国家级|绝对|100%|百分百|唯一|首选|王牌|销量第一|无敌/g;
 
-function createCreator({ cfg, api, core, deep, brief, log }) {
+function createCreator({ cfg, api, core, deep, brief, studio, log }) {
   async function llm(prompt) {
     const models = cfg.writerModels || ['deepseek-v4-pro', 'deepseek-v3.2', 'deepseek-v3', 'qwen-max'];
     let last = '';
@@ -89,11 +89,11 @@ ${formula ? '【上周 AI 内容分析结论】' + formula.text.slice(0, 2500) :
       if (!title || seen.has(norm(title))) return; seen.add(norm(title));
       const code = `AI-${day}-${String(i + 1).padStart(2, '0')}`;
       const plan = `【AI稿 · ${model}】封面：${d.封面形式 || ''}「${d.封面大字 || ''}」\n图片清单：\n${(d.图片清单 || []).join('\n')}\n依据：${d.依据 || ''}\n⚠️ 发布前请 PR 核对店名、菜名，配真实照片；AI 辅助创作内容按平台要求标注。`;
-      recs.push({ fields: { 文本: code, 标题: title, 稿件编号: code, 写手: 'AI·' + model, 分发类别: '小红书矩阵号', 内容类型: '图文', 发布平台: ['小红书', '大众点评', '携程', '微信贴图'], 门店: st.s, 文案正文: body, 话题标签: tags, 定位: st.area, 点评定位: st.dp, 状态: 'AI待审', 备注: plan, 派稿人: 'AI创作' } });
+      recs.push({ 稿件编号: code, 状态: 'AI待审', 门店: st.s, 标题: title, 文案正文: body, 话题标签: tags, 封面方案: `${d.封面形式 || ''}「${d.封面大字 || ''}」`, 图片清单: (d.图片清单 || []).join('\n'), 依据: d.依据 || '', 分发类别: '小红书矩阵号', 内容类型: '图文', 发布平台: '小红书、大众点评、携程、微信贴图', 定位: st.area, 点评定位: st.dp, 写手: 'AI·' + model, 生成时间: Date.now() });
       out.push({ code, store: st.s, title, body, tags, plan });
     });
-    const A = app; for (let i = 0; i < recs.length; i += 100) await api.call('POST', `/bitable/v1/apps/${A}/tables/${PG.t.table_id}/records/batch_create`, { records: recs.slice(i, i + 100) });
-    log(`[创作] ${model} 写了 ${out.length} 篇进派稿记录（AI待审）：${out.map(x => x.title).join('｜')}`);
+    await studio().addDrafts(recs);
+    log(`[创作] ${model} 写了 ${out.length} 篇进 AI 内容工作台（AI待审）：${out.map(x => x.title).join('｜')}`);
     lastRun = { at: Date.now(), model, list: out }; return { model, list: out };
   }
   let lastRun = null;

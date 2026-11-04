@@ -20,6 +20,7 @@ const HIST = require('./lib/dailyimport');
 const { createAnnual } = require('./lib/annual');
 const { createCampaign } = require('./lib/campaign');
 const { createCreator } = require('./lib/creator');
+const { createStudio } = require('./lib/aistudio');
 const { readXlsx } = require('./lib/xlsx');
 const { createDeep } = require('./lib/deep');
 
@@ -169,9 +170,11 @@ async function setup() {
     campaign.remember = n => { if (!C.includes(n)) { C.push(n); fs.writeFileSync(CF, JSON.stringify(C)); } };
     // 每天 11 点把登记过的链接追踪表重读一遍，更新赞藏评
     let lastDay = -1; setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 11 || lastDay === d) return; lastDay = d; for (const n of C) { try { await campaign.crawl(n); } catch (e) { log('[链接追踪] 每日重读失败：' + e.message); } } }, 10 * 60e3); }
-  const creator = createCreator({ cfg, api: { call }, core, deep: () => deep, brief: () => brief, log }); // 后面才定义的模块用函数取，避免启动时还没初始化
+  const studio = createStudio({ cfg, api: { call }, core, upload, download: dl, log, dataDir: DATA_DIR, bossId: () => boss });
+  setInterval(() => studio.pushApproved().catch(() => { }), 5 * 60e3);
+  const creator = createCreator({ cfg, api: { call }, core, deep: () => deep, brief: () => brief, studio: () => studio, log }); // 后面才定义的模块用函数取，避免启动时还没初始化
   async function sendCreate(o, replyTo) {
-    const r = await creator.run(o || {}); const text = `✍️ 创作 Agent 写了 ${r.list.length} 篇小红书稿（${r.model}），已放进「派稿记录」，状态「AI待审」：\n` + r.list.map(x => `· ${x.code} ${x.store}《${x.title}》`).join('\n') + `\n\nPR 审改、配真实照片后，把状态改成「待发布」并填派稿日期和发布人员，就会走正常派稿。`;
+    const r = await creator.run(o || {}); const text = `✍️ 创作 Agent 写了 ${r.list.length} 篇小红书稿（${r.model}），已放进「禧聚 AI 内容工作台」的「AI稿件」，状态「AI待审」：\n` + r.list.map(x => `· ${x.code} ${x.store}《${x.title}》`).join('\n') + `\n\nPR 审改、配真实照片后，把状态改成「通过」，机器人会自动推到营销部「派稿记录」（待发布），再按原流程派稿。` + (studio.info().url ? `\n工作台：${studio.info().url}` : '') + ``;
     if (boss) await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text }) }, { receive_id_type: 'open_id' });
     if (replyTo) await reply(replyTo, boss ? '✅ 已写好，详情私聊你了' : text); return r;
   }
@@ -441,7 +444,7 @@ async function setup() {
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last() });
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last(), studioSetup: async () => { const r = await studio.ensure(); r.migrated = await studio.migrateOld(); return r; } });
   rawIO.taskLink = id => web.taskLink(id);
   let briefState = {}; try { briefState = JSON.parse(fs.readFileSync(BRIEF_FILE, 'utf8')); } catch (e) { }
   let briefing = false;
