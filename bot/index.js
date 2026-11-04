@@ -422,6 +422,7 @@ async function setup() {
     try { const chat = dailyChatNow(); if (!chat) return; const start = Math.floor(Date.now() / 1000) - 16 * 3600; const ms = []; let pt = '';
       do { const d = await call('GET', '/im/v1/messages', null, Object.assign({ container_id_type: 'chat', container_id: chat, start_time: String(start), sort_type: 'ByCreateTimeAsc', page_size: 50 }, pt ? { page_token: pt } : {})); ms.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
       log(`[自检·日报群] 近 16 小时 ${ms.length} 条消息：` + ms.map(x => { const f = flatten(x.msg_type, (x.body || {}).content); return `${new Date(+x.create_time + 8 * 3600e3).toISOString().slice(5, 16)} ${(x.sender || {}).sender_type}/${String((x.sender || {}).id || '').slice(-6)} ${x.msg_type} ${(f.text || '').replace(/\s+/g, ' ').slice(0, 40)}`; }).join(' | '));
+      ms.filter(x => (x.sender || {}).sender_type === 'app' && !String((x.sender || {}).id || '').endsWith('badd00')).slice(-2).forEach(x => log('[自检·日报群] 其他机器人原始消息：' + String((x.body || {}).content || '').slice(0, 900)));
       const mm = await call('GET', `/im/v1/chats/${chat}/members`, null, { member_id_type: 'open_id', page_size: 100 }); log(`[自检·日报群] 成员：${(mm.items || []).map(x => x.name).join('、')}`);
       const ci = await call('GET', `/im/v1/chats/${chat}`, null, {}); log(`[自检·日报群] 群信息：人数 ${ci.user_count}，机器人数 ${ci.bot_count}，外部群 ${ci.external}`);
     } catch (e) { log('[自检·日报群] 出错：' + e.message.slice(0, 160)); }
