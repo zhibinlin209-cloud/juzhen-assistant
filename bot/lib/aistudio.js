@@ -113,7 +113,35 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     const out = [], usedNote = new Set();
     for (const r of cand) { if (out.length >= (k || 9)) break; const note = val(r.fields['来源笔记']); if (usedNote.has(note) && cand.length > (k || 9) * 2) continue; usedNote.add(note); const img = (r.fields['图片'] || [])[0]; if (img) out.push({ r, img }); }
     for (const x of out) await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/${x.r.record_id}`, { fields: { 使用次数: (+x.r.fields['使用次数'] || 0) + 1, 最近使用: Date.now() } });
-    return out.map(x => ({ file_token: x.img.file_token }));
+    return out.map(x => ({ file_token: x.img.file_token, url: x.img.url || x.img.tmp_url, kind: val(x.r.fields['类型']) }));
+  }
+  // 封面：从配好的图里挑（优先内页图，旧封面上有字），拼图 + 大字，上传成附件，返回 file_token
+  async function makeCover(store, imgs, plan, seed) {
+    const cover = require('./cover'); if (!cover.ok()) { log('[AI工作台] 封面组件没装好：' + cover.error()); return null; }
+    const order = imgs.filter(x => !/封面/.test(x.kind || '')).concat(imgs.filter(x => /封面/.test(x.kind || '')));
+    const bufs = []; for (const x of order.slice(0, 6)) { try { if (x.url) bufs.push(await download(x.url)); } catch (e) { } }
+    const m = String(plan || '').match(/^(.*?)「(.*)」/); const form = m ? m[1] : '', text = m ? m[2] : String(plan || '').slice(0, 14);
+    const jpg = await cover.render(bufs, { text: text || store, form, tag: String(store || '').replace(/^(深圳|广州|惠州|珠海|佛山|东莞)/, ''), seed });
+    if (!jpg) return null; return upload(jpg, '封面.jpg', 'bitable_image', S.app);
+  }
+  // 给还没封面的 AI待审 稿补封面（补图 + 生成封面）
+  async function coverize(limit) {
+    await ensure(); const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.draftT}/records/search`, {}, Object.assign({ page_size: 200 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const out = []; let i = 0;
+    for (const r of rows) {
+      const f = r.fields || {}; if (val(f['状态']) !== 'AI待审' || /封面已生成/.test(val(f['审核意见']))) continue; if (out.length >= (limit || 10)) break;
+      let imgs = (f['素材'] || []).map(x => ({ file_token: x.file_token, url: x.url || x.tmp_url, kind: '' }));
+      if (imgs.length < 3) imgs = imgs.concat(await pickImages(val(f['门店']), 9 - imgs.length));
+      const tok = await makeCover(val(f['门店']), imgs, val(f['封面方案']), i++);
+      const fields = { 素材: (tok ? [{ file_token: tok }] : []).concat(imgs.map(x => ({ file_token: x.file_token }))), 审核意见: (tok ? `封面已生成（第 1 张）；` : '封面没生成；') + `配图 ${imgs.length} 张来自素材图库，请按图片清单核对` };
+      await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.draftT}/records/${r.record_id}`, { fields }); out.push({ code: val(f['稿件编号']), store: val(f['门店']), imgs: imgs.length, cover: !!tok });
+    }
+    return out;
+  }
+  async function coverTest(store, plan) { const imgs = await pickImagesDry(store, 6); const cover = require('./cover'); const bufs = []; for (const x of imgs) { try { bufs.push(await download(x.url)); } catch (e) { } } const m = String(plan || '').match(/^(.*?)「(.*)」/); return cover.render(bufs, { text: m ? m[2] : plan, form: m ? m[1] : '', tag: store, seed: Date.now() % 5 }); }
+  async function pickImagesDry(store, k) {
+    const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    return rows.filter(r => val(r.fields['门店']).includes(store) && !/封面/.test(val(r.fields['类型']))).sort(() => Math.random() - 0.5).slice(0, k).map(r => { const x = (r.fields['图片'] || [])[0] || {}; return { url: x.url || x.tmp_url }; });
   }
   // 同标题的重复稿：留最早一条，其余标「退回 · 重复」（不删，由人删）
   async function markDups() {
@@ -122,6 +150,6 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     for (const r of out) { const k = val(r.fields['标题']).trim(); if (!k) continue; if (seen.has(k)) { if (val(r.fields['状态']) !== '退回') { await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.draftT}/records/${r.record_id}`, { fields: { 状态: '退回', 审核意见: '重复稿（系统搬迁时重复写入），可直接删除' } }); n++; } } else seen.add(k); }
     return { total: out.length, unique: seen.size, marked: n };
   }
-  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups, importLib, pickImages };
+  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups, importLib, pickImages, makeCover, coverize, coverTest };
 }
 module.exports = { createStudio };
