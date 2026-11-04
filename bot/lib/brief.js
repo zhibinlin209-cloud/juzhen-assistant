@@ -94,7 +94,10 @@ function createBrief({ cfg, api, log, llm }) {
         if (!a) { F.missing.push(s); continue; }
         const rev = num(a['总营业额']), prev = b ? num(b['总营业额']) : null;
         const prevDay = Object.keys(days).map(Number).filter(d => d < y).sort((p, q) => q - p)[0]; const pd = prevDay !== undefined ? days[prevDay] : null;
-        const row = { store: s, revenue: rev, lastWeek: prev, wow: rev !== null && prev ? (rev - prev) / prev : null, dpScore: num(a['点评评分']), mtScore: num(a['美团评分']), dyScore: num(a['抖音评分']), dpBad: num(a['点评差评']) || 0, mtBad: num(a['美团差评']) || 0, wmScore: num(a['外卖评分']), wmBad: num(a['外卖差评']) || 0, dyBad: num(a['抖音差评']) || 0, dpScorePrev: pd ? num(pd['点评评分']) : null, mtScorePrev: pd ? num(pd['美团评分']) : null, wmScorePrev: pd ? num(pd['外卖评分']) : null, dyScorePrev: pd ? num(pd['抖音评分']) : null };
+        // 同比：去年同一星期几（往前 364 天）；近 7 天 vs 去年同期 7 天（两边都有数据的天才算）
+        const lyD = days[y - 364]; const lastYear = lyD ? num(lyD['总营业额']) : null;
+        let w7 = 0, w7ly = 0, w7n = 0; for (let k = 0; k < 7; k++) { const c = days[y - k], o = days[y - k - 364]; if (c && o && num(c['总营业额']) && num(o['总营业额'])) { w7 += num(c['总营业额']); w7ly += num(o['总营业额']); w7n++; } }
+        const row = { store: s, revenue: rev, lastWeek: prev, wow: rev !== null && prev ? (rev - prev) / prev : null, lastYear, yoy: rev !== null && lastYear ? (rev - lastYear) / lastYear : null, week7: w7n >= 5 ? w7 : null, week7LastYear: w7n >= 5 ? w7ly : null, yoy7: w7n >= 5 && w7ly ? (w7 - w7ly) / w7ly : null, dpScore: num(a['点评评分']), mtScore: num(a['美团评分']), dyScore: num(a['抖音评分']), dpBad: num(a['点评差评']) || 0, mtBad: num(a['美团差评']) || 0, wmScore: num(a['外卖评分']), wmBad: num(a['外卖差评']) || 0, dyBad: num(a['抖音差评']) || 0, dpScorePrev: pd ? num(pd['点评评分']) : null, mtScorePrev: pd ? num(pd['美团评分']) : null, wmScorePrev: pd ? num(pd['外卖评分']) : null, dyScorePrev: pd ? num(pd['抖音评分']) : null };
         F.stores.push(row);
         if (row.wow !== null && row.wow <= RULE.dropPct) F.alerts.push(`${s} 营业额 ${fmt(rev)}，比上周同日 ${pct(row.wow)}`);
         const bad = row.dpBad + row.mtBad + row.wmBad + row.dyBad; if (bad >= RULE.badRed) F.alerts.push(`${s} 昨天差评 ${bad} 条（点评 ${row.dpBad}、美团 ${row.mtBad}、外卖 ${row.wmBad}、抖音 ${row.dyBad}）`);
@@ -107,6 +110,7 @@ function createBrief({ cfg, api, log, llm }) {
       F.stores.sort((p, q) => (q.revenue || 0) - (p.revenue || 0));
       F.total = F.stores.reduce((t, r) => t + (r.revenue || 0), 0);
       const both = F.stores.filter(r => r.lastWeek); if (both.length) { const a = both.reduce((t, r) => t + r.revenue, 0), b = both.reduce((t, r) => t + r.lastWeek, 0); F.totalWow = (a - b) / b; }
+      const both7 = F.stores.filter(r => r.week7 && r.week7LastYear); if (both7.length) { const a = both7.reduce((t, r) => t + r.week7, 0), b = both7.reduce((t, r) => t + r.week7LastYear, 0); F.totalYoy7 = (a - b) / b; F.yoyNote = `同比口径：近 7 天 vs 去年同期 7 天（往前 364 天、同星期几），${both7.length} 家店有去年数据`; }
       // 推广通（Debbie 每天发报表 → 私密表格「推广通数据」）
       try {
         const T = (await table(priv, '推广通数据')) || [];
@@ -204,7 +208,7 @@ ${JSON.stringify(F)}`;
 
   // ---------- 存档 + 待办与决策（驾驶舱「今天你要做的事」从这里读） ----------
   const SCHEMA = {
-    '简报存档': [['日期', 5], ['类型', 3, ['日报', '周报', '半月报', '月报', '投放分析', '内容分析']], ['正文', 1], ['数据', 1], ['生成方式', 1], ['生成时间', 5]],
+    '简报存档': [['日期', 5], ['类型', 3, ['日报', '周报', '半月报', '月报', '投放分析', '内容分析', '经营复盘']], ['正文', 1], ['数据', 1], ['生成方式', 1], ['生成时间', 5]],
     '待办与决策': [['事项', 1], ['类型', 3, ['投放建议', '营业异常', '口碑', '其他']], ['状态', 3, ['待定', '已同意', '已执行', '不做']], ['详情', 1], ['来源', 1], ['首次出现', 5], ['最近出现', 5], ['唯一键', 1]]
   };
   const ensured = {};
@@ -253,7 +257,7 @@ ${JSON.stringify(F)}`;
   async function latest() {
     if (!cfg.dailyBaseUrl) return null;
     const A = await ensure('简报存档'); const d = await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records/search`, { sort: [{ field_name: '生成时间', desc: true }] }, { page_size: 20 });
-    const f = ((d.items || []).find(x => !['投放分析', '内容分析'].includes(val((x.fields || {})['类型']))) || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null;
+    const f = ((d.items || []).find(x => !['投放分析', '内容分析', '经营复盘'].includes(val((x.fields || {})['类型']))) || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null;
   }
 
   // ---------- 投放分析（AI 写，给驾驶舱和周一私聊）：只基于程序算好的推广通数据 ----------

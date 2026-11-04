@@ -17,6 +17,7 @@ const { createHits } = require('./lib/hits');
 const { createOwnLib } = require('./lib/ownlib');
 const { createOfficial } = require('./lib/official');
 const HIST = require('./lib/dailyimport');
+const { createAnnual } = require('./lib/annual');
 const { readXlsx } = require('./lib/xlsx');
 const { createDeep } = require('./lib/deep');
 
@@ -157,6 +158,12 @@ async function setup() {
   setTimeout(() => ownlib.backfill().catch(() => { }), 90e3); setInterval(() => ownlib.backfill(200).catch(() => { }), 30 * 60e3);
   const official = createOfficial({ cfg, api: { call }, log });
   const histImport = HIST.createDailyImport({ cfg, api: { call }, core, log });
+  const annual = createAnnual({ cfg, api: { call }, core, llm: cfg.qwenKey ? (p => chat(p, 3500)) : null, log });
+  async function sendAnnual(replyTo) {
+    const r = await annual.report(); await brief.saveKind('经营复盘', { text: r.text, by: r.by }, r.F); log('[经营复盘] 已生成（' + r.by + '）');
+    const text = `📊 经营复盘（数据截至 ${r.F.截至}）\n\n` + r.text.replace(/^📊[^\n]*\n+/, '');
+    if (boss) { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text }) }, { receive_id_type: 'open_id' }); if (replyTo) await reply(replyTo, '✅ 经营复盘已私聊发给你'); } else if (replyTo) await reply(replyTo, text);
+  }
   const hits = createHits({ api: { call }, core, llm: cfg.qwenKey ? chat : null, log });
   const DAY0 = 864e5;
   const deep = createDeep({ cfg, api: { call }, core, llm: cfg.qwenKey ? (p => chat(p, 3000)) : null, log, dataDir: DATA_DIR });
@@ -273,6 +280,7 @@ async function setup() {
       return;
     }
     { const sm = text && text.trim().match(/^结算(?:\s*(\d{4})?[-年./]?\s*(\d{1,2})\s*月?)?$/); if (sm && m.chat_id === dailyChatNow()) { const y = sm[1] || String(new Date(Date.now() + 8 * 3600e3).getUTCFullYear()); const mon = sm[2] ? `${y}-${String(sm[2]).padStart(2, '0')}` : lastMonth(); try { await reply(m.message_id, '⏳ 正在算 ' + mon + ' 的结算…'); await reply(m.message_id, await runSettle(mon)); } catch (e) { log('[结算] 出错：' + e.message); await reply(m.message_id, '⚠️ 结算没算出来：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); } return; } }
+    if (text && /^\s*(经营复盘|全年复盘|同比分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, '⏳ 正在做经营复盘（全部历史日报），大概 1–2 分钟…'); await sendAnnual(m.message_id); } catch (e) { log('[经营复盘] 出错：' + e.message); await reply(m.message_id, '⚠️ 经营复盘没跑出来：' + e.message.slice(0, 80)); } return; }
     if (text && /^\s*(深度分析|爆款公式\s*2(\.0)?|内容库分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, '⏳ 正在做深度分析（小红书内容库 + 官方号），大概 1–2 分钟…'); await sendDeep(m.message_id); } catch (e) { log('[深度分析] 出错：' + e.message); await reply(m.message_id, '⚠️ 深度分析没跑出来：' + e.message.slice(0, 80)); } return; }
     if (text && /^\s*(爆款分析|爆款公式)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, '⏳ 正在分析自家内容，大概 1 分钟…'); await sendHits(m.message_id); } catch (e) { log('[爆款公式] 出错：' + e.message); await reply(m.message_id, '⚠️ 爆款分析没跑出来：' + e.message.slice(0, 80)); } return; }
     if (text && /^\s*(投放分析|推广通分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendAds({ replyTo: m.message_id }); return; }
@@ -412,7 +420,7 @@ async function setup() {
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check() });
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts() });
   rawIO.taskLink = id => web.taskLink(id);
   let briefState = {}; try { briefState = JSON.parse(fs.readFileSync(BRIEF_FILE, 'utf8')); } catch (e) { }
   let briefing = false;

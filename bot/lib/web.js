@@ -5,7 +5,7 @@
 const http = require('http'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 
-function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck }) {
+function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts }) {
   const key = crypto.createHash('sha256').update('xiju-cockpit:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (who, exp, kind) => { const body = `${kind}.${who}.${exp}`; return b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url'); };
@@ -66,7 +66,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
       ceo: { patrols: A.patrols, reports: A.count('ceo'), say: (F.alerts[0] ? F.alerts.slice(0, 2).join('；') : (reported ? `昨天 ${reported} 家店营业额合计 ${fmt(F.total)}${F.totalWow != null ? '，比上周同日 ' + pct(F.totalWow) : ''}` : '昨天还没有收到门店日报')) + (F.suggest.length ? `；${F.suggest.length} 条内容值得投放还没投` : '') + '。', last: hm(A.last('ceo').at) },
       agents: [
         { key: 'biz', name: '经营 Agent', hue: 'amber', status: 'ok', big: reported ? fmt(F.total) : '—', unit: '元 · 昨天合计', last: `${hm(A.last('biz').at)} ${A.last('biz').what || '等日报'}`, next: '每 10 分钟', up: `日报 ${hm(A.last('biz').at)}`, down: '补收 每10分钟',
-          sub: [['日报已收', known ? `${reported} / ${known} 家` : '—'], ['比上周同日', pct(F.totalWow)], ['未收到', F.missing.slice(0, 3).join('、') || '无']],
+          sub: [['日报已收', known ? `${reported} / ${known} 家` : '—'], ['比上周同日', pct(F.totalWow)], ['近7天同比去年', pct(F.totalYoy7)], ['未收到', F.missing.slice(0, 3).join('、') || '无']],
           kids: F.stores.slice(0, 6).map(r => ({ name: r.store.replace(/^(深圳|广州|佛山|珠海|东莞|惠州)/, ''), note: r.wow != null ? '比上周 ' + pct(r.wow) : '无上周数据', val: fmt(r.revenue), tone: r.wow != null && r.wow < -0.15 ? 'bad' : 'ok' })) },
         { key: 'content', name: '内容 Agent', hue: 'cyan', status: 'ok', big: String(cy), unit: '条 · 昨天发布', last: `${hm(A.last('content').at)} ${A.last('content').what || '—'}`, next: '随群消息', up: `登记 今天 ${A.count('content')} 次`, down: '截图/分享 随到随办',
           sub: [['近 7 天', `${c7} 条`], ['今日派稿', pipe ? `${pipe.done} / ${pipe.today} 已发` : '—'], ['稿件库待派', pipe ? `${pipe.unassigned} 篇` : '—']],
@@ -79,7 +79,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
           kids: F.stores.filter(r => r.dpScore != null || r.mtScore != null).slice(0, 6).map(r => { const b = r.dpBad + r.mtBad + (r.wmBad || 0) + (r.dyBad || 0); return { name: r.store.replace(/^(深圳|广州|佛山|珠海|东莞|惠州)/, ''), note: `点评 ${r.dpScore ?? '—'} · 美团 ${r.mtScore ?? '—'}`, val: b ? `差评 ${b}` : '0', tone: b ? 'bad' : 'ok' }; }) }
       ],
       todos: todos.filter(t => t.status === '待定' || Date.now() - t.last < 3 * DAY).slice(0, 20),
-      stores: F.stores.map(r => ({ store: r.store, revenue: r.revenue, wow: r.wow, bad: r.dpBad + r.mtBad + (r.wmBad || 0) + (r.dyBad || 0), dp: r.dpScore, mt: r.mtScore, wm: r.wmScore ?? null, dy: r.dyScore ?? null, dpBad: r.dpBad, mtBad: r.mtBad, wmBad: r.wmBad || 0, dyBad: r.dyBad || 0, dpPrev: r.dpScorePrev, mtPrev: r.mtScorePrev })),
+      stores: F.stores.map(r => ({ store: r.store, revenue: r.revenue, wow: r.wow, yoy: r.yoy ?? null, yoy7: r.yoy7 ?? null, bad: r.dpBad + r.mtBad + (r.wmBad || 0) + (r.dyBad || 0), dp: r.dpScore, mt: r.mtScore, wm: r.wmScore ?? null, dy: r.dyScore ?? null, dpBad: r.dpBad, mtBad: r.mtBad, wmBad: r.wmBad || 0, dyBad: r.dyBad || 0, dpPrev: r.dpScorePrev, mtPrev: r.mtScorePrev })),
       rules: { scoreMin: 4.5, minBy: Object.assign({ dp: null, mt: 4.5, wm: 4.5, dy: 4.5 }, cfg.scoreMinBy || {}), engXhs: 5, engDy: 3, minXhs: 1000, minDy: 3000, hotTimes: 2 },
       content: F.content, top7: F.top7 || [], hot: F.hot, tgt: F.tgt || null, ads: adsA ? { text: adsA.text, at: adsA.at, by: adsA.by } : null, deep: deepA ? { text: deepA.text, at: deepA.at, by: deepA.by } : null, pipe: pipe || null,
       missing: F.missing, brief: last ? last.text : '', briefAt: last ? last.at : 0,
@@ -101,6 +101,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
         if (p === '/lib/note' && req.method === 'POST') { let b = ''; for await (const c of req) { b += c; if (b.length > 600000) return sendc(res, 413, '{"ok":false,"error":"太大"}'); } try { return sendc(res, 200, JSON.stringify(await ownlib.ingest(JSON.parse(b || '{}')))); } catch (e) { log('[内容库] 入库失败：' + e.message); return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 120) })); } }
         if (p === '/lib/market' && req.method === 'POST') { let b = ''; for await (const c of req) { b += c; if (b.length > 600000) return sendc(res, 413, '{"ok":false}'); } try { return sendc(res, 200, JSON.stringify(await ownlib.market(JSON.parse(b || '{}')))); } catch (e) { log('[同类爆款] 入库失败：' + e.message); return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 120) })); } }
         if (p === '/lib/market-seen' && req.method === 'GET') return sendc(res, 200, JSON.stringify({ ok: true, ids: ownlib.marketSeen() }));
+        if (p === '/lib/annualfacts' && req.method === 'GET' && annualFacts) return sendc(res, 200, JSON.stringify(await annualFacts()));
         if (p === '/lib/dailycheck' && req.method === 'GET' && dailyCheck) return sendc(res, 200, JSON.stringify(await dailyCheck()));
         if (p === '/lib/export' && req.method === 'GET' && exporter) return sendc(res, 200, JSON.stringify(await exporter()));
         if (p === '/lib/official' && req.method === 'POST' && official) { let b = ''; for await (const c of req) { b += c; if (b.length > 4e6) return sendc(res, 413, '{"ok":false,"error":"太大"}'); } try { return sendc(res, 200, JSON.stringify(await official.sync(JSON.parse(b || '{}')))); } catch (e) { log('[官方号] 同步失败：' + e.message); return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 120) })); } }
