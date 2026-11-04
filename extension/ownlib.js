@@ -156,6 +156,38 @@
     finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } O.busy = false; forceRender(); }
   }
 
+  // ---------- 同类爆款调研：在小红书搜同类关键词，读回近期高赞笔记 ----------
+  const KW0 = '惠州美食攻略\n水东街美食\n惠州本地人小店\n深圳美食攻略\n华强北美食\n白石洲美食\n前海美食\n蛇口美食\n深圳宵夜\n广州美食攻略\n江南西美食\n广州宵夜\n珠海美食攻略\n珠海本地人推荐\n佛山美食攻略\n千灯湖美食\n东莞美食攻略\n海鲜大排档\n粤菜家宴推荐';
+  const R = { busy: false, stop: false, kw: KW0, per: 8, minLike: 300, days: 90, log: [], n: 0, ok: 0 };
+  const rlog = t => { R.log.unshift(new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '  ' + t); R.log = R.log.slice(0, 30); forceRender(); };
+  const num0 = v => { const m = String(v ?? '').replace(/,/g, '').match(/([\d.]+)\s*(万|w)?/i); return m ? parseFloat(m[1]) * (m[2] ? 1e4 : 1) : 0; };
+  async function research() {
+    if (R.busy || S.busy) return toast(S.busy ? '先等自家内容入库这一轮跑完' : '正在调研');
+    R.busy = true; R.stop = false; R.ok = 0; R.n = 0; forceRender();
+    try {
+      const seen = new Set((await srv('/lib/market-seen')).ids || []);
+      const kws = R.kw.split(/\n+/).map(x => x.trim()).filter(Boolean); const since = Date.now() - R.days * 864e5;
+      rlog(`开始调研 ${kws.length} 个关键词，每个读近 ${R.days} 天点赞 ≥${R.minLike} 的前 ${R.per} 篇`);
+      for (const kw of kws) {
+        if (R.stop) break;
+        await nav(`https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(kw)}&source=web_search_result_notes`);
+        let st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { if (!(await waitUnblock(st.blocked))) break; await nav(`https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(kw)}&source=web_search_result_notes`); }
+        const res = await msg({ type: 'rm:collectList', limit: 45 }, 240000);
+        const list = ((res && res.list) || []).filter(x => x.id && !seen.has(x.id) && (!x.time || x.time >= since) && num0(x.likes) >= R.minLike && x.kind !== 'video' && x.type !== 'video').sort((a, b) => num0(b.likes) - num0(a.likes)).slice(0, R.per);
+        rlog(`「${kw}」搜到 ${((res && res.list) || []).length} 篇，符合条件 ${list.length} 篇`);
+        for (const x of list) {
+          if (R.stop) break; R.n++; forceRender();
+          const r = await readOne({ link: x.url }); if (r.stop) { R.stop = true; break; } if (r.err) { rlog(`✗ ${x.title || x.id}：${r.err}`); continue; }
+          try { await srv('/lib/market', { kw, note: r.note, comments: r.comments }); seen.add(x.id); R.ok++; rlog(`✓ 「${kw}」《${(r.note.title || '').slice(0, 18)}》赞 ${r.note.likes}`); } catch (e) { rlog('✗ 交给机器人失败：' + e.message); }
+          await sleep(rand(7000, 13000));
+        }
+        await sleep(rand(15000, 30000));
+      }
+      rlog(`调研完成：入库 ${R.ok} 篇同类爆款`); toast(`同类爆款调研完成：${R.ok} 篇`);
+    } catch (e) { rlog('出错：' + e.message); toast(e.message); }
+    finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; R.busy = false; forceRender(); }
+  }
+
   function view() {
     const I = S.info; const has = CFG().key;
     return `<div class="section-h"><h2>自家内容入库</h2><span class="hint">把我们自己发过的小红书笔记一条条读进「自家内容库」（标题、正文、话题、全部图片、赞藏评、热门评论），机器人再用通义千问分析封面和图片，升级爆款公式</span></div>
@@ -170,6 +202,17 @@
       ${S.busy ? `<div class="hint"><b>${S.paused ? '⏸ 等你在小红书窗口里完成验证…' : `进行中 ${S.i}/${S.n}：${h(S.cur)}`}</b> · 成功 ${S.ok} · 失败 ${S.fail}</div>` : ''}
       ${S.log.length ? `<pre class="small-pre">${h(S.log.slice(0, 12).join('\n'))}</pre>` : ''}
     </div>
+    <div class="section-h"><h2>同类爆款调研</h2><span class="hint">在小红书搜和我们同类的关键词，读回近期高赞图文（标题、正文、前 6 张图、赞藏评、热门评论），存进「同类爆款库」，和自家内容对比</span></div>
+    <div class="panel stack">
+      <label class="f"><span>关键词（一行一个）</span><textarea data-own="kw" rows="4">${h(R.kw)}</textarea></label>
+      <div class="row"><label class="f" style="flex:0 0 auto"><span>每词读</span><select data-own="per">${[5, 8, 12].map(n => `<option ${n === R.per ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label class="f" style="flex:0 0 auto"><span>最低点赞</span><select data-own="minLike">${[100, 300, 1000].map(n => `<option ${n === R.minLike ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <label class="f" style="flex:0 0 auto"><span>时间</span><select data-own="days">${[30, 90, 180].map(n => `<option value="${n}" ${n === R.days ? 'selected' : ''}>近 ${n} 天</option>`).join('')}</select></label>
+        <span class="hint grow">约 1 小时；和自家入库不要同时跑。</span>
+        ${R.busy ? '<button class="btn sm" data-action="fs-own-rstop">停止</button>' : ''}
+        <button class="btn primary" data-action="fs-own-rs" ${R.busy || S.busy || !has ? 'disabled' : ''}>${R.busy ? `调研中 ${R.ok}/${R.n}…` : '开始调研'}</button></div>
+      ${R.log.length ? `<pre class="small-pre">${h(R.log.slice(0, 10).join('\n'))}</pre>` : ''}
+    </div>
     <div class="section-h"><h2>官方号数据</h2><span class="hint">读抖音蓝 V（YES 也是大排档、粤迹）的创作者后台和视频号助手：每条作品的播放、完播率、2 秒跳出、涨粉、主页访问，写进私密表格「官方号作品数据」</span></div>
     <div class="panel stack">
       <div class="row"><span class="hint grow">读的是这个浏览器里 creator.douyin.com <b>当前登录</b>的账号。两个蓝 V：同步完一个，在创作者中心右上角头像「切换账号」换另一个，再点一次。约 1 分钟。</span>
@@ -178,10 +221,11 @@
       ${O.log.length ? `<pre class="small-pre">${h(O.log.slice(0, 8).join('\n'))}</pre>` : ''}
     </div>`;
   }
-  async function act(action) { if (action === 'fs-own-dy') syncDouyin(); if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
+  async function act(action) { if (action === 'fs-own-dy') syncDouyin(); if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
   function attach(root) {
     if (!S.info && CFG().key) refresh();
-    root.addEventListener('change', e => { const t = e.target; if (t.dataset && t.dataset.own === 'batch') S.batch = +t.value || 100; });
+    root.addEventListener('change', e => { const t = e.target; const k = t.dataset && t.dataset.own; if (k === 'batch') S.batch = +t.value || 100; if (k === 'per' || k === 'minLike' || k === 'days') R[k] = +t.value; });
+    root.addEventListener('input', e => { const t = e.target; if (t.dataset && t.dataset.own === 'kw') R.kw = t.value; });
   }
   window.OwnLib = { view, act, attach, _s: S };
 })();

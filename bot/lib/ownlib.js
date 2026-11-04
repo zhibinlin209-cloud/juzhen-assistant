@@ -112,7 +112,36 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
     } catch (e) { log('[内容库] 补看图出错：' + e.message); } finally { filling = false; }
     return n;
   }
+  // ---------- 同类爆款库：插件在小红书搜同类关键词，读回别人的高赞笔记 ----------
+  const MNAME = '同类爆款库';
+  const MCOLS = [['笔记ID', 1], ['链接', 15], ['关键词', 1], ['作者', 1], ['发布时间', 5], ['标题', 1], ['正文', 1], ['话题', 1], ['笔记形式', 1], ['图片数', 2], ['正文字数', 2], ['封面', 17], ['图片', 17], ['点赞', 2], ['收藏', 2], ['评论', 2], ['分享', 2], ['热门评论', 1], ['封面分析', 1], ['读取时间', 5]];
+  let mtid = null; const MFILE = path.join(dataDir, 'market.json'); let M = { done: {} }; try { M = Object.assign(M, JSON.parse(fs.readFileSync(MFILE, 'utf8'))); } catch (e) { }
+  async function mtable() {
+    if (mtid) return mtid; const A = priv(); const t = (await tables(A)).find(x => x.name === MNAME);
+    if (t) return (mtid = t.table_id);
+    const d = await api.call('POST', `/bitable/v1/apps/${A}/tables`, { table: { name: MNAME, default_view_name: '全部', fields: MCOLS.map(([field_name, type]) => ({ field_name, type })) } }); log('[同类爆款] 新建表：' + MNAME); return (mtid = d.table_id);
+  }
+  function marketSeen() { return Object.keys(M.done); }
+  function market(b) { const p = busy.then(() => market1(b)); busy = p.catch(() => { }); return p; }
+  async function market1(b) {
+    const n = b.note || {}; const id = String(n.id || ''); if (!/^[0-9a-f]{24}$/.test(id)) throw new Error('缺少笔记ID'); if (M.done[id]) return { ok: true, dup: true };
+    const A = priv(), T = await mtable();
+    const images = (Array.isArray(n.images) ? n.images : []).filter(u => /^https?:\/\/[^/]*(xhscdn|xiaohongshu)\.(com|net)\//.test(u)).slice(0, 18);
+    const got = []; for (const u of images.slice(0, 6)) { try { got.push(await getImg(u)); } catch (e) { } } // 别人的笔记只存前 6 张
+    const toks = []; for (let i = 0; i < got.length; i++) { try { toks.push({ file_token: await upload(got[i].buf, `${id}-${i + 1}.jpg`, 'bitable_image', A) }); } catch (e) { } }
+    const cover = await tag(got, n.title).catch(() => '');
+    const desc = String(n.desc || ''); const tags = (Array.isArray(n.tags) ? n.tags : []).map(String).filter(Boolean);
+    const cm = (Array.isArray(b.comments) ? b.comments : []).filter(c => c && c.text).sort((a, z) => (num(z.likes) || 0) - (num(a.likes) || 0)).slice(0, 15).map(c => `${c.author ? '【作者】' : ''}${String(c.text).slice(0, 120)}${num(c.likes) ? `（${num(c.likes)}赞）` : ''}`).join('\n');
+    const f = { 笔记ID: id, 链接: { link: `https://www.xiaohongshu.com/explore/${id}`, text: '原帖' }, 关键词: String(b.kw || '').slice(0, 40), 作者: String(n.author || ''), 标题: String(n.title || '').slice(0, 200), 正文: desc.slice(0, 5000), 话题: tags.map(t => '#' + t).join(' '),
+      笔记形式: n.type === 'video' ? '视频' : '图文', 图片数: images.length, 正文字数: desc.replace(/#\S+/g, '').replace(/\s/g, '').length, 点赞: num(n.likes), 收藏: num(n.collects), 评论: num(n.comments), 分享: num(n.shares), 热门评论: cm, 封面分析: cover, 读取时间: Date.now() };
+    if (n.time) f.发布时间 = n.time; if (toks.length) { f.封面 = toks.slice(0, 1); if (toks.length > 1) f.图片 = toks.slice(1); }
+    Object.keys(f).forEach(k => (f[k] === null || f[k] === undefined || f[k] === '') && delete f[k]);
+    await api.call('POST', `/bitable/v1/apps/${A}/tables/${T}/records`, { fields: f });
+    M.done[id] = Date.now(); try { fs.writeFileSync(MFILE, JSON.stringify(M)); const dir = path.join(dataDir, 'market'); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, id + '.json'), JSON.stringify({ kw: b.kw, note: Object.assign({}, n, { images }), comments: b.comments || [], cover, at: Date.now() })); } catch (e) { }
+    log(`[同类爆款] 入库「${b.kw || ''}」${n.author || ''}《${String(n.title || '').slice(0, 20)}》赞 ${n.likes}`);
+    return { ok: true, images: toks.length };
+  }
   function stats() { const v = Object.values(S.done); return { ok: v.filter(x => /^ok/.test(x)).length, fail: v.filter(x => /^fail/.test(x)).length, retry: v.filter(x => /^retry/.test(x)).length }; }
-  return { okKey, todo, ingest, stats, table, backfill };
+  return { okKey, todo, ingest, stats, table, backfill, market, marketSeen };
 }
 module.exports = { createOwnLib };
