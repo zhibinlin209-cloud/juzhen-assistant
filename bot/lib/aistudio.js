@@ -60,7 +60,11 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     return n;
   }
   // 把之前写进「派稿记录」的 AI待审 稿搬过来（派稿记录那边改成「取消」并备注，不删）
+  let migrating = false;
   async function migrateOld() {
+    if (migrating) return 0; migrating = true; try { return await migrate1(); } finally { migrating = false; }
+  }
+  async function migrate1() {
     await ensure(); const app = await core.appToken(); const pg = ((await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === '派稿记录'); if (!pg) return 0;
     const out = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${pg.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
     const ai = out.filter(r => val(r.fields['状态']) === 'AI待审'); const recs = [];
@@ -70,6 +74,13 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     for (const r of ai) await api.call('PUT', `/bitable/v1/apps/${app}/tables/${pg.table_id}/records/${r.record_id}`, { fields: { 状态: '取消', 备注: '已移到「禧聚 AI 内容工作台」→ AI稿件' } });
     log(`[AI工作台] 从派稿记录搬了 ${recs.length} 篇 AI 稿`); return recs.length;
   }
-  return { ensure, info, addDrafts, pushApproved, migrateOld };
+  // 同标题的重复稿：留最早一条，其余标「退回 · 重复」（不删，由人删）
+  async function markDups() {
+    await ensure(); const out = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.draftT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const seen = new Set(); let n = 0; out.sort((a, b) => (a.created_time || 0) - (b.created_time || 0));
+    for (const r of out) { const k = val(r.fields['标题']).trim(); if (!k) continue; if (seen.has(k)) { if (val(r.fields['状态']) !== '退回') { await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.draftT}/records/${r.record_id}`, { fields: { 状态: '退回', 审核意见: '重复稿（系统搬迁时重复写入），可直接删除' } }); n++; } } else seen.add(k); }
+    return { total: out.length, unique: seen.size, marked: n };
+  }
+  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups };
 }
 module.exports = { createStudio };

@@ -5,7 +5,7 @@
 const http = require('http'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 
-function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup }) {
+function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe }) {
   const key = crypto.createHash('sha256').update('xiju-cockpit:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (who, exp, kind) => { const body = `${kind}.${who}.${exp}`; return b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url'); };
@@ -110,6 +110,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
         if (p === '/lib/log' && req.method === 'GET') { const q = String(u.searchParams.get('q') || ''); let t = ''; try { const fs2 = require('fs'), pth = require('path'); const f = pth.join(process.env.BOT_DATA_DIR || pth.join(__dirname, '..'), 'bot.log'); const st = fs2.statSync(f); const fd = fs2.openSync(f, 'r'); const len = Math.min(st.size, 400000); const b = Buffer.alloc(len); fs2.readSync(fd, b, 0, len, st.size - len); fs2.closeSync(fd); t = b.toString('utf8'); } catch (e) { t = 'ERR ' + e.message; } const lines = t.split('\n').filter(l => !q || l.includes(q)).slice(-40).map(l => l.slice(0, 300)); return sendc(res, 200, JSON.stringify({ lines })); }
         if (p === '/lib/camp/move' && req.method === 'POST' && campaign) { try { return sendc(res, 200, JSON.stringify(Object.assign({ ok: true }, await campaign.moveToMarketing(String(u.searchParams.get('name') || ''))))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
         if (p === '/lib/camp/crawl' && req.method === 'POST' && campaign) { const n = String(u.searchParams.get('name') || ''); campaign.crawl(n).catch(e => log('[链接追踪] 读取出错：' + e.message)); return sendc(res, 200, '{"ok":true}'); }
+        if (p === '/lib/studio/dedupe' && req.method === 'POST' && studioDedupe) return sendc(res, 200, JSON.stringify(await studioDedupe()));
         if (p === '/lib/studio/setup' && req.method === 'POST' && studioSetup) { try { return sendc(res, 200, JSON.stringify(await studioSetup())); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         if (p === '/lib/create/last' && req.method === 'GET' && creatorLast) return sendc(res, 200, JSON.stringify(creatorLast()));
         if (p === '/lib/create' && req.method === 'POST' && creator) { try { return sendc(res, 200, JSON.stringify(await creator({ n: +u.searchParams.get('n') || 2, store: u.searchParams.get('store') || '' }))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
