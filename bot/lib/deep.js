@@ -109,6 +109,16 @@ ${JSON.stringify(F)}`;
       return { text, F, by: 'AI' };
     } catch (e) { log('[深度分析] AI 出错：' + e.message); return { text: plain(F), F, by: '纯数字（AI 出错）' }; }
   }
-  return { report, xhs, official, plain };
+  // 给 Claude 做深度分析用：自家内容库全部笔记（精简）+ 原表最新小眼睛/投流 + 官方号全部作品
+  async function exportAll() {
+    const dir = path.join(dataDir, 'ownlib'); let files = []; try { files = fs.readdirSync(dir).filter(f => f.endsWith('.json')); } catch (e) { }
+    const app = await core.appToken(); const t = (await tables(app)).find(x => x.name === '小红书矩阵号-数据'); const live = {};
+    if (t) (await recs(app, t.table_id)).forEach(r => { const f = r.fields || {}; live[r.record_id] = { views: maxOf(f['小眼睛(自动)'], f['小眼睛']), boost: String(val(f['投流状态']) || ''), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, city: String(val(f['笔记城市']) || ''), type: String(val(f['笔记类型']) || '') }; });
+    const notes = files.map(f => { try { const j = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); const rec = f.replace(/\.json$/, ''); const n = j.note || {}; const s = j.src || {}; const L = live[rec] || {};
+      return { rec, acc: s.acc, store: s.store, kind: s.kind, city: L.city, ntype: L.type, date: L.date || s.date || n.time, views: L.views != null ? L.views : s.views, boost: L.boost, title: n.title, desc: String(n.desc || '').slice(0, 1500), tags: n.tags, imgs: (n.images || []).length, form: n.type, likes: n.likes, collects: n.collects, comments: n.comments, shares: n.shares, cover: j.cover, cm: (j.comments || []).slice(0, 10).map(c => [String(c.text || '').slice(0, 100), c.likes, c.author ? 1 : 0]) }; } catch (e) { return null; } }).filter(Boolean);
+    let off = []; const A = priv(); if (A) { const ot = (await tables(A)).find(x => x.name === '官方号作品数据'); if (ot) off = (await recs(A, ot.table_id)).map(r => { const f = r.fields || {}; delete f['封面图']; return f; }); }
+    return { at: Date.now(), notes, official: off };
+  }
+  return { report, xhs, official, plain, exportAll };
 }
 module.exports = { createDeep };

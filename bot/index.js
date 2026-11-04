@@ -162,8 +162,7 @@ async function setup() {
     const text = `🔬 爆款公式 2.0（${new Date(Date.now() + 8 * 3600e3).toISOString().slice(5, 10).replace('-', '/')} · 小红书内容库 + 抖音蓝V/视频号）\n\n` + r.text;
     if (boss) { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text }) }, { receive_id_type: 'open_id' }); if (replyTo) await reply(replyTo, '✅ 爆款公式 2.0 已私聊发给你'); } else if (replyTo) await reply(replyTo, text);
   }
-  // 内容库全部读完后自动出一次 2.0 报告
-  setInterval(async () => { try { const f = path.join(DATA_DIR, 'deep-auto.json'); if (fs.existsSync(f)) return; const t = await ownlib.todo(1); if (t.total && t.left === 0 && t.done >= 300) { fs.writeFileSync(f, JSON.stringify({ at: Date.now() })); await sendDeep(); } } catch (e) { log('[深度分析] 自动出报告失败：' + e.message); } }, 30 * 60e3);
+  // 爆款公式 2.0 由 Claude 深度分析后再汇报，不自动私聊机器人版
   async function sendHits(replyTo) {
     const r = await hits.report(); try { fs.writeFileSync(path.join(DATA_DIR, 'hits-latest.json'), JSON.stringify({ at: Date.now(), text: r.text, by: r.by })); } catch (e) { }
     log('[爆款公式] 已生成（' + r.by + '）\n' + hits.plain(r.F || { 平台: {} }));
@@ -385,7 +384,7 @@ async function setup() {
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official });
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll() });
   rawIO.taskLink = id => web.taskLink(id);
   let briefState = {}; try { briefState = JSON.parse(fs.readFileSync(BRIEF_FILE, 'utf8')); } catch (e) { }
   let briefing = false;
