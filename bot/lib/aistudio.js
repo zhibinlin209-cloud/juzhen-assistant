@@ -4,7 +4,7 @@
 'use strict';
 const fs = require('fs'); const path = require('path');
 const DRAFT_COLS = [['稿件编号', 1], ['状态', 3, ['AI待审', '通过', '退回', '已推送']], ['门店', 1], ['标题', 1], ['文案正文', 1], ['话题标签', 1], ['封面方案', 1], ['图片清单', 1], ['依据', 1], ['素材', 17], ['分发类别', 1], ['内容类型', 1], ['发布平台', 1], ['定位', 1], ['点评定位', 1], ['写手', 1], ['审核意见', 1], ['生成时间', 5], ['推送时间', 5]];
-const LIB_COLS = [['素材编号', 1], ['图片', 17], ['门店', 1], ['菜品', 1], ['类型', 1], ['来源', 1], ['来源笔记', 1], ['标签', 1], ['使用次数', 2], ['最近使用', 5], ['入库时间', 5]];
+const LIB_COLS = [['素材编号', 1], ['图片', 17], ['门店', 1], ['菜品', 1], ['类型', 1], ['来源', 1], ['来源笔记', 1], ['标签', 1], ['使用次数', 2], ['最近使用', 5], ['入库时间', 5], ['可用', 3, ['可用', '不可用']], ['主体', 1], ['有字', 3, ['无', '少', '多']], ['封面分', 2], ['AI识别', 1]];
 const val = v => Array.isArray(v) ? v.map(x => (x && typeof x === 'object') ? (x.text || x.name || '') : String(x)).join('') : (v && typeof v === 'object') ? (v.text || v.name || '') : (v ?? '');
 
 function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }) {
@@ -101,6 +101,40 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
       return { added, total: Object.keys(S.libDone).length };
     } finally { importing = false; }
   }
+  // 素材逐张看图打标（通义千问 VL）：能不能用、主体、菜名、有没有后期大字、是不是别家店、适合当封面几分
+  let tagging = false; const VLS = [...new Set([cfg.qwenModel, 'qwen3-vl-plus', 'qwen-vl-max-latest', 'qwen-vl-max', 'qwen-vl-plus'].filter(Boolean))];
+  async function small(buf) { try { const c = require('@napi-rs/canvas'); const im = await c.loadImage(buf); const r = Math.min(1, 640 / Math.max(im.width, im.height)); const cv = c.createCanvas(Math.round(im.width * r), Math.round(im.height * r)); cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); return cv.encode('jpeg', 80); } catch (e) { return buf.length < 1.5e6 ? buf : null; } }
+  async function vl(bufs) {
+    const prompt = `这 ${bufs.length} 张照片候选给粤式大排档（YES也是大排档 / 粤迹·岭南家宴）的小红书笔记当配图。逐张判断，只输出 JSON 数组，每张一个对象：{"i":序号从1开始,"主体":"菜品|门头|店内环境|街景|风景|人物|海报截图|其他","菜品":"看得出的菜名，看不出就空","有字":"无|少|多"（指后期加上去的大字、贴纸、截图文字；招牌、菜单上的原有字不算）,"别家店":true或false（能看出是别家店的招牌，或明显不是大排档/粤菜馆）,"封面分":0到10（清晰度、色彩、食欲感，适不适合当封面主图）,"可用":true或false（真实拍的菜品/门头/店内，没有大面积后期文字，不是别家店，不是纯风景）}`;
+    for (const model of VLS) {
+      try {
+        const r = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.qwenKey }, signal: AbortSignal.timeout(90000),
+          body: JSON.stringify({ model, temperature: 0.1, max_tokens: 900, messages: [{ role: 'user', content: bufs.map(b => ({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + b.toString('base64') } })).concat([{ type: 'text', text: prompt }]) }] }) });
+        const j = await r.json(); if (!r.ok) { if (/not exist|not found|access/i.test(JSON.stringify(j))) continue; throw new Error(JSON.stringify(j).slice(0, 200)); }
+        const t = (j.choices?.[0]?.message?.content || '').replace(/```json|```/g, ''); const a = JSON.parse(t.slice(t.indexOf('['), t.lastIndexOf(']') + 1)); return a;
+      } catch (e) { if (model === VLS[VLS.length - 1]) throw e; }
+    }
+    return null;
+  }
+  async function tagLib(n, store) {
+    if (tagging || !cfg.qwenKey) return { busy: tagging }; tagging = true; let done = 0, ok = 0;
+    try {
+      await ensure(); const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+      let todo = rows.filter(r => !val(r.fields['AI识别']) && (r.fields['图片'] || [])[0]);
+      if (store) todo = todo.filter(r => val(r.fields['门店']).includes(store)).concat(todo.filter(r => !val(r.fields['门店']).includes(store)));
+      todo = todo.slice(0, n || 60);
+      for (let i = 0; i < todo.length; i += 6) {
+        const grp = todo.slice(i, i + 6), bufs = [], keep = [];
+        for (const r of grp) { try { const x = r.fields['图片'][0]; const b = await small(await download(x.url || x.tmp_url)); if (b) { bufs.push(b); keep.push(r); } } catch (e) { } }
+        if (!bufs.length) continue; let a = null; try { a = await vl(bufs); } catch (e) { log('[AI工作台] 看图打标出错：' + e.message); break; }
+        if (!Array.isArray(a)) continue;
+        const recs = keep.map((r, k) => { const o = a.find(x => +x.i === k + 1) || a[k] || {}; const use = o.可用 === true && o.别家店 !== true && o.有字 !== '多'; if (use) ok++; return { record_id: r.record_id, fields: { 可用: use ? '可用' : '不可用', 主体: String(o.主体 || ''), 菜品: String(o.菜品 || val(r.fields['菜品']) || ''), 有字: ['无', '少', '多'].includes(o.有字) ? o.有字 : null, 封面分: +o.封面分 || 0, AI识别: JSON.stringify(o).slice(0, 300) } }; });
+        await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/batch_update`, { records: recs }); done += recs.length;
+      }
+      if (done) log(`[AI工作台] 素材看图打标 ${done} 张，可用 ${ok} 张`);
+      return { done, ok, left: rows.filter(r => !val(r.fields['AI识别'])).length - done };
+    } finally { tagging = false; }
+  }
   // 给稿件自动配图：同门店、用得少、来自不同笔记的图优先，最多 9 张；用过的计数 +1
   async function pickImages(store, k) {
     if (!S.app || !S.libT) return [];
@@ -108,17 +142,19 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
     const alias = { 保利西街: '千灯湖', 蛇口招商花园城: '花园城', 东城33小镇: '33小镇', 华强北燕南: '华强北', 前海HOP: '前海', '粤迹·岭南家宴': '花园城' };
     const want = alias[key] || key;
-    const cand = rows.filter(r => { const s = val(r.fields['门店']); return s && (s.includes(want) || want.includes(s)); }).filter(r => !r.fields['最近使用'] || r.fields['最近使用'] < Date.now() - 30 * 864e5)
-      .sort((a, b) => (+a.fields['使用次数'] || 0) - (+b.fields['使用次数'] || 0) || Math.random() - 0.5);
+    const all = rows.filter(r => { const s = val(r.fields['门店']); return s && (s.includes(want) || want.includes(s)); }).filter(r => !r.fields['最近使用'] || r.fields['最近使用'] < Date.now() - 30 * 864e5).filter(r => val(r.fields['可用']) !== '不可用');
+    const good = all.filter(r => val(r.fields['可用']) === '可用');
+    const sc = r => (+r.fields['封面分'] || 0) - 3 * (+r.fields['使用次数'] || 0) + Math.random();
+    const cand = (good.length >= Math.min(k || 9, 4) ? good : all).sort((a, b) => sc(b) - sc(a));
     const out = [], usedNote = new Set();
     for (const r of cand) { if (out.length >= (k || 9)) break; const note = val(r.fields['来源笔记']); if (usedNote.has(note) && cand.length > (k || 9) * 2) continue; usedNote.add(note); const img = (r.fields['图片'] || [])[0]; if (img) out.push({ r, img }); }
     for (const x of out) await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/${x.r.record_id}`, { fields: { 使用次数: (+x.r.fields['使用次数'] || 0) + 1, 最近使用: Date.now() } });
-    return out.map(x => ({ file_token: x.img.file_token, url: x.img.url || x.img.tmp_url, kind: val(x.r.fields['类型']) }));
+    return out.map(x => ({ file_token: x.img.file_token, url: x.img.url || x.img.tmp_url, kind: val(x.r.fields['类型']), dish: val(x.r.fields['菜品']), score: +x.r.fields['封面分'] || 0 }));
   }
   // 封面：从配好的图里挑（优先内页图，旧封面上有字），拼图 + 大字，上传成附件，返回 file_token
   async function makeCover(store, imgs, plan, seed) {
     const cover = require('./cover'); if (!cover.ok()) { log('[AI工作台] 封面组件没装好：' + cover.error()); return null; }
-    const order = imgs.filter(x => !/封面/.test(x.kind || '')).concat(imgs.filter(x => /封面/.test(x.kind || '')));
+    const order = imgs.filter(x => !/封面/.test(x.kind || '')).sort((a, b) => (b.score || 0) - (a.score || 0)).concat(imgs.filter(x => /封面/.test(x.kind || '')));
     const bufs = []; for (const x of order.slice(0, 6)) { try { if (x.url) bufs.push(await download(x.url)); } catch (e) { } }
     const m = String(plan || '').match(/^(.*?)「(.*)」/); const form = m ? m[1] : '', text = m ? m[2] : String(plan || '').slice(0, 14);
     const jpg = await cover.render(bufs, { text: text || store, form, tag: String(store || '').replace(/^(深圳|广州|惠州|珠海|佛山|东莞)/, ''), seed });
@@ -141,7 +177,7 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
   async function coverTest(store, plan) { const imgs = await pickImagesDry(store, 6); const cover = require('./cover'); const bufs = []; for (const x of imgs) { try { bufs.push(await download(x.url)); } catch (e) { } } const m = String(plan || '').match(/^(.*?)「(.*)」/); return cover.render(bufs, { text: m ? m[2] : plan, form: m ? m[1] : '', tag: store, seed: Date.now() % 5 }); }
   async function pickImagesDry(store, k) {
     const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
-    return rows.filter(r => val(r.fields['门店']).includes(store) && !/封面/.test(val(r.fields['类型']))).sort(() => Math.random() - 0.5).slice(0, k).map(r => { const x = (r.fields['图片'] || [])[0] || {}; return { url: x.url || x.tmp_url }; });
+    return rows.filter(r => val(r.fields['门店']).includes(store) && val(r.fields['可用']) === '可用').sort((a, b) => (+b.fields['封面分'] || 0) - (+a.fields['封面分'] || 0) + Math.random() * 3 - 1.5).slice(0, k).map(r => { const x = (r.fields['图片'] || [])[0] || {}; return { url: x.url || x.tmp_url }; });
   }
   // 同标题的重复稿：留最早一条，其余标「退回 · 重复」（不删，由人删）
   async function markDups() {
@@ -150,6 +186,6 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     for (const r of out) { const k = val(r.fields['标题']).trim(); if (!k) continue; if (seen.has(k)) { if (val(r.fields['状态']) !== '退回') { await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.draftT}/records/${r.record_id}`, { fields: { 状态: '退回', 审核意见: '重复稿（系统搬迁时重复写入），可直接删除' } }); n++; } } else seen.add(k); }
     return { total: out.length, unique: seen.size, marked: n };
   }
-  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups, importLib, pickImages, makeCover, coverize, coverTest };
+  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups, importLib, pickImages, makeCover, coverize, coverTest, tagLib };
 }
 module.exports = { createStudio };

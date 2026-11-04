@@ -172,7 +172,7 @@ async function setup() {
     let lastDay = -1; setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 11 || lastDay === d) return; lastDay = d; for (const n of C) { try { await campaign.crawl(n); } catch (e) { log('[链接追踪] 每日重读失败：' + e.message); } } }, 10 * 60e3); }
   const studio = createStudio({ cfg, api: { call }, core, upload, download: dl, log, dataDir: DATA_DIR, bossId: () => boss });
   setInterval(() => studio.pushApproved().catch(() => { }), 5 * 60e3);
-  setInterval(() => studio.importLib(400).catch(e => log('[AI工作台] 素材导入出错：' + e.message)), 10 * 60e3); setTimeout(() => studio.importLib(200).catch(() => { }), 120e3);
+  setInterval(() => studio.importLib(400).catch(e => log('[AI工作台] 素材导入出错：' + e.message)), 10 * 60e3); setTimeout(() => studio.importLib(200).catch(() => { }), 120e3); setInterval(() => studio.tagLib(120).catch(e => log('[AI工作台] 打标出错：' + e.message)), 10 * 60e3);
   const creator = createCreator({ cfg, api: { call }, core, deep: () => deep, brief: () => brief, studio: () => studio, log, dataDir: DATA_DIR }); // 后面才定义的模块用函数取，避免启动时还没初始化
   async function sendCreate(o, replyTo) {
     const r = await creator.run(o || {}); const text = `✍️ 创作 Agent 写了 ${r.list.length} 篇小红书稿（${r.model}），已放进「禧聚 AI 内容工作台」的「AI稿件」，状态「AI待审」：\n` + r.list.map(x => `· ${x.code} ${x.store}《${x.title}》`).join('\n') + `\n\nPR 审改、配真实照片后，把状态改成「通过」，机器人会自动推到营销部「派稿记录」（待发布），再按原流程派稿。` + (studio.info().url ? `\n工作台：${studio.info().url}` : '') + ``;
