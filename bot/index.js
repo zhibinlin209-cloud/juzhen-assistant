@@ -171,7 +171,7 @@ async function setup() {
       const b = new Date(Date.now() + 8 * 3600e3); const day = Math.floor((Date.now() + 8 * 3600e3) / DAY0);
       let why = '';
       if (b.getUTCDay() === 1 && b.getUTCHours() >= 10 && b.getUTCHours() < 12 && deepState.week !== day) why = 'week';
-      else if (!deepState.first) { const t = await ownlib.todo(1); if (t.total && t.left <= 5 && t.done >= 300) why = 'first'; }
+      else if (!deepState.first) { const t = await ownlib.todo(1); if (t.total && t.left <= 5 && t.done >= 300) { if (!deepState.ownDone) { deepState.ownDone = Date.now(); fs.writeFileSync(DEEP_F, JSON.stringify(deepState)); } let mk = 0; try { mk = fs.readdirSync(path.join(DATA_DIR, 'market')).length; } catch (e) { } if (mk >= 80 || Date.now() - deepState.ownDone > 4 * 3600e3) why = 'first'; } } // 等同类爆款调研也跑完（或自家读完 4 小时后）再出第一份
       if (!why) return;
       if (why === 'week') deepState.week = day; else deepState.first = Date.now();
       fs.writeFileSync(DEEP_F, JSON.stringify(deepState)); await sendDeep();
