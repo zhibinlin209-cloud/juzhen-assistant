@@ -50,9 +50,9 @@ function createCreator({ cfg, api, core, deep, brief, studio, log, dataDir }) {
 
   // 选店：近 14 天稿件/发布少的、经营下滑的优先
   function pickStores(n, only, recent, weak) {
-    let list = STORES.filter(x => !only || x.s.includes(only) || x.key.includes(only) || x.b.includes(only));
+    const ol = String(only || '').split(/[,，、\s]+/).filter(Boolean); let list = STORES.filter(x => !ol.length || ol.some(o => x.s.includes(o) || x.key.includes(o) || x.b.includes(o)));
     if (!list.length) list = STORES;
-    const score = x => (recent[x.s] || 0) - (weak.includes(x.s) ? 3 : 0);
+    const score = x => ol.length > 1 ? ol.findIndex(o => x.s.includes(o) || x.key.includes(o)) : (recent[x.s] || 0) - (weak.includes(x.s) ? 3 : 0);
     const sorted = list.slice().sort((a, b) => score(a) - score(b)); const out = [];
     for (let i = 0; out.length < n; i++) out.push(sorted[i % sorted.length]);
     return out;
