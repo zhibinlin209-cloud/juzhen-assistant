@@ -131,14 +131,17 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
       let todo = rows.filter(r => !/字占比/.test(val(r.fields['AI识别'])) && (r.fields['图片'] || [])[0]);
       if (store) todo = todo.filter(r => val(r.fields['门店']).includes(store)).concat(todo.filter(r => !val(r.fields['门店']).includes(store)));
       todo = todo.slice(0, n || 60);
-      for (let i = 0; i < todo.length; i += 6) {
-        const grp = todo.slice(i, i + 6), bufs = [], keep = [];
+      const groups = []; for (let i = 0; i < todo.length; i += 6) groups.push(todo.slice(i, i + 6)); let stop = false;
+      const worker = async () => { while (groups.length && !stop) { const grp = groups.shift(); try { await one(grp); } catch (e) { log('[AI工作台] 看图打标出错：' + e.message); stop = true; } } };
+      const one = async grp => {
+        const bufs = [], keep = [];
         for (const r of grp) { try { const x = r.fields['图片'][0]; const b = await small(await download(x.url || x.tmp_url)); if (b) { bufs.push(b); keep.push(r); } } catch (e) { } }
-        if (!bufs.length) continue; let a = null; try { a = await vl(bufs); } catch (e) { log('[AI工作台] 看图打标出错：' + e.message); break; }
-        if (!Array.isArray(a)) continue;
+        if (!bufs.length) return; const a = await vl(bufs);
+        if (!Array.isArray(a)) return;
         const recs = keep.map((r, k) => { const o = a.find(x => +x.i === k + 1) || a[k] || {}; const use = judge(o); if (use) ok++; return { record_id: r.record_id, fields: { 可用: use ? '可用' : '不可用', 主体: String(o.主体 || '') + (o.别家店 === true ? '·周边' : ''), 菜品: String(o.菜品 || val(r.fields['菜品']) || ''), 有字: ['无', '少', '多'].includes(o.有字) ? o.有字 : null, 封面分: +o.封面分 || 0, AI识别: JSON.stringify(o).slice(0, 300) } }; });
         await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/batch_update`, { records: recs }); done += recs.length;
-      }
+      };
+      await Promise.all([worker(), worker(), worker(), worker()]);
       if (done) log(`[AI工作台] 素材看图打标 ${done} 张，可用 ${ok} 张`);
       return { done, ok, left: rows.filter(r => !/字占比/.test(val(r.fields['AI识别']))).length - done };
     } finally { tagging = false; }
@@ -187,22 +190,24 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
     const alias = { 保利西街: '千灯湖', 蛇口招商花园城: '花园城', 东城33小镇: '33小镇', 华强北燕南: '华强北', 前海HOP: '前海', '粤迹·岭南家宴': '花园城' };
     const want = alias[key] || key;
-    const all = rows.filter(r => { const s = val(r.fields['门店']); return s && (s.includes(want) || want.includes(s)); }).filter(r => !r.fields['最近使用'] || r.fields['最近使用'] < Date.now() - 30 * 864e5).filter(r => val(r.fields['可用']) !== '不可用');
+    const all = rows.filter(r => { const s = val(r.fields['门店']); return s && (s.includes(want) || want.includes(s)); }).filter(r => !r.fields['最近使用'] || r.fields['最近使用'] < Date.now() - 30 * 864e5);
     const good = all.filter(r => val(r.fields['可用']) === '可用');
-    const sc = r => (+r.fields['封面分'] || 0) - (/周边/.test(val(r.fields['主体'])) ? 3 : 0) - 3 * (+r.fields['使用次数'] || 0) + Math.random();
-    const cand = (good.length >= Math.min(k || 9, 4) ? good : all).sort((a, b) => sc(b) - sc(a));
+    const txt = r => { try { return +JSON.parse(val(r.fields['AI识别']) || '{}').字占比 || 30; } catch (e) { return 30; } };
+    const sc = r => (val(r.fields['可用']) === '可用' ? 10 : 0) - txt(r) / 10 + (+r.fields['封面分'] || 0) - (/周边/.test(val(r.fields['主体'])) ? 3 : 0) - 3 * (+r.fields['使用次数'] || 0) + Math.random();
+    const cand = all.filter(r => txt(r) < 70).sort((a, b) => sc(b) - sc(a));
     const out = [], usedNote = new Set();
     for (const r of cand) { if (out.length >= (k || 9)) break; const note = val(r.fields['来源笔记']); if (usedNote.has(note) && cand.length > (k || 9) * 2) continue; usedNote.add(note); const img = (r.fields['图片'] || [])[0]; if (img) out.push({ r, img }); }
     for (const x of out) await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/${x.r.record_id}`, { fields: { 使用次数: (+x.r.fields['使用次数'] || 0) + 1, 最近使用: Date.now() } });
-    return out.map(x => ({ file_token: x.img.file_token, url: x.img.url || x.img.tmp_url, kind: val(x.r.fields['类型']) + (/周边/.test(val(x.r.fields['主体'])) ? '·周边' : ''), dish: val(x.r.fields['菜品']), score: +x.r.fields['封面分'] || 0 }));
+    return out.map(x => ({ file_token: x.img.file_token, url: x.img.url || x.img.tmp_url, kind: val(x.r.fields['类型']) + (/周边/.test(val(x.r.fields['主体'])) ? '·周边' : ''), ok: val(x.r.fields['可用']) === '可用', dish: val(x.r.fields['菜品']), score: +x.r.fields['封面分'] || 0 }));
   }
   // 封面：从配好的图里挑（优先内页图，旧封面上有字），拼图 + 大字，上传成附件，返回 file_token
   async function makeCover(store, imgs, plan, seed) {
     const cover = require('./cover'); if (!cover.ok()) { log('[AI工作台] 封面组件没装好：' + cover.error()); return null; }
-    const rank = x => (x.score || 0) - (/周边/.test(x.kind || '') ? 4 : 0) - (/封面/.test(x.kind || '') ? 6 : 0); const order = imgs.slice().sort((a, b) => rank(b) - rank(a));
+    const rank = x => (x.ok ? 10 : 0) + (x.score || 0) - (/周边/.test(x.kind || '') ? 4 : 0) - (/封面/.test(x.kind || '') ? 6 : 0); const order = imgs.slice().sort((a, b) => rank(b) - rank(a));
     const bufs = []; for (const x of order.slice(0, 6)) { try { if (x.url) bufs.push(await download(x.url)); } catch (e) { } }
     const m = String(plan || '').match(/^(.*?)「(.*)」/); const form = m ? m[1] : '', text = m ? m[2] : String(plan || '').slice(0, 14);
-    const jpg = await cover.render(bufs, { text: text || store, form, tag: String(store || '').replace(/^(深圳|广州|惠州|珠海|佛山|东莞)/, ''), seed });
+    const clean = order.filter(x => x.ok && !/周边|封面/.test(x.kind || '')).length;
+    const jpg = await cover.render(bufs, { text: text || store, form, clean, tag: String(store || '').replace(/^(深圳|广州|惠州|珠海|佛山|东莞)/, ''), seed });
     if (!jpg) return null; return upload(jpg, '封面.jpg', 'bitable_image', S.app);
   }
   // 给还没封面的 AI待审 稿补封面（补图 + 生成封面）
@@ -219,10 +224,10 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     }
     return out;
   }
-  async function coverTest(store, plan) { const imgs = await pickImagesDry(store, 6); const cover = require('./cover'); const bufs = []; for (const x of imgs) { try { bufs.push(await download(x.url)); } catch (e) { } } const m = String(plan || '').match(/^(.*?)「(.*)」/); return cover.render(bufs, { text: m ? m[2] : plan, form: m ? m[1] : '', tag: store, seed: Date.now() % 5 }); }
+  async function coverTest(store, plan) { const imgs = await pickImagesDry(store, 6); const cover = require('./cover'); const bufs = []; for (const x of imgs) { try { bufs.push(await download(x.url)); } catch (e) { } } const m = String(plan || '').match(/^(.*?)「(.*)」/); return cover.render(bufs, { text: m ? m[2] : plan, form: m ? m[1] : '', tag: store, seed: Date.now() % 5, clean: imgs.filter(x => x.ok).length }); }
   async function pickImagesDry(store, k) {
     const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
-    return rows.filter(r => val(r.fields['门店']).includes(store) && val(r.fields['可用']) === '可用').sort((a, b) => (+b.fields['封面分'] || 0) - (+a.fields['封面分'] || 0) + Math.random() * 3 - 1.5).slice(0, k).map(r => { const x = (r.fields['图片'] || [])[0] || {}; return { url: x.url || x.tmp_url }; });
+    return rows.filter(r => val(r.fields['门店']).includes(store) && val(r.fields['AI识别'])).sort((a, b) => (val(b.fields['可用']) === '可用') * 10 + (+b.fields['封面分'] || 0) - (val(a.fields['可用']) === '可用') * 10 - (+a.fields['封面分'] || 0) + Math.random() * 2 - 1).slice(0, k).map(r => { const x = (r.fields['图片'] || [])[0] || {}; return { url: x.url || x.tmp_url, ok: val(r.fields['可用']) === '可用' }; });
   }
   // 同标题的重复稿：留最早一条，其余标「退回 · 重复」（不删，由人删）
   async function markDups() {

@@ -49,15 +49,17 @@ function pill(ctx, text, x, y) {
 }
 
 /* bufs：照片 Buffer 数组（第一张当主图）；text：封面大字；form：拼图/大字报/攻略长图；tag：左上角小字（门店） */
-async function render(bufs, { text, form, tag, seed } = {}) {
+async function render(bufs, { text, form, tag, seed, clean: opt_clean } = {}) {
   const c = lib(); if (!c) return null;
   const imgs = []; for (const b of bufs) { try { imgs.push(await c.loadImage(b)); } catch (e) { } if (imgs.length >= 6) break; }
   if (!imgs.length) return null;
   const cv = c.createCanvas(W, H), ctx = cv.getContext('2d'); ctx.fillStyle = '#111'; ctx.fillRect(0, 0, W, H);
   const colors = PALETTE[(seed || 0) % PALETTE.length], ls = lines(text), g = 8;
   const f = String(form || '');
-  if (/大字/.test(f) || imgs.length < 3) { // 大字报：一张满版 + 压暗 + 正中大字
-    fit(ctx, imgs[0], 0, 0, W, H);
+  const clean = Math.min(imgs.length, +opt_clean || imgs.length);
+  if (/大字/.test(f) || imgs.length < 3 || clean < 3) { // 大字报：满版（干净图不够就把背景虚化，原图上的字看不清）+ 压暗 + 正中大字；有干净图就做成两张拍立得
+    ctx.save(); if (clean < 3) ctx.filter = 'blur(28px)'; fit(ctx, imgs[0], -40, -40, W + 80, H + 80); ctx.restore();
+    if (clean >= 1 && clean < 3) { const pw = 560, ph = 560; [[W / 2 - 300, 170, -0.06, 0], [W / 2 - 220, 870, 0.05, 1]].slice(0, clean).forEach(([x, y, a, i]) => { ctx.save(); ctx.translate(x + pw / 2, y + ph / 2); ctx.rotate(a); ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 30; ctx.fillRect(-pw / 2 - 18, -ph / 2 - 18, pw + 36, ph + 70); ctx.shadowBlur = 0; fit(ctx, imgs[i], -pw / 2, -ph / 2, pw, ph); ctx.restore(); }); }
     const gr = ctx.createLinearGradient(0, 0, 0, H); gr.addColorStop(0, 'rgba(0,0,0,0.15)'); gr.addColorStop(0.5, 'rgba(0,0,0,0.45)'); gr.addColorStop(1, 'rgba(0,0,0,0.2)');
     ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
     bigText(ctx, ls, H * 0.5, colors, W - 140);
