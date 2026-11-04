@@ -94,8 +94,9 @@ ${formula ? '【上周 AI 内容分析结论】' + formula.text.slice(0, 2500) :
     });
     const A = app; for (let i = 0; i < recs.length; i += 100) await api.call('POST', `/bitable/v1/apps/${A}/tables/${PG.t.table_id}/records/batch_create`, { records: recs.slice(i, i + 100) });
     log(`[创作] ${model} 写了 ${out.length} 篇进派稿记录（AI待审）：${out.map(x => x.title).join('｜')}`);
-    return { model, list: out };
+    lastRun = { at: Date.now(), model, list: out }; return { model, list: out };
   }
-  return { run, STORES };
+  let lastRun = null;
+  return { run, STORES, last: () => lastRun };
 }
 module.exports = { createCreator };
