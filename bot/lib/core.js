@@ -464,7 +464,7 @@ function createCore({ cfg, api, log }) {
     }
     return out;
   }
-  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, load, loadT, _st: st, _match: match };
+  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, dailyAppToken, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案

@@ -16,6 +16,8 @@ const { createSettle, replyForSettle } = require('./lib/settle');
 const { createHits } = require('./lib/hits');
 const { createOwnLib } = require('./lib/ownlib');
 const { createOfficial } = require('./lib/official');
+const HIST = require('./lib/dailyimport');
+const { readXlsx } = require('./lib/xlsx');
 const { createDeep } = require('./lib/deep');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
@@ -154,6 +156,7 @@ async function setup() {
   const ownlib = createOwnLib({ cfg, api: { call }, core, upload, download: dl, log, dataDir: DATA_DIR });
   setTimeout(() => ownlib.backfill().catch(() => { }), 90e3); setInterval(() => ownlib.backfill(200).catch(() => { }), 30 * 60e3);
   const official = createOfficial({ cfg, api: { call }, log });
+  const histImport = HIST.createDailyImport({ cfg, api: { call }, core, log });
   const hits = createHits({ api: { call }, core, llm: cfg.qwenKey ? chat : null, log });
   const DAY0 = 864e5;
   const deep = createDeep({ cfg, api: { call }, core, llm: cfg.qwenKey ? (p => chat(p, 3000)) : null, log, dataDir: DATA_DIR });
@@ -232,7 +235,18 @@ async function setup() {
       if (/\.(mp4|m4v|mov)$/i.test(c.file_name || '')) { lastVideo.set(sid, { mid: m.message_id, key: c.file_key, name: c.file_name, at: Date.now() }); return; }
       if (m.message_type === 'media') return;
       if (/\.xlsx$/i.test(c.file_name || '')) {
-        try { const buf = await fileBuf(m.message_id, c.file_key); const r = await tgt.ingest(buf); if (r) { await reply(m.message_id, replyForTgt(r)); if (r.rows) brief.ads().catch(e => log('[投放分析] 出错 ' + e.message)); }
+        try { const buf = await fileBuf(m.message_id, c.file_key);
+          let rows0 = null; try { rows0 = readXlsx(buf); } catch (e) { }
+          if (rows0 && HIST.isHistory(rows0)) { // 华付导出的历史营业日报：只认经营日报群（营业数据是私密的）
+            if (m.chat_id !== dailyChatNow()) { await reply(m.message_id, '⚠️ 营业日报属于私密数据，请发到「经营日报」群'); return; }
+            const p = HIST.parse(rows0); const w = await histImport.run(p.good); const st = (p.good[0] || {}).store || c.file_name;
+            const ds = p.good.map(x => x.ts).sort((a, b) => a - b); const fmtD = t => new Date(t + 8 * 3600e3).toISOString().slice(0, 10);
+            const span = ds.length ? Math.round((ds[ds.length - 1] - ds[0]) / 864e5) + 1 : 0;
+            await reply(m.message_id, `📒 ${st} 历史日报：${ds.length ? fmtD(ds[0]) + ' ~ ' + fmtD(ds[ds.length - 1]) : ''}，可用 ${p.good.length} 天（期间缺 ${span - p.good.length} 天）\n新增 ${w.added} 条，表里已有 ${w.existed} 条（不覆盖）\n去掉重复/补录 ${p.dups} 条（同一天保留最后录入的），按「数据关联」纠正日期 ${p.fixed} 条${p.skipped ? `，营业额为空跳过 ${p.skipped} 条` : ''}` +
+              (p.outliers.length ? `\n⚠️ 疑似录错没导入：${p.outliers.map(x => fmtD(x.ts) + ' 营业额 ' + x.f.总营业额).join('；')}` : '') + (p.badDate.length ? `\n⚠️ 日期认不出：${p.badDate.slice(0, 5).join('；')}` : '') + (w.diff.length ? `\n⚠️ 和表里已有数字不一致：${w.diff.slice(0, 5).join('；')}` : ''));
+            return;
+          }
+          const r = await tgt.ingest(buf); if (r) { await reply(m.message_id, replyForTgt(r)); if (r.rows) brief.ads().catch(e => log('[投放分析] 出错 ' + e.message)); }
           else { const pr = await people.importSettle(buf); if (pr) { let n = 0; try { n = await people.linkAliases(await accounts.map(true)); } catch (e) { log('[人员] 补叫法出错 ' + e.message); } const ps = await people.list(true); await reply(m.message_id, `👥 人员账号对照已更新：${pr.rows} 人（新增 ${pr.added}、更新 ${pr.updated}），自动认出数据表里的叫法 ${n} 人\n` + ps.slice(0, 60).map(p => `· ${p['真实姓名']}（微信 ${p['微信名'] || '—'}）抖音 ${p['抖音账号'] || '—'} · 小红书 ${p['小红书账号'] || '—'}${p['数据表叫法'] ? ' · 表里叫 ' + p['数据表叫法'] : ''}`).join('\n') + '\n存在你的私密表格「人员账号对照」，可以直接改。'); try { await fillAccounts(); } catch (e) { } } } } catch (e) { if (e.message === 'NO_PRIVATE_BASE') return; log('[表格文件] 处理出错：', e.message); await reply(m.message_id, '⚠️ 这个表格没处理成功：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); }
       }
       return;
