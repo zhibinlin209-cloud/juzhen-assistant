@@ -19,6 +19,7 @@ const { createOfficial } = require('./lib/official');
 const HIST = require('./lib/dailyimport');
 const { createAnnual } = require('./lib/annual');
 const { createCampaign } = require('./lib/campaign');
+const { createCreator } = require('./lib/creator');
 const { readXlsx } = require('./lib/xlsx');
 const { createDeep } = require('./lib/deep');
 
@@ -168,6 +169,15 @@ async function setup() {
     campaign.remember = n => { if (!C.includes(n)) { C.push(n); fs.writeFileSync(CF, JSON.stringify(C)); } };
     // 每天 11 点把登记过的链接追踪表重读一遍，更新赞藏评
     let lastDay = -1; setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 11 || lastDay === d) return; lastDay = d; for (const n of C) { try { await campaign.crawl(n); } catch (e) { log('[链接追踪] 每日重读失败：' + e.message); } } }, 10 * 60e3); }
+  const creator = createCreator({ cfg, api: { call }, core, deep: () => deep, brief: () => brief, log }); // 后面才定义的模块用函数取，避免启动时还没初始化
+  async function sendCreate(o, replyTo) {
+    const r = await creator.run(o || {}); const text = `✍️ 创作 Agent 写了 ${r.list.length} 篇小红书稿（${r.model}），已放进「派稿记录」，状态「AI待审」：\n` + r.list.map(x => `· ${x.code} ${x.store}《${x.title}》`).join('\n') + `\n\nPR 审改、配真实照片后，把状态改成「待发布」并填派稿日期和发布人员，就会走正常派稿。`;
+    if (boss) await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text }) }, { receive_id_type: 'open_id' });
+    if (replyTo) await reply(replyTo, boss ? '✅ 已写好，详情私聊你了' : text); return r;
+  }
+  // 每周一 10:40（内容分析 10:00 之后）自动写一批
+  { const CF2 = path.join(DATA_DIR, 'create-state.json'); let cs = {}; try { cs = JSON.parse(fs.readFileSync(CF2, 'utf8')); } catch (e) { }
+    setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCDay() !== 1 || b.getUTCHours() !== 10 || b.getUTCMinutes() < 40 || cs.week === d) return; cs.week = d; try { fs.writeFileSync(CF2, JSON.stringify(cs)); } catch (e) { } try { await sendCreate({ n: cfg.weeklyDrafts || 8 }); } catch (e) { log('[创作] 每周写稿失败：' + e.message); } }, 5 * 60e3); }
   const annual = createAnnual({ cfg, api: { call }, core, llm: cfg.qwenKey ? (p => chat(p, 3500)) : null, log });
   async function sendAnnual(replyTo) {
     const r = await annual.report(); await brief.saveKind('经营复盘', { text: r.text, by: r.by }, r.F); log('[经营复盘] 已生成（' + r.by + '）');
@@ -290,6 +300,7 @@ async function setup() {
       return;
     }
     { const sm = text && text.trim().match(/^结算(?:\s*(\d{4})?[-年./]?\s*(\d{1,2})\s*月?)?$/); if (sm && m.chat_id === dailyChatNow()) { const y = sm[1] || String(new Date(Date.now() + 8 * 3600e3).getUTCFullYear()); const mon = sm[2] ? `${y}-${String(sm[2]).padStart(2, '0')}` : lastMonth(); try { await reply(m.message_id, '⏳ 正在算 ' + mon + ' 的结算…'); await reply(m.message_id, await runSettle(mon)); } catch (e) { log('[结算] 出错：' + e.message); await reply(m.message_id, '⚠️ 结算没算出来：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); } return; } }
+    { const mm = text && text.match(/^\s*(?:AI写稿|AI 写稿|写稿)\s*(\d+)?\s*(\S+)?\s*$/i); if (mm && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, `⏳ 创作 Agent 正在写 ${mm[1] || 6} 篇${mm[2] ? '（' + mm[2] + '）' : ''}，大概 1–3 分钟…`); await sendCreate({ n: +mm[1] || 6, store: mm[2] || '' }, m.message_id); } catch (e) { log('[创作] 出错：' + e.message); await reply(m.message_id, '⚠️ 写稿没成功：' + e.message.slice(0, 80)); } return; } }
     if (text && /^\s*(经营复盘|全年复盘|同比分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, '⏳ 正在做经营复盘（全部历史日报），大概 1–2 分钟…'); await sendAnnual(m.message_id); } catch (e) { log('[经营复盘] 出错：' + e.message); await reply(m.message_id, '⚠️ 经营复盘没跑出来：' + e.message.slice(0, 80)); } return; }
     if (text && /^\s*(深度分析|爆款公式\s*2(\.0)?|内容库分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, '⏳ 正在做深度分析（小红书内容库 + 官方号），大概 1–2 分钟…'); await sendDeep(m.message_id); } catch (e) { log('[深度分析] 出错：' + e.message); await reply(m.message_id, '⚠️ 深度分析没跑出来：' + e.message.slice(0, 80)); } return; }
     if (text && /^\s*(爆款分析|爆款公式)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, '⏳ 正在分析自家内容，大概 1 分钟…'); await sendHits(m.message_id); } catch (e) { log('[爆款公式] 出错：' + e.message); await reply(m.message_id, '⚠️ 爆款分析没跑出来：' + e.message.slice(0, 80)); } return; }
@@ -430,7 +441,7 @@ async function setup() {
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign });
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o) });
   rawIO.taskLink = id => web.taskLink(id);
   let briefState = {}; try { briefState = JSON.parse(fs.readFileSync(BRIEF_FILE, 'utf8')); } catch (e) { }
   let briefing = false;
