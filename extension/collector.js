@@ -158,6 +158,7 @@
   function blocked() {
     const url = location.href;
     const bodyText = (document.body && document.body.innerText || '').slice(0, 3000);
+    if (/^\/404/.test(location.pathname) || /暂时无法浏览/.test(bodyText)) return null; // 笔记打不开（链接过期/仅 App 可看），不是验证
     if (/captcha|verify|website-login\/error/i.test(url)) return '平台要求安全验证';
     const capSel = ['#captcha_container', '.captcha_verify_container', '.captcha-verify-container', '[id^="captcha"]', 'iframe[src*="captcha"]', '.red-captcha', '#red-captcha'];
     if (capSel.some(s => visible($(s)))) return '平台要求安全验证（滑块/点选）';
