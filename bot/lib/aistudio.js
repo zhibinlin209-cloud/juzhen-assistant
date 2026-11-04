@@ -105,7 +105,7 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
   let tagging = false; const VLS = [...new Set([cfg.qwenModel, 'qwen3-vl-plus', 'qwen-vl-max-latest', 'qwen-vl-max', 'qwen-vl-plus'].filter(Boolean))];
   async function small(buf) { try { const c = require('@napi-rs/canvas'); const im = await c.loadImage(buf); const r = Math.min(1, 640 / Math.max(im.width, im.height)); const cv = c.createCanvas(Math.round(im.width * r), Math.round(im.height * r)); cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); return cv.encode('jpeg', 80); } catch (e) { return buf.length < 1.5e6 ? buf : null; } }
   async function vl(bufs) {
-    const prompt = `这 ${bufs.length} 张照片候选给粤式大排档（YES也是大排档 / 粤迹·岭南家宴）的小红书笔记当配图。逐张判断，只输出 JSON 数组，每张一个对象：{"i":序号从1开始,"主体":"菜品|门头|店内环境|街景|风景|人物|海报截图|其他","菜品":"看得出的菜名，看不出就空","有字":"无|少|多"（指后期加上去的大字、贴纸、截图文字；招牌、菜单上的原有字不算）,"别家店":true或false（能看出是别家店的招牌，或明显不是大排档/粤菜馆）,"封面分":0到10（清晰度、色彩、食欲感，适不适合当封面主图）,"可用":true或false（真实拍的菜品/门头/店内，没有大面积后期文字，不是别家店，不是纯风景）}`;
+    const prompt = `这 ${bufs.length} 张照片候选给粤式大排档（YES也是大排档 / 粤迹·岭南家宴）的小红书笔记当配图。逐张判断，只输出 JSON 数组，每张一个对象：{"i":序号从1开始,"主体":"菜品|门头|店内环境|街景|风景|人物|海报截图|其他","菜品":"看得出的菜名，看不出就空","字占比":0到100（画面里所有印刷/后期加上去的文字、标题条、贴纸、截图文字大概占整张图面积的百分比；实拍里招牌、菜单上的原有小字按实际面积算，一般很小）,"有字":"无|少|多","别家店":true或false（能看出是别家店的招牌，或明显不是大排档/粤菜馆）,"封面分":0到10（清晰度、色彩、食欲感，适不适合当封面主图）,"可用":true或false（真实拍的菜品/门头/店内，没有大面积后期文字，不是别家店，不是纯风景）}`;
     for (const model of VLS) {
       try {
         const r = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.qwenKey }, signal: AbortSignal.timeout(90000),
@@ -117,7 +117,7 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     return null;
   }
   // 能不能用：没有大面积后期字、不是海报截图/杂图、清晰度够；别家店的图也算（攻略稿里周边店要用），但标「周边」，封面主图不用它
-  const judge = o => o && o.有字 !== '多' && !/海报|截图|其他|风景/.test(String(o.主体 || '')) && (+o.封面分 || 0) >= 5;
+  const judge = o => o && (o.字占比 !== undefined ? +o.字占比 <= 8 : o.有字 === '无') && !/海报|截图|其他|风景/.test(String(o.主体 || '')) && (+o.封面分 || 0) >= 5;
   async function rejudge() {
     await ensure(); const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
     const ups = []; let ok = 0; for (const r of rows) { const t = val(r.fields['AI识别']); if (!t) continue; let o; try { o = JSON.parse(t); } catch (e) { continue; } const use = judge(o); if (use) ok++; ups.push({ record_id: r.record_id, fields: { 可用: use ? '可用' : '不可用', 主体: String(o.主体 || '') + (o.别家店 === true ? '·周边' : '') } }); }
@@ -128,7 +128,7 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     if (tagging || !cfg.qwenKey) return { busy: tagging }; tagging = true; let done = 0, ok = 0;
     try {
       await ensure(); const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
-      let todo = rows.filter(r => !val(r.fields['AI识别']) && (r.fields['图片'] || [])[0]);
+      let todo = rows.filter(r => !/字占比/.test(val(r.fields['AI识别'])) && (r.fields['图片'] || [])[0]);
       if (store) todo = todo.filter(r => val(r.fields['门店']).includes(store)).concat(todo.filter(r => !val(r.fields['门店']).includes(store)));
       todo = todo.slice(0, n || 60);
       for (let i = 0; i < todo.length; i += 6) {
@@ -140,7 +140,7 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
         await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/batch_update`, { records: recs }); done += recs.length;
       }
       if (done) log(`[AI工作台] 素材看图打标 ${done} 张，可用 ${ok} 张`);
-      return { done, ok, left: rows.filter(r => !val(r.fields['AI识别'])).length - done };
+      return { done, ok, left: rows.filter(r => !/字占比/.test(val(r.fields['AI识别']))).length - done };
     } finally { tagging = false; }
   }
   async function libStats() {
