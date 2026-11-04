@@ -162,6 +162,9 @@ async function setup() {
   const campaign = createCampaign({ cfg, api: { call }, upload, log });
   { const CF = path.join(DATA_DIR, 'campaigns.json'); let C = []; try { C = JSON.parse(fs.readFileSync(CF, 'utf8')); } catch (e) { }
     campaign.names = () => C.slice();
+    const HF = path.join(DATA_DIR, 'campaign-homes.json'); let H0 = {}; try { H0 = JSON.parse(fs.readFileSync(HF, 'utf8')); } catch (e) { }
+    campaign.setHomes(H0, h => { try { fs.writeFileSync(HF, JSON.stringify(h)); } catch (e) { } });
+    campaign.moveToMarketing = async n => campaign.move(n, await core.appToken(), dl);
     campaign.remember = n => { if (!C.includes(n)) { C.push(n); fs.writeFileSync(CF, JSON.stringify(C)); } };
     // 每天 11 点把登记过的链接追踪表重读一遍，更新赞藏评
     let lastDay = -1; setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 11 || lastDay === d) return; lastDay = d; for (const n of C) { try { await campaign.crawl(n); } catch (e) { log('[链接追踪] 每日重读失败：' + e.message); } } }, 10 * 60e3); }

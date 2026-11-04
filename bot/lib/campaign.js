@@ -26,8 +26,9 @@ async function readXhs(url) {
 
 function createCampaign({ cfg, api, upload, log }) {
   const priv = () => { const m = String(cfg.dailyBaseUrl || '').match(/\/base\/([A-Za-z0-9]+)/); if (!m) throw new Error('NO_PRIVATE_BASE'); return m[1]; };
-  async function tables() { const A = priv(); return ((await api.call('GET', `/bitable/v1/apps/${A}/tables`, null, { page_size: 100 })).items || []); }
-  async function recs(tid) { const A = priv(); const out = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${A}/tables/${tid}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt); return out; }
+  let homes = {}; const home = name => homes[name] || priv(); // 每张追踪表放在哪个多维表格（默认私密表格；挪到营销部后记在这里）
+  async function tables(A) { A = A || priv(); return ((await api.call('GET', `/bitable/v1/apps/${A}/tables`, null, { page_size: 100 })).items || []); }
+  async function recs(tid, A) { A = A || priv(); const out = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${A}/tables/${tid}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt); return out; }
 
   // 新建追踪表并登记链接（rows: [{序号, 类型, 昵称, 链接, 合作码}]）
   async function create(name, rows) {
@@ -56,7 +57,7 @@ function createCampaign({ cfg, api, upload, log }) {
   }
   // 插件读回来的笔记写进表（note 字段同 readXhs 的返回；error 表示读不到）
   async function writeNote(name, rec, note, err) {
-    const A = priv(); const t = (await tables()).find(x => x.name === name); if (!t) throw new Error('没有这张表');
+    const A = home(name); const t = (await tables(A)).find(x => x.name === name); if (!t) throw new Error('没有这张表');
     const r = (await api.call('GET', `/bitable/v1/apps/${A}/tables/${t.table_id}/records/${rec}`)).record;
     const d = err ? (/删除|不可见|不存在/.test(err) ? { gone: true } : { blocked: err }) : { id: note.id, title: note.title || '', desc: String(note.desc || ''), tags: note.tags || [], type: note.type === 'video' ? '视频' : '图文', images: note.images || [], likes: num(note.likes), collects: num(note.collects), comments: num(note.comments), shares: num(note.shares), author: note.author || '', time: note.time || null };
     const f = await fieldsOf(r, d, A); if (d.blocked) f.笔记状态 = '读取失败：' + String(err).slice(0, 20);
@@ -66,10 +67,10 @@ function createCampaign({ cfg, api, upload, log }) {
   const running = new Set();
   async function crawl(name, opt) {
     opt = opt || {}; if (running.has(name)) return { busy: true }; running.add(name);
-    const A = priv(); const t = (await tables()).find(x => x.name === name); if (!t) { running.delete(name); throw new Error('没有这张表：' + name); }
+    const A = home(name); const t = (await tables(A)).find(x => x.name === name); if (!t) { running.delete(name); throw new Error('没有这张表：' + name); }
     const stat = { ok: 0, gone: 0, blocked: 0, total: 0, reasons: {} };
     try {
-      const list = (await recs(t.table_id)).filter(r => !opt.onlyNew || !r.fields['最近读取']);
+      const list = (await recs(t.table_id, A)).filter(r => !opt.onlyNew || !r.fields['最近读取']);
       for (const r of list) {
         const link = val(r.fields['链接']).trim(); if (!link) continue; stat.total++;
         let d; try { d = await readXhs(link); } catch (e) { d = { blocked: '打不开：' + e.message.slice(0, 30) }; }
@@ -83,10 +84,31 @@ function createCampaign({ cfg, api, upload, log }) {
     return stat;
   }
   // 插件读取用：被拦的链接清单 / 写回
-  async function pending(name, all) { const t = (await tables()).find(x => x.name === name); if (!t) return []; return (await recs(t.table_id)).filter(r => all ? !/删除/.test(val(r.fields['笔记状态'])) : /待|失败/.test(val(r.fields['笔记状态']))).map(r => ({ rec: r.record_id, link: val(r.fields['链接']).trim() })); }
+  async function pending(name, all) { const A = home(name); const t = (await tables(A)).find(x => x.name === name); if (!t) return []; return (await recs(t.table_id, A)).filter(r => all ? !/删除/.test(val(r.fields['笔记状态'])) : /待|失败/.test(val(r.fields['笔记状态']))).map(r => ({ rec: r.record_id, link: val(r.fields['链接']).trim() })); }
   async function list() { return (await tables()).map(x => x.name); }
-  async function status(name) { const t = (await tables()).find(x => x.name === name); if (!t) return null; const R = await recs(t.table_id); const by = {}; R.forEach(r => { const k = val(r.fields['笔记状态']) || '（空）'; by[k] = (by[k] || 0) + 1; }); const ok = R.filter(r => val(r.fields['笔记状态']) === '正常'); const sum = k => ok.reduce((a, r) => a + (+r.fields[k] || 0), 0);
+  // 把一张追踪表复制到另一个多维表格（如营销部），之后读写都改到那边；原表不删（由林总自己删）
+  async function move(name, toApp, dl) {
+    const from = home(name); if (from === toApp) return { already: true };
+    const src = (await tables(from)).find(x => x.name === name); if (!src) throw new Error('没有这张表：' + name);
+    let dst = (await tables(toApp)).find(x => x.name === name); let tid;
+    if (dst) tid = dst.table_id; else { try { tid = (await api.call('POST', `/bitable/v1/apps/${toApp}/tables`, { table: { name, default_view_name: '全部', fields: COLS.map(([field_name, type]) => ({ field_name, type })) } })).table_id; } catch (e) { throw new Error('NEED_TABLE：' + e.message); } }
+    const fd = await api.call('GET', `/bitable/v1/apps/${toApp}/tables/${tid}/fields`, null, { page_size: 200 }); const hv = new Set((fd.items || []).map(f => f.field_name));
+    for (const [field_name, type] of COLS) if (!hv.has(field_name)) await api.call('POST', `/bitable/v1/apps/${toApp}/tables/${tid}/fields`, { field_name, type });
+    const exist = new Set((await recs(tid, toApp)).map(r => val(r.fields['链接']).trim()));
+    const R = (await recs(src.table_id, from)).filter(r => !exist.has(val(r.fields['链接']).trim())); let n = 0;
+    for (const r of R) {
+      const f = {}; COLS.forEach(([k]) => { if (r.fields[k] !== undefined && r.fields[k] !== null && r.fields[k] !== '') f[k] = r.fields[k]; });
+      if (f.链接) { const l = val(f.链接).trim(); f.链接 = { link: l, text: l }; }
+      ['类型', '昵称', '合作码', '笔记状态', '标题', '作者', '笔记形式', '正文', '话题', '笔记ID'].forEach(k => { if (f[k] !== undefined) f[k] = val(f[k]); });
+      if (Array.isArray(f.封面) && f.封面[0] && dl && upload) { try { const buf = await dl(f.封面[0].url || f.封面[0].tmp_url); f.封面 = [{ file_token: await upload(buf, f.封面[0].name || 'cover.jpg', 'bitable_image', toApp) }]; } catch (e) { delete f.封面; } } else delete f.封面;
+      await api.call('POST', `/bitable/v1/apps/${toApp}/tables/${tid}/records`, { fields: f }); n++;
+    }
+    homes[name] = toApp; if (onHome) onHome(homes);
+    log(`[链接追踪] 「${name}」复制到营销部：${n} 条`); return { copied: n, existed: exist.size };
+  }
+  let onHome = null; function setHomes(h, cb) { homes = h || {}; onHome = cb; }
+  async function status(name) { const A = home(name); const t = (await tables(A)).find(x => x.name === name); if (!t) return null; const R = await recs(t.table_id, A); const by = {}; R.forEach(r => { const k = val(r.fields['笔记状态']) || '（空）'; by[k] = (by[k] || 0) + 1; }); const ok = R.filter(r => val(r.fields['笔记状态']) === '正常'); const sum = k => ok.reduce((a, r) => a + (+r.fields[k] || 0), 0);
     return { name, total: R.length, by, running: running.has(name), 点赞: sum('点赞'), 收藏: sum('收藏'), 评论: sum('评论'), top: ok.sort((a, b) => (+b.fields['互动合计'] || 0) - (+a.fields['互动合计'] || 0)).slice(0, 5).map(r => [val(r.fields['昵称']) || val(r.fields['作者']), val(r.fields['标题']).slice(0, 30), +r.fields['互动合计'] || 0]) }; }
-  return { create, crawl, pending, list, status, writeNote, readXhs };
+  return { create, crawl, pending, list, status, writeNote, move, setHomes, readXhs };
 }
 module.exports = { createCampaign, readXhs };
