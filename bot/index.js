@@ -155,14 +155,28 @@ async function setup() {
   setTimeout(() => ownlib.backfill().catch(() => { }), 90e3); setInterval(() => ownlib.backfill(200).catch(() => { }), 30 * 60e3);
   const official = createOfficial({ cfg, api: { call }, log });
   const hits = createHits({ api: { call }, core, llm: cfg.qwenKey ? chat : null, log });
+  const DAY0 = 864e5;
   const deep = createDeep({ cfg, api: { call }, core, llm: cfg.qwenKey ? (p => chat(p, 3000)) : null, log, dataDir: DATA_DIR });
   async function sendDeep(replyTo) {
     const r = await deep.report(); try { fs.writeFileSync(path.join(DATA_DIR, 'deep-latest.json'), JSON.stringify({ at: Date.now(), text: r.text, by: r.by, F: r.F })); } catch (e) { }
     log('[深度分析] 已生成（' + r.by + '）\n' + deep.plain(r.F || {}));
-    const text = `🔬 爆款公式 2.0（${new Date(Date.now() + 8 * 3600e3).toISOString().slice(5, 10).replace('-', '/')} · 小红书内容库 + 抖音蓝V/视频号）\n\n` + r.text;
+    await brief.saveKind('内容分析', { text: r.text, by: r.by }, r.F);
+    const text = `🔬 爆款公式 · 内容分析（${new Date(Date.now() + 8 * 3600e3).toISOString().slice(5, 10).replace('-', '/')} · 小红书内容库 + 抖音蓝V/视频号）\n\n` + r.text;
     if (boss) { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text }) }, { receive_id_type: 'open_id' }); if (replyTo) await reply(replyTo, '✅ 爆款公式 2.0 已私聊发给你'); } else if (replyTo) await reply(replyTo, text);
   }
-  // 爆款公式 2.0 由 Claude 深度分析后再汇报，不自动私聊机器人版
+  // 爆款公式（内容分析）：通义千问每周一 10:00 自动写一份，存档 + 私聊 + 驾驶舱；内容库第一次读完时也出一次
+  const DEEP_F = path.join(DATA_DIR, 'deep-state.json'); let deepState = {}; try { deepState = JSON.parse(fs.readFileSync(DEEP_F, 'utf8')); } catch (e) { }
+  setInterval(async () => {
+    try {
+      const b = new Date(Date.now() + 8 * 3600e3); const day = Math.floor((Date.now() + 8 * 3600e3) / DAY0);
+      let why = '';
+      if (b.getUTCDay() === 1 && b.getUTCHours() >= 10 && b.getUTCHours() < 12 && deepState.week !== day) why = 'week';
+      else if (!deepState.first) { const t = await ownlib.todo(1); if (t.total && t.left <= 5 && t.done >= 300) why = 'first'; }
+      if (!why) return;
+      if (why === 'week') deepState.week = day; else deepState.first = Date.now();
+      fs.writeFileSync(DEEP_F, JSON.stringify(deepState)); await sendDeep();
+    } catch (e) { log('[深度分析] 自动出报告失败：' + e.message); }
+  }, 10 * 60e3);
   async function sendHits(replyTo) {
     const r = await hits.report(); try { fs.writeFileSync(path.join(DATA_DIR, 'hits-latest.json'), JSON.stringify({ at: Date.now(), text: r.text, by: r.by })); } catch (e) { }
     log('[爆款公式] 已生成（' + r.by + '）\n' + hits.plain(r.F || { 平台: {} }));

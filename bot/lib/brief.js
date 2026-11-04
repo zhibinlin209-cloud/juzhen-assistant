@@ -204,7 +204,7 @@ ${JSON.stringify(F)}`;
 
   // ---------- 存档 + 待办与决策（驾驶舱「今天你要做的事」从这里读） ----------
   const SCHEMA = {
-    '简报存档': [['日期', 5], ['类型', 3, ['日报', '周报', '半月报', '月报', '投放分析']], ['正文', 1], ['数据', 1], ['生成方式', 1], ['生成时间', 5]],
+    '简报存档': [['日期', 5], ['类型', 3, ['日报', '周报', '半月报', '月报', '投放分析', '内容分析']], ['正文', 1], ['数据', 1], ['生成方式', 1], ['生成时间', 5]],
     '待办与决策': [['事项', 1], ['类型', 3, ['投放建议', '营业异常', '口碑', '其他']], ['状态', 3, ['待定', '已同意', '已执行', '不做']], ['详情', 1], ['来源', 1], ['首次出现', 5], ['最近出现', 5], ['唯一键', 1]]
   };
   const ensured = {};
@@ -253,7 +253,7 @@ ${JSON.stringify(F)}`;
   async function latest() {
     if (!cfg.dailyBaseUrl) return null;
     const A = await ensure('简报存档'); const d = await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records/search`, { sort: [{ field_name: '生成时间', desc: true }] }, { page_size: 20 });
-    const f = ((d.items || []).find(x => val((x.fields || {})['类型']) !== '投放分析') || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null;
+    const f = ((d.items || []).find(x => !['投放分析', '内容分析'].includes(val((x.fields || {})['类型']))) || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null;
   }
 
   // ---------- 投放分析（AI 写，给驾驶舱和周一私聊）：只基于程序算好的推广通数据 ----------
@@ -300,7 +300,10 @@ ${JSON.stringify(D)}`;
   }
 
   async function make(now, o) { const F = await facts(now); const prof = await profile(); const r = await write(F, prof); if (!(o && o.noArchive)) await archive(F, r, (o && o.kind) || '日报'); return Object.assign(r, { facts: F }); }
-  return { facts, profile, plain, write, make, archive, listTodos, setTodo, latest, ads, latestAds, _allowed: allowed };
+  // 其他 AI 分析（如内容分析）存档 / 取最新一份
+  async function saveKind(kind, r, data) { if (!cfg.dailyBaseUrl) return; try { const A = await ensure('简报存档'); await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records`, { fields: { 日期: (bjDay(Date.now()) - 1) * DAY - TZ, 类型: kind, 正文: r.text, 数据: JSON.stringify(data || {}).slice(0, 90000), 生成方式: r.by, 生成时间: Date.now() } }); } catch (e) { log(`[${kind}] 存档失败：` + e.message); } }
+  async function latestKind(kind) { if (!cfg.dailyBaseUrl) return null; const A = await ensure('简报存档'); const d = await api.call('POST', `/bitable/v1/apps/${A.app}/tables/${A.tid}/records/search`, { sort: [{ field_name: '生成时间', desc: true }] }, { page_size: 50 }); const f = ((d.items || []).find(x => val((x.fields || {})['类型']) === kind) || {}).fields; return f ? { text: String(val(f['正文']) || ''), at: f['生成时间'] || 0, by: String(val(f['生成方式']) || '') } : null; }
+  return { saveKind, latestKind, facts, profile, plain, write, make, archive, listTodos, setTodo, latest, ads, latestAds, _allowed: allowed };
 }
 
 module.exports = { tgtAnalyze, createBrief, bjDay };
