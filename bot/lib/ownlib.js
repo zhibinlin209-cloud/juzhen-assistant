@@ -42,7 +42,11 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
   async function todo(limit) {
     const list = await source(); const left = list.filter(x => !S.done[x.rec] || /^retry/.test(S.done[x.rec]));
     const hm = {}; list.forEach(x => { if (x.acc && /user\/profile\/[0-9a-f]{24}/.test(x.home)) hm[x.acc] = x.home; }); // 同一个账号别的行登记过主页也能用
-    return { total: list.length, done: list.length - left.length, left: left.length, items: left.slice(0, Math.min(+limit || 50, 300)).map(x => ({ rec: x.rec, link: x.link, acc: x.acc, home: /user\/profile\/[0-9a-f]{24}/.test(x.home) ? x.home : (hm[x.acc] || '') })) };
+    const withHome = x => /user\/profile\/[0-9a-f]{24}/.test(x.home) ? x.home : (hm[x.acc] || '');
+    // 读不到又没有主页可绕的（分享链接过期）直接跳过，不再发给插件；有主页的排前面
+    const usable = left.filter(x => withHome(x) || !/^retry/.test(S.done[x.rec] || ''));
+    usable.sort((a, b) => (withHome(b) ? 1 : 0) - (withHome(a) ? 1 : 0));
+    return { total: list.length, done: list.length - left.length, left: left.length, skipped: left.length - usable.length, items: usable.slice(0, Math.min(+limit || 50, 300)).map(x => ({ rec: x.rec, link: x.link, acc: x.acc, home: withHome(x) })) };
   }
 
   async function getImg(u) {
