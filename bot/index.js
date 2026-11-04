@@ -18,6 +18,7 @@ const { createOwnLib } = require('./lib/ownlib');
 const { createOfficial } = require('./lib/official');
 const HIST = require('./lib/dailyimport');
 const { createAnnual } = require('./lib/annual');
+const { createCampaign } = require('./lib/campaign');
 const { readXlsx } = require('./lib/xlsx');
 const { createDeep } = require('./lib/deep');
 
@@ -158,6 +159,11 @@ async function setup() {
   setTimeout(() => ownlib.backfill().catch(() => { }), 90e3); setInterval(() => ownlib.backfill(200).catch(() => { }), 30 * 60e3);
   const official = createOfficial({ cfg, api: { call }, log });
   const histImport = HIST.createDailyImport({ cfg, api: { call }, core, log });
+  const campaign = createCampaign({ cfg, api: { call }, upload, log });
+  { const CF = path.join(DATA_DIR, 'campaigns.json'); let C = []; try { C = JSON.parse(fs.readFileSync(CF, 'utf8')); } catch (e) { }
+    campaign.remember = n => { if (!C.includes(n)) { C.push(n); fs.writeFileSync(CF, JSON.stringify(C)); } };
+    // 每天 11 点把登记过的链接追踪表重读一遍，更新赞藏评
+    let lastDay = -1; setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 11 || lastDay === d) return; lastDay = d; for (const n of C) { try { await campaign.crawl(n); } catch (e) { log('[链接追踪] 每日重读失败：' + e.message); } } }, 10 * 60e3); }
   const annual = createAnnual({ cfg, api: { call }, core, llm: cfg.qwenKey ? (p => chat(p, 3500)) : null, log });
   async function sendAnnual(replyTo) {
     const r = await annual.report(); await brief.saveKind('经营复盘', { text: r.text, by: r.by }, r.F); log('[经营复盘] 已生成（' + r.by + '）');
@@ -420,7 +426,7 @@ async function setup() {
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() } });
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign });
   rawIO.taskLink = id => web.taskLink(id);
   let briefState = {}; try { briefState = JSON.parse(fs.readFileSync(BRIEF_FILE, 'utf8')); } catch (e) { }
   let briefing = false;
