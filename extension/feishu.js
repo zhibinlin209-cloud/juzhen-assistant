@@ -285,6 +285,7 @@ ${points(R).join('\n')}
       ${ok ? `<div class="row"><button class="btn primary" data-action="fs-run" ${j && j.running ? 'disabled' : ''}>生成报表并写回飞书</button><button class="btn sm" data-action="fs-preview" ${j && j.running ? 'disabled' : ''}>只在这里预览</button><span class="hint">读全部内容台账（约几千行，1–2 分钟）</span></div>` : ''}
       ${j ? `<div class="hint"><b>${h(j.phase)}</b></div><pre class="small-pre">${h(j.log.join('\n'))}</pre>` : ''}
     </div>
+    ${window.OwnLib ? window.OwnLib.view() : ''}
     ${ok && window.PostSync ? window.PostSync.view() : ''}
     ${ok && window.XhsShot ? window.XhsShot.view() : ''}
     ${R ? report(R) : ''}`;
@@ -311,6 +312,7 @@ ${points(R).join('\n')}
   }
 
   async function act(action, el) {
+    if (action.startsWith('fs-own')) return window.OwnLib && window.OwnLib.act(action, el);
     if (action.startsWith('fs-ps')) return window.PostSync && window.PostSync.act(action, el);
     if (action.startsWith('fs-shot')) return window.XhsShot && window.XhsShot.act(action, el);
     switch (action) {
@@ -326,6 +328,7 @@ ${points(R).join('\n')}
     root.addEventListener('input', on); root.addEventListener('change', on);
     if (window.XhsShot) window.XhsShot.attach(root);
     if (window.PostSync) window.PostSync.attach(root);
+    if (window.OwnLib) window.OwnLib.attach(root);
     load().then(render);
   }
   window.Feishu = { _api: { ST, titleOf, batchCreate, call, listTables, listFields, listRecords, val, num, pick, dateOf }, view, act, attach, connected: () => !!ST.appToken, _analyze: analyze, _toContent: toContent, _st: ST };

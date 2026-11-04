@@ -5,3 +5,4 @@ platform-tools/
 测试结果/
 *.csv
 *.xlsx
+extension/ingest-key.js
