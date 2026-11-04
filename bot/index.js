@@ -172,13 +172,18 @@ async function setup() {
     let lastDay = -1; setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 11 || lastDay === d) return; lastDay = d; for (const n of C) { try { await campaign.crawl(n); } catch (e) { log('[链接追踪] 每日重读失败：' + e.message); } } }, 10 * 60e3); }
   const studio = createStudio({ cfg, api: { call }, core, upload, download: dl, log, dataDir: DATA_DIR, bossId: () => boss });
   setInterval(() => studio.pushApproved().catch(() => { }), 5 * 60e3);
-  setInterval(() => studio.importLib(400).catch(e => log('[AI工作台] 素材导入出错：' + e.message)), 10 * 60e3); setTimeout(() => studio.importLib(200).catch(() => { }), 120e3); setInterval(() => studio.tagLib(120).catch(e => log('[AI工作台] 打标出错：' + e.message)), 10 * 60e3);
+  setInterval(() => studio.importLib(400).catch(e => log('[AI工作台] 素材导入出错：' + e.message)), 10 * 60e3); setTimeout(() => studio.importLib(200).catch(() => { }), 120e3); setInterval(() => studio.tagLib(300).catch(e => log('[AI工作台] 打标出错：' + e.message)), 10 * 60e3);
   const creator = createCreator({ cfg, api: { call }, core, deep: () => deep, brief: () => brief, studio: () => studio, log, dataDir: DATA_DIR }); // 后面才定义的模块用函数取，避免启动时还没初始化
   async function sendCreate(o, replyTo) {
     const r = await creator.run(o || {}); const text = `✍️ 创作 Agent 写了 ${r.list.length} 篇小红书稿（${r.model}），已放进「禧聚 AI 内容工作台」的「AI稿件」，状态「AI待审」：\n` + r.list.map(x => `· ${x.code} ${x.store}《${x.title}》`).join('\n') + `\n\nPR 审改、配真实照片后，把状态改成「通过」，机器人会自动推到营销部「派稿记录」（待发布），再按原流程派稿。` + (studio.info().url ? `\n工作台：${studio.info().url}` : '') + ``;
     if (boss) await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text }) }, { receive_id_type: 'open_id' });
     if (replyTo) await reply(replyTo, boss ? '✅ 已写好，详情私聊你了' : text); return r;
   }
+  // 每天 8:20 自动写一批（门店按素材图库里干净照片多少排），9 点前私聊老板；全在服务器跑，用 DeepSeek/通义
+  { const CF3 = path.join(DATA_DIR, 'daily-create.json'); let ds = {}; try { ds = JSON.parse(fs.readFileSync(CF3, 'utf8')); } catch (e) { }
+    setInterval(async () => { if (cfg.dailyDrafts === 0) return; const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 8 || b.getUTCMinutes() < 20 || ds.day === d) return; ds.day = d; try { fs.writeFileSync(CF3, JSON.stringify(ds)); } catch (e) { }
+      try { let stores = ''; try { const st = await studio.libStats(); stores = Object.entries(st.by || {}).filter(([k]) => k !== '未标').sort((a, b) => (b[1]['可用'] || 0) - (a[1]['可用'] || 0)).slice(0, cfg.dailyDrafts || 5).map(x => x[0]).join(','); } catch (e) { }
+        await sendCreate({ n: cfg.dailyDrafts || 5, store: stores }); } catch (e) { log('[创作] 每日写稿失败：' + e.message); } }, 3 * 60e3); }
   // 每周一 10:40（内容分析 10:00 之后）自动写一批
   { const CF2 = path.join(DATA_DIR, 'create-state.json'); let cs = {}; try { cs = JSON.parse(fs.readFileSync(CF2, 'utf8')); } catch (e) { }
     setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCDay() !== 1 || b.getUTCHours() !== 10 || b.getUTCMinutes() < 40 || cs.week === d) return; cs.week = d; try { fs.writeFileSync(CF2, JSON.stringify(cs)); } catch (e) { } try { await sendCreate({ n: cfg.weeklyDrafts || 8 }); } catch (e) { log('[创作] 每周写稿失败：' + e.message); } }, 5 * 60e3); }
