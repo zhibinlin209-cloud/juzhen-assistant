@@ -155,6 +155,31 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     const c = {}; rows.filter(r => { const s = val(r.fields['门店']); return s && (s.includes(want) || want.includes(s)) && !/周边/.test(val(r.fields['主体'])); }).forEach(r => { const d = val(r.fields['菜品']).trim(); if (d) c[d] = (c[d] || 0) + 1; });
     return Object.entries(c).sort((a, b) => b[1] - a[1]).map(x => x[0]);
   }
+  // 派稿记录里 PR 给写手的素材（多是门店原图）也搬进素材图库
+  let importingPai = false;
+  async function importPai(n) {
+    if (importingPai) return { busy: true }; importingPai = true; let added = 0, rowsWith = 0;
+    try {
+      await ensure(); S.libDone = S.libDone || {}; const app = await core.appToken();
+      const pg = ((await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === '派稿记录'); if (!pg) return { error: '没有派稿记录' };
+      const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${pg.table_id}/records/search`, {}, Object.assign({ page_size: 300 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+      const batch = [];
+      for (const r of rows) {
+        const f = r.fields || {}; if (/^AI-/.test(val(f['稿件编号']))) continue; const files = Array.isArray(f['素材']) ? f['素材'] : []; if (files.length) rowsWith++;
+        for (let i = 0; i < files.length && added < (n || 300); i++) {
+          const x = files[i]; if (!x || !x.file_token || S.libDone[x.file_token] || !/image|jpe?g|png|webp|heic/i.test((x.type || '') + (x.name || ''))) continue;
+          try { const tok = await upload(await download(x.url || x.tmp_url), x.name || 'img.jpg', 'bitable_image', S.app);
+            batch.push({ 素材编号: `${val(f['门店']) || '未标'}-派稿-${r.record_id.slice(-5)}-${i + 1}`, 图片: [{ file_token: tok }], 门店: val(f['门店']).replace(/^(深圳|广州|惠州|珠海|佛山|东莞)/, '').replace(/店$/, '').replace('华强北燕南', '华强北').replace('前海HOP', '前海').replace('保利西街', '千灯湖'), 类型: '派稿素材', 来源: '派稿记录 · ' + (val(f['稿件编号']) || ''), 来源笔记: val(f['标题']), 使用次数: 0, 入库时间: Date.now() });
+            S.libDone[x.file_token] = 1; added++;
+          } catch (e) { }
+          if (batch.length >= 50) { await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/batch_create`, { records: batch.splice(0).map(fields => ({ fields })) }); save(); }
+        }
+      }
+      if (batch.length) await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/batch_create`, { records: batch.map(fields => ({ fields })) });
+      save(); if (added) log(`[AI工作台] 从派稿记录搬素材 ${added} 张`);
+      return { added, rowsWithFiles: rowsWith, rows: rows.length };
+    } finally { importingPai = false; }
+  }
   // 给稿件自动配图：同门店、用得少、来自不同笔记的图优先，最多 9 张；用过的计数 +1
   async function pickImages(store, k) {
     if (!S.app || !S.libT) return [];
@@ -206,6 +231,6 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     for (const r of out) { const k = val(r.fields['标题']).trim(); if (!k) continue; if (seen.has(k)) { if (val(r.fields['状态']) !== '退回') { await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.draftT}/records/${r.record_id}`, { fields: { 状态: '退回', 审核意见: '重复稿（系统搬迁时重复写入），可直接删除' } }); n++; } } else seen.add(k); }
     return { total: out.length, unique: seen.size, marked: n };
   }
-  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups, importLib, pickImages, makeCover, coverize, coverTest, tagLib, dishes, libStats, rejudge };
+  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups, importLib, pickImages, makeCover, coverize, coverTest, tagLib, dishes, libStats, rejudge, importPai };
 }
 module.exports = { createStudio };
