@@ -162,6 +162,7 @@
     const capSel = ['#captcha_container', '.captcha_verify_container', '.captcha-verify-container', '[id^="captcha"]', 'iframe[src*="captcha"]', '.red-captcha', '#red-captcha'];
     if (capSel.some(s => visible($(s)))) return '平台要求安全验证（滑块/点选）';
     if (/请完成下列验证|拖动下方滑块|安全验证|访问频次异常|请求太频繁|操作太频繁|安全限制/.test(bodyText)) return '平台提示访问太频繁或需要验证';
+    if (/登录状态异常|请重新登录后再试|扫码查看/.test(bodyText)) return '小红书登录状态异常，要重新扫码登录';
     if (isXhs()) { const login = $('.login-container') || $('.login-modal'); if (visible(login)) return '需要先登录小红书'; }
     else { const login = $('#login-pannel') || $('#login-panel-new') || $('[class*="login-mask"]'); if (visible(login)) return '需要先登录抖音'; }
     return null;
