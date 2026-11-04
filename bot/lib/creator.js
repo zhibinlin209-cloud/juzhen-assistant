@@ -71,17 +71,17 @@ function createCreator({ cfg, api, core, deep, brief, studio, log, dataDir }) {
     let F = null; try { F = await deep().xhs(); } catch (e) { }
     const formula = await brief().latestKind('内容分析').catch(() => null);
     const facts = F && F.样本 ? { 爆款判定: F.判定, 内容类型: F.内容类型, 封面形式: F.封面形式, 图片张数: F.图片张数, 正文字数: F.正文字数, 话题数: F.话题数, 标题特征: F.标题特征, 评论区问题: F.评论区问题, 爆款样本: (F.爆款样本 || []).slice(0, 10) } : null;
-    const NB = nearby();
+    const NB = nearby(); const PH = {}; for (const x of stores) { try { PH[x.s] = await studio().dishes(x.s); } catch (e) { PH[x.s] = []; } }
     const prompt = `你是禧聚餐饮（YES也是大排档 / 粤迹·岭南家宴）的小红书内容编辑，给我们的素人矩阵号写图文笔记稿。写完会交给 PR 审核、配真实照片后发布。
 【品牌】${JSON.stringify(BRAND)}
 【爆款公式（程序统计，列为 [分组, 条数, 爆款率%, 中位小眼睛, 同账号倍数, 收藏率%]，同账号倍数越高越好）】${facts ? JSON.stringify(facts) : '暂无'}
 ${formula ? '【上周 AI 内容分析结论】' + formula.text.slice(0, 2500) : ''}
 【最近已经写过/发过的标题（不要重复或只改几个字）】${titles.slice(-80).join(' | ')}
-【本次要写的门店，按顺序一店一篇，共 ${stores.length} 篇】${JSON.stringify(stores.map(x => ({ 门店: x.s, 品牌: x.b, 城市: x.city, 商圈关键词: x.key, 可用周边店名: (NB[x.key] || []).slice(0, 20) })))}
+【本次要写的门店，按顺序一店一篇，共 ${stores.length} 篇】${JSON.stringify(stores.map(x => ({ 门店: x.s, 品牌: x.b, 城市: x.city, 商圈关键词: x.key, 可用周边店名: (NB[x.key] || []).slice(0, 20), 素材里有照片的菜: (PH[x.s] || []).slice(0, 15) })))}
 写作要求：
 1. 素人口吻，像本地人/攻略党写的真实分享，不要像广告；我们的店要自然放进去（攻略清单里写 1 家我们的店 + 周边 3–8 家不同品类的小店）。周边店名【只能】从该门店的「可用周边店名」里选（这些是我们写手实地去过的）；列表里没有的，只写品类（如「街口一家老牌牛杂档」），绝不能自己编店名、路名、开店年数。
 2. 标题 ≤20 字，带城市或商圈地名，可用「本地人」「避雷」「J人整理」「X家」这类在公式里倍数高的说法；不要用极限词（最/第一/顶级/绝对/100%/唯一 等）。
-3. 正文 250–450 字，用 emoji 开头的分条清单；每家店一两句具体吃什么；写到我们的店时只用品牌里给的招牌菜和卖点，不许编价格、地址、营业时间、优惠。
+3. 正文 250–450 字，用 emoji 开头的分条清单；每家店一两句具体吃什么；写到我们的店时只用品牌里给的招牌菜和卖点（优先写「素材里有照片的菜」，这样配图对得上），不许编价格、地址、营业时间、优惠。
 4. 话题 8–10 个，含城市/商圈/美食/攻略类。
 5. 给出封面方案（形式：拼图/攻略长图/大字报，封面大字原文 ≤14 字）和图片清单（第 1–9 张各拍什么，必须是能实拍的：菜品、门头、环境、街景、地图手绘）。
 6. 每篇写一句「依据」：用了公式里的哪几条。
@@ -96,7 +96,7 @@ ${formula ? '【上周 AI 内容分析结论】' + formula.text.slice(0, 2500) :
       const st = STORES.find(x => x.s === d.门店) || stores[i] || stores[0];
       let title = String(d.标题 || '').replace(BANNED, '').slice(0, 24); let body = String(d.正文 || '').replace(BANNED, ''); const tags = (Array.isArray(d.话题) ? d.话题 : String(d.话题 || '').split(/\s+/)).map(t => '#' + String(t).replace(/^#/, '')).filter(t => t.length > 1).slice(0, 10).join(' ');
       if (!title || seen.has(norm(title))) return; seen.add(norm(title));
-      const code = `AI-${day}-${String(i + 1).padStart(2, '0')}`;
+      const code = `AI-${day}-${new Date(Date.now() + 8 * 3600e3).toISOString().slice(11, 16).replace(':', '')}-${String(i + 1).padStart(2, '0')}`;
       const plan = `【AI稿 · ${model}】封面：${d.封面形式 || ''}「${d.封面大字 || ''}」\n图片清单：\n${(d.图片清单 || []).join('\n')}\n依据：${d.依据 || ''}\n⚠️ 发布前请 PR 核对店名、菜名，配真实照片；AI 辅助创作内容按平台要求标注。`;
       recs.push({ 稿件编号: code, 状态: 'AI待审', 门店: st.s, 标题: title, 文案正文: body, 话题标签: tags, 封面方案: `${d.封面形式 || ''}「${d.封面大字 || ''}」`, 图片清单: (d.图片清单 || []).join('\n'), 依据: d.依据 || '', 分发类别: '小红书矩阵号', 内容类型: '图文', 发布平台: '小红书、大众点评、携程、微信贴图', 定位: st.area, 点评定位: st.dp, 写手: 'AI·' + model, 生成时间: Date.now() });
       out.push({ code, store: st.s, title, body, tags, plan });

@@ -135,6 +135,12 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
       return { done, ok, left: rows.filter(r => !val(r.fields['AI识别'])).length - done };
     } finally { tagging = false; }
   }
+  async function dishes(store) {
+    if (!S.app || !S.libT) return []; const key = String(store || '').replace(/^(深圳|广州|惠州|珠海|佛山|东莞)/, '').replace(/店$/, ''); const alias = { 保利西街: '千灯湖', 蛇口招商花园城: '花园城', 东城33小镇: '33小镇', 华强北燕南: '华强北', 前海HOP: '前海' }; const want = alias[key] || key;
+    const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '可用', operator: 'is', value: ['可用'] }] } }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const c = {}; rows.filter(r => { const s = val(r.fields['门店']); return s && (s.includes(want) || want.includes(s)); }).forEach(r => { const d = val(r.fields['菜品']).trim(); if (d) c[d] = (c[d] || 0) + 1; });
+    return Object.entries(c).sort((a, b) => b[1] - a[1]).map(x => x[0]);
+  }
   // 给稿件自动配图：同门店、用得少、来自不同笔记的图优先，最多 9 张；用过的计数 +1
   async function pickImages(store, k) {
     if (!S.app || !S.libT) return [];
@@ -186,6 +192,6 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     for (const r of out) { const k = val(r.fields['标题']).trim(); if (!k) continue; if (seen.has(k)) { if (val(r.fields['状态']) !== '退回') { await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.draftT}/records/${r.record_id}`, { fields: { 状态: '退回', 审核意见: '重复稿（系统搬迁时重复写入），可直接删除' } }); n++; } } else seen.add(k); }
     return { total: out.length, unique: seen.size, marked: n };
   }
-  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups, importLib, pickImages, makeCover, coverize, coverTest, tagLib };
+  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups, importLib, pickImages, makeCover, coverize, coverTest, tagLib, dishes };
 }
 module.exports = { createStudio };
