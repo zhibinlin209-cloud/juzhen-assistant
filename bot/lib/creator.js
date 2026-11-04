@@ -101,6 +101,7 @@ ${formula ? '【上周 AI 内容分析结论】' + formula.text.slice(0, 2500) :
       recs.push({ 稿件编号: code, 状态: 'AI待审', 门店: st.s, 标题: title, 文案正文: body, 话题标签: tags, 封面方案: `${d.封面形式 || ''}「${d.封面大字 || ''}」`, 图片清单: (d.图片清单 || []).join('\n'), 依据: d.依据 || '', 分发类别: '小红书矩阵号', 内容类型: '图文', 发布平台: '小红书、大众点评、携程、微信贴图', 定位: st.area, 点评定位: st.dp, 写手: 'AI·' + model, 生成时间: Date.now() });
       out.push({ code, store: st.s, title, body, tags, plan });
     });
+    for (const r of recs) { try { const imgs = await studio().pickImages(r.门店, 9); if (imgs.length) { r.素材 = imgs; r.审核意见 = `已从素材图库自动配 ${imgs.length} 张（同门店、30 天内没用过的真实照片），请按图片清单检查替换`; } } catch (e) { } }
     await studio().addDrafts(recs);
     log(`[创作] ${model} 写了 ${out.length} 篇进 AI 内容工作台（AI待审）：${out.map(x => x.title).join('｜')}`);
     lastRun = { at: Date.now(), model, list: out }; return { model, list: out };

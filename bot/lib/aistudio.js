@@ -74,6 +74,47 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     for (const r of ai) await api.call('PUT', `/bitable/v1/apps/${app}/tables/${pg.table_id}/records/${r.record_id}`, { fields: { 状态: '取消', 备注: '已移到「禧聚 AI 内容工作台」→ AI稿件' } });
     log(`[AI工作台] 从派稿记录搬了 ${recs.length} 篇 AI 稿`); return recs.length;
   }
+  // 素材图库：把私密表格「自家内容库」里的笔记图片搬进来（每轮最多 n 张，记住搬过的）
+  let importing = false;
+  async function importLib(n) {
+    if (importing) return { busy: true }; importing = true; let added = 0;
+    try {
+      await ensure(); S.libDone = S.libDone || {};
+      const m = String(cfg.dailyBaseUrl || '').match(/\/base\/([A-Za-z0-9]+)/); if (!m) return { error: 'no private base' }; const P = m[1];
+      const t = ((await api.call('GET', `/bitable/v1/apps/${P}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === '自家内容库'); if (!t) return { error: '没有自家内容库' };
+      const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${P}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 200 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+      const batch = [];
+      for (const r of rows) {
+        if (added >= (n || 150)) break; const f = r.fields || {}; const imgs = [].concat(Array.isArray(f['封面']) ? f['封面'].map(x => [x, '封面']) : [], Array.isArray(f['图片']) ? f['图片'].map(x => [x, '内页']) : []);
+        let cover = {}; try { cover = JSON.parse(val(f['封面分析']) || '{}'); } catch (e) { }
+        for (let i = 0; i < imgs.length && added < (n || 150); i++) {
+          const [x, kind] = imgs[i]; if (!x || !x.file_token || S.libDone[x.file_token]) continue;
+          try { const tok = await upload(await download(x.url || x.tmp_url), x.name || 'img.jpg', 'bitable_image', S.app);
+            batch.push({ 素材编号: `${val(f['门店']) || '未标'}-${val(f['笔记ID']).slice(-6)}-${i + 1}`, 图片: [{ file_token: tok }], 门店: val(f['门店']), 类型: kind === '封面' ? (cover.封面形式 ? '封面·' + cover.封面形式 : '封面') : '', 来源: '自家笔记 · ' + val(f['账号']), 来源笔记: val(f['标题']), 标签: kind === '封面' ? [cover.主体, cover.色调].filter(Boolean).join('、') : '', 使用次数: 0, 入库时间: Date.now() });
+            S.libDone[x.file_token] = 1; added++;
+          } catch (e) { }
+          if (batch.length >= 50) { await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/batch_create`, { records: batch.splice(0).map(fields => ({ fields })) }); save(); }
+        }
+      }
+      if (batch.length) await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/batch_create`, { records: batch.map(fields => ({ fields })) });
+      save(); if (added) log(`[AI工作台] 素材图库新增 ${added} 张（累计 ${Object.keys(S.libDone).length}）`);
+      return { added, total: Object.keys(S.libDone).length };
+    } finally { importing = false; }
+  }
+  // 给稿件自动配图：同门店、用得少、来自不同笔记的图优先，最多 9 张；用过的计数 +1
+  async function pickImages(store, k) {
+    if (!S.app || !S.libT) return [];
+    const key = String(store || '').replace(/^(深圳|广州|惠州|珠海|佛山|东莞)/, '').replace(/店$/, '');
+    const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    const alias = { 保利西街: '千灯湖', 蛇口招商花园城: '花园城', 东城33小镇: '33小镇', 华强北燕南: '华强北', 前海HOP: '前海', '粤迹·岭南家宴': '花园城' };
+    const want = alias[key] || key;
+    const cand = rows.filter(r => { const s = val(r.fields['门店']); return s && (s.includes(want) || want.includes(s)); }).filter(r => !r.fields['最近使用'] || r.fields['最近使用'] < Date.now() - 30 * 864e5)
+      .sort((a, b) => (+a.fields['使用次数'] || 0) - (+b.fields['使用次数'] || 0) || Math.random() - 0.5);
+    const out = [], usedNote = new Set();
+    for (const r of cand) { if (out.length >= (k || 9)) break; const note = val(r.fields['来源笔记']); if (usedNote.has(note) && cand.length > (k || 9) * 2) continue; usedNote.add(note); const img = (r.fields['图片'] || [])[0]; if (img) out.push({ r, img }); }
+    for (const x of out) await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/${x.r.record_id}`, { fields: { 使用次数: (+x.r.fields['使用次数'] || 0) + 1, 最近使用: Date.now() } });
+    return out.map(x => ({ file_token: x.img.file_token }));
+  }
   // 同标题的重复稿：留最早一条，其余标「退回 · 重复」（不删，由人删）
   async function markDups() {
     await ensure(); const out = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.draftT}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
@@ -81,6 +122,6 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     for (const r of out) { const k = val(r.fields['标题']).trim(); if (!k) continue; if (seen.has(k)) { if (val(r.fields['状态']) !== '退回') { await api.call('PUT', `/bitable/v1/apps/${S.app}/tables/${S.draftT}/records/${r.record_id}`, { fields: { 状态: '退回', 审核意见: '重复稿（系统搬迁时重复写入），可直接删除' } }); n++; } } else seen.add(k); }
     return { total: out.length, unique: seen.size, marked: n };
   }
-  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups };
+  return { ensure, info, addDrafts, pushApproved, migrateOld, markDups, importLib, pickImages };
 }
 module.exports = { createStudio };
