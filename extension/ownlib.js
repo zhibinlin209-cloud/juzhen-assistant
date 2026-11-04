@@ -66,7 +66,7 @@
     if (rp && rp.ok) { comments = (rp.comments || []).map(c => ({ text: c.text, likes: c.likes, author: c.author })); if (note && note.none && rp.post && (rp.post.title || rp.post.desc)) { const p = rp.post; note = { id: (rp.diag || {}).id || '', type: p.type, title: p.title, desc: p.desc, tags: p.tags || [], images: p.images || [], likes: p.likes, collects: p.collects, comments: p.comments, shares: p.shares, author: p.author, time: p.time }; } }
     else if (rp && rp.blocked) { if (!(await waitUnblock(rp.blocked))) return { stop: true }; return { again: true }; }
     if (!note || note.none) {
-      const t = (note && note.text) || ''; const gone = /不存在|已删除|无法浏览|违规|仅自己可见|私密/.test(t) || (rp && /删除|无法查看/.test(rp.error || ''));
+      const t = (note && note.text) || ''; const gone = /不存在|已删除|违规|仅自己可见|私密/.test(t) && !/暂时无法浏览/.test(t) || (rp && /删除|无法查看/.test(rp.error || ''));
       return { err: gone ? '笔记已删除或不可见' : '没读到内容', retry: !gone };
     }
     return { note, comments };
@@ -78,9 +78,16 @@
       const t = await srv('/lib/todo?limit=' + S.batch); S.info = t; S.n = t.items.length;
       if (!S.n) { log('都读完了，没有新的笔记'); return; }
       log(`开始读取 ${S.n} 条（全部 ${t.total}，已读 ${t.done}）。后台窗口别关，可以最小化`);
+      // 旧笔记的分享链接会过期（打开显示「暂时无法浏览」）：先去作者主页拿带新口令的笔记地址，再按笔记 ID 打开
+      const fresh = {}; const homesDone = new Set();
+      const noteIdOf = async link => { const m0 = link.match(/(?:explore|item)\/([0-9a-f]{24})/); if (m0) return m0[1]; try { const r = await fetch(link, { credentials: 'include' }); const u = decodeURIComponent(r.url || ''); const m = u.match(/(?:explore|item)\/([0-9a-f]{24})/); return m ? m[1] : ''; } catch (e) { return ''; } };
+      async function loadHome(home) { if (!home || homesDone.has(home)) return; homesDone.add(home); await nav(home); let st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { if (!(await waitUnblock(st.blocked))) return; await nav(home); }
+        const res = await msg({ type: 'rm:collectProfile', limit: 120 }, 300000); ((res && res.list) || []).forEach(x => { if (x.id && x.url && /xsec_token=/.test(x.url)) fresh[x.id] = x.url; }); log(`主页「${(res && res.profile && res.profile.name) || ''}」拿到 ${Object.keys(fresh).length} 条笔记地址`); await sleep(rand(3000, 6000)); }
       for (const it of t.items) {
         if (S.stop) break; S.i++; S.cur = it.acc; forceRender();
-        let r = await readOne(it); if (r.again) r = await readOne(it);
+        const nid = await noteIdOf(it.link); if (nid && !fresh[nid] && it.home) await loadHome(it.home);
+        const use = nid && fresh[nid] ? Object.assign({}, it, { link: fresh[nid] }) : it;
+        let r = await readOne(use); if (r.again) r = await readOne(use);
         if (r.stop) { log('验证超时，先停下。处理好后再点开始'); break; }
         try {
           if (r.err) { await srv('/lib/note', { rec: it.rec, link: it.link, error: r.err, retry: r.retry }); S.fail++; log(`✗ ${it.acc}：${r.err}`); }

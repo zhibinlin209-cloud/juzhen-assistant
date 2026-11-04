@@ -35,13 +35,13 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
   async function source(force) {
     if (src && !force && Date.now() - src.at < 10 * 60e3) return src.list;
     const app = await core.appToken(); const t = (await tables(app)).find(x => x.name === '小红书矩阵号-数据'); if (!t) throw new Error('没找到「小红书矩阵号-数据」');
-    const list = (await recs(app, t.table_id)).map(r => { const f = r.fields || {}; return { rec: r.record_id, link: linkOf(f['小红书链接']), acc: String(val(f['账号昵称']) || '').trim(), store: String(val(f['笔记门店']) || '').trim(), kind: String(val(f['内容类型']) || val(f['笔记类型']) || '').trim(), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, views: maxOf(f['小眼睛(自动)'], f['小眼睛']) }; })
+    const list = (await recs(app, t.table_id)).map(r => { const f = r.fields || {}; return { rec: r.record_id, link: linkOf(f['小红书链接']), home: linkOf(f['主页链接']), acc: String(val(f['账号昵称']) || '').trim(), store: String(val(f['笔记门店']) || '').trim(), kind: String(val(f['内容类型']) || val(f['笔记类型']) || '').trim(), date: typeof f['发布日期'] === 'number' ? f['发布日期'] : null, views: maxOf(f['小眼睛(自动)'], f['小眼睛']) }; })
       .filter(x => /xiaohongshu\.com|xhslink/.test(x.link)).sort((a, b) => (b.date || 0) - (a.date || 0));
     src = { at: Date.now(), list }; return list;
   }
   async function todo(limit) {
     const list = await source(); const left = list.filter(x => !S.done[x.rec] || /^retry/.test(S.done[x.rec]));
-    return { total: list.length, done: list.length - left.length, left: left.length, items: left.slice(0, Math.min(+limit || 50, 300)).map(x => ({ rec: x.rec, link: x.link, acc: x.acc })) };
+    return { total: list.length, done: list.length - left.length, left: left.length, items: left.slice(0, Math.min(+limit || 50, 300)).map(x => ({ rec: x.rec, link: x.link, acc: x.acc, home: /user\/profile\/[0-9a-f]{24}/.test(x.home) ? x.home : '' })) };
   }
 
   async function getImg(u) {

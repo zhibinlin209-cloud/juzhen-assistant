@@ -202,7 +202,7 @@
     D.search.forEach((v, id) => { const o = seen.get(id) || {}; seen.set(id, Object.assign({}, o, Object.fromEntries(Object.entries(v).filter(([, x]) => x !== null && x !== undefined && x !== '')))); });
     const xhs = isXhs();
     return Array.from(seen.values()).map(x => Object.assign(x, { time: x.time || idTime(x.id) }, {
-      url: xhs ? `https://www.xiaohongshu.com/explore/${x.id}?${new URLSearchParams(Object.assign(x.token ? { xsec_token: x.token } : {}, { xsec_source: 'pc_search' })).toString()}`
+      url: xhs ? `https://www.xiaohongshu.com/explore/${x.id}?${new URLSearchParams(Object.assign(x.token ? { xsec_token: x.token } : {}, { xsec_source: /\/user\/profile\//.test(location.pathname) ? 'pc_user' : 'pc_search' })).toString()}`
         : `https://www.douyin.com/${x.kind === 'note' ? 'note' : 'video'}/${x.id}`
     }));
   }
