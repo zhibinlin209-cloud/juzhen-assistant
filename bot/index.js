@@ -93,7 +93,10 @@ async function setup() {
     if (!r.ok) { const t = await r.text().catch(() => ''); throw new Error('下载文件失败 HTTP ' + r.status + ' ' + t.slice(0, 200)); }
     return Buffer.from(await r.arrayBuffer());
   }
-  async function imgBuf(messageId, key) { const r = await fetch(`${API}/im/v1/messages/${messageId}/resources/${key}?type=image`, { headers: { authorization: 'Bearer ' + await token() } }); if (!r.ok) throw new Error('下载图片失败 HTTP ' + r.status); return Buffer.from(await r.arrayBuffer()); }
+  async function imgBuf(messageId, key) { const r = await fetch(`${API}/im/v1/messages/${messageId}/resources/${key}?type=image`, { headers: { authorization: 'Bearer ' + await token() } }); if (!r.ok) throw new Error('下载图片失败 HTTP ' + r.status); const b = Buffer.from(await r.arrayBuffer());
+    // iPhone 的 Live 图 / 原图常是 HEIC：通义和小红书都不认，统一转成 JPG
+    const brand = b.slice(4, 12).toString('latin1'); if (/^ftyp(heic|heix|hevc|mif1|msf1|heim|heis)/.test(brand)) { try { const conv = require('heic-convert'); const out = Buffer.from(await conv({ buffer: b, format: 'JPEG', quality: 0.9 })); log('[图片] HEIC 已转 JPG'); return out; } catch (e) { log('[图片] HEIC 转 JPG 失败：' + e.message); } }
+    return b; }
   async function upload(buf, name, parentType, parentNode) { // 传到多维表格（附件列用）；超过 20MB 分片传
     if (buf.length > 20 * 1024 * 1024) {
       const H = { authorization: 'Bearer ' + await token() };
@@ -129,11 +132,11 @@ async function setup() {
       const j = await r.json().catch(() => ({}));
       if (r.ok) return ((j.choices || [])[0] || {}).message.content || '';
       const msg = (j.error && (j.error.message || j.error.code)) || j.message || ('HTTP ' + r.status);
-      if (/model/i.test(msg) && (r.status === 400 || r.status === 404)) { // 模型名这个账号用不了：换下一个
+      if (/model.*(not exist|not found|not support|access)|(not exist|not found|access denied).*model|InvalidModel|Model\.AccessDenied/i.test(msg) && !/image|图片|format/i.test(msg) && (r.status === 400 || r.status === 404 || r.status === 403)) { // 模型名这个账号用不了：换下一个
         tried.push(vlModel); const next = VL.find(m => !tried.includes(m));
         if (next) { log(`模型 ${vlModel} 用不了，改用 ${next}`); vlModel = next; continue; }
       }
-      throw new Error('通义千问：' + msg);
+      log('[看图] 通义报错：' + String(msg).slice(0, 160)); throw new Error('通义千问：' + msg);
     }
   }
 
@@ -378,6 +381,7 @@ async function setup() {
       return;
     }
     if (text && /^\s*补图\s*$/.test(text)) { await fixImages(m.chat_id, m.message_id); return; }
+    if (images.length) log(`[消息] 图片 ${images.length} 张（${m.message_type}${blank ? '' : '，带文字'}）发送人 ${(await senderName(sid).catch(() => '')) || sid.slice(-6)}${draft.active(sid) ? ' · 收稿中' : ' · 不在收稿中'}`);
     if (blank && images.length && draft.active(sid)) {
       try { const imgs = (async () => { const a = []; for (const k of images) a.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); return a; })(); const p = await draft.addMedia(sid, imgs); if (p && p.id) { clearTimeout(p.tm); p.tm = setTimeout(() => reply(m.message_id, `🖼 图片已归到「${p.code}」（素材共 ${p.n} 个）`), 4000); } } catch (e) { log('[收稿] 图片处理失败：' + e.message); }
       return;
