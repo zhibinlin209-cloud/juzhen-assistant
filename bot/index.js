@@ -284,7 +284,11 @@ async function setup() {
               (p.outliers.length ? `\n⚠️ 疑似录错没导入：${p.outliers.map(x => fmtD(x.ts) + ' 营业额 ' + x.f.总营业额).join('；')}` : '') + (p.badDate.length ? `\n⚠️ 日期认不出：${p.badDate.slice(0, 5).join('；')}` : '') + (w.diff.length ? `\n⚠️ 和表里已有数字不一致：${w.diff.slice(0, 5).join('；')}` : ''));
             return;
           }
-          const r = await tgt.ingest(buf); if (r) { await reply(m.message_id, replyForTgt(r)); if (r.rows) brief.ads().catch(e => log('[投放分析] 出错 ' + e.message)); }
+          const r = await tgt.ingest(buf); if (r) { await reply(m.message_id, replyForTgt(r));
+            if (r.rows) { tgtState.chat = m.chat_id; if (sid) tgtState.sender = sid; if (r.lastDay) tgtState.lastDay = Math.max(tgtState.lastDay || 0, r.lastDay); saveTS();
+              const wk = new Date(Date.now() + 8 * 3600e3).getUTCDay() === 1 && (r.days || 0) >= 20 && tgtState.weekly !== bjDay(Date.now());
+              if (wk) { await reply(m.message_id, '📅 收到近 30 天报表，正在出本周投放周报（按 30 日归因算每单成本），几分钟后私聊林总'); sendAdsWeekly({ weekly: true }); }
+              else brief.ads().catch(e => log('[投放分析] 出错 ' + e.message)); } }
           else { const pr = await people.importSettle(buf); if (pr) { let n = 0; try { n = await people.linkAliases(await accounts.map(true)); } catch (e) { log('[人员] 补叫法出错 ' + e.message); } const ps = await people.list(true); await reply(m.message_id, `👥 人员账号对照已更新：${pr.rows} 人（新增 ${pr.added}、更新 ${pr.updated}），自动认出数据表里的叫法 ${n} 人\n` + ps.slice(0, 60).map(p => `· ${p['真实姓名']}（微信 ${p['微信名'] || '—'}）抖音 ${p['抖音账号'] || '—'} · 小红书 ${p['小红书账号'] || '—'}${p['数据表叫法'] ? ' · 表里叫 ' + p['数据表叫法'] : ''}`).join('\n') + '\n存在你的私密表格「人员账号对照」，可以直接改。'); try { await fillAccounts(); } catch (e) { } } } } catch (e) { if (e.message === 'NO_PRIVATE_BASE') return; log('[表格文件] 处理出错：', e.message); await reply(m.message_id, '⚠️ 这个表格没处理成功：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); }
       }
       return;
@@ -316,6 +320,7 @@ async function setup() {
     if (text && /^\s*(深度分析|爆款公式\s*2(\.0)?|内容库分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, '⏳ 正在做深度分析（小红书内容库 + 官方号），大概 1–2 分钟…'); await sendDeep(m.message_id); } catch (e) { log('[深度分析] 出错：' + e.message); await reply(m.message_id, '⚠️ 深度分析没跑出来：' + e.message.slice(0, 80)); } return; }
     if (text && /^\s*(爆款分析|爆款公式)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, '⏳ 正在分析自家内容，大概 1 分钟…'); await sendHits(m.message_id); } catch (e) { log('[爆款公式] 出错：' + e.message); await reply(m.message_id, '⚠️ 爆款分析没跑出来：' + e.message.slice(0, 80)); } return; }
     if (text && /^\s*(投放分析|推广通分析)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendAds({ replyTo: m.message_id }); return; }
+    if (text && /^\s*(投放周报|推广通周报)\s*$/.test(text) && (m.chat_id === dailyChatNow() || m.chat_id === tgtState.chat)) { await reply(m.message_id, '⏳ 正在做投放周报（和之前所有周对比 + 三套方案），大概 2–4 分钟…'); sendAdsWeekly({ replyTo: m.message_id }); return; }
     if (text && /^\s*(重新识别日报|重读日报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { rereadDaily(m.message_id); return; }
     if (text && /^\s*驾驶舱\s*$/.test(text) && m.chat_id === dailyChatNow()) { const link = web.loginLink(); if (link && boss) { try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: `🖥 驾驶舱登录链接（7 天内有效，登录后 30 天免登录，别转发给别人）：\n${link}` }) }, { receive_id_type: 'open_id' }); await reply(m.message_id, '✅ 登录链接已私聊发给你'); } catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 60)); } } return; }
     // 门店营业日报（华付数科等机器人发的也收）
@@ -445,6 +450,35 @@ async function setup() {
   let boss = cfg.bossOpenId || (() => { try { return fs.readFileSync(BOSS_FILE, 'utf8').trim(); } catch (e) { return ''; } })();
   function rememberBoss(id) { if (!id || id === boss) return; boss = id; try { fs.writeFileSync(BOSS_FILE, id); } catch (e) { } log('[简报] 记住了老板的飞书账号，以后简报私聊发送'); }
   const brief = createBrief({ cfg, api: { call }, log, llm: cfg.qwenKey ? chat : null });
+  // 推广通投放周报（30 日归因 + 和之前所有周对比 + 三套方案，DeepSeek 写，存飞书云文档）
+  const adsWeekly = require('./lib/adsweekly').createAdsWeekly({ cfg, api: { call }, core, log, canon: require('./lib/tgt').canon, bossId: () => boss, saveKind: (k, r, d) => brief.saveKind(k, r, d) });
+  const TS_FILE = path.join(DATA_DIR, 'tgt-state.json'); let tgtState = {}; try { tgtState = JSON.parse(fs.readFileSync(TS_FILE, 'utf8')); } catch (e) { }
+  const saveTS = () => { try { fs.writeFileSync(TS_FILE, JSON.stringify(tgtState)); } catch (e) { } };
+  async function sendAdsWeekly(o) {
+    o = o || {}; try {
+      const r = await adsWeekly.report(); if (!r) { if (o.replyTo) await reply(o.replyTo, '还没有推广通数据'); return; }
+      const head = `📈 ${r.title}（${r.by}）\n` + (r.doc ? `完整分析和三套方案已存到云文档：${r.doc}\n请看文档最后的「请你确认」，回我同意哪套方案。\n\n` : '') ;
+      const body = r.doc ? r.text.split('\n').filter(l => /^【(一句话结论|我推荐)】/.test(l) || false).join('\n') + '\n' + (r.text.match(/【一句话结论】([\s\S]*?)【/) || ['', ''])[1].trim().slice(0, 300) + '\n\n' + ((r.text.match(/【我推荐】([\s\S]*?)(【|$)/) || ['', ''])[1].trim().slice(0, 500)) : r.text;
+      if (boss) await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: head + body }) }, { receive_id_type: 'open_id' });
+      if (o.replyTo) await reply(o.replyTo, boss ? '✅ 投放周报已私聊发给你' : head + body);
+      if (o.weekly) { tgtState.weekly = bjDay(Date.now()); saveTS(); }
+      return r;
+    } catch (e) { log('[投放周报] 失败：' + e.message); if (o.replyTo) await reply(o.replyTo, '⚠️ 投放周报没生成：' + e.message.slice(0, 80)); }
+  }
+  // 投放数据群提醒：每天 9 点（前一天的推广通日报还没进来才提醒），每周一 9 点提醒导出近 30 天报表
+  setInterval(async () => {
+    const bj = new Date(Date.now() + 8 * 3600e3); const hh = bj.getUTCHours(), mm = bj.getUTCMinutes(), today = bjDay(Date.now());
+    if (!tgtState.chat || hh !== 9 || mm > 5 || tgtState.remind === today) return; tgtState.remind = today; saveTS();
+    const at = tgtState.sender ? `<at user_id="${tgtState.sender}"></at> ` : '';
+    try {
+      const L = [];
+      if ((tgtState.lastDay || 0) < today - 1) L.push('⏰ 早上好，请把昨天的「推广通门店报表」导出发到群里（机器人自动入库、查余额和计划有没有停）。');
+      if (bj.getUTCDay() === 1) L.push('📅 今天周一：请再导出一份「近 30 天」的推广通门店报表发群里（日期选 30 天前到昨天）。30 日归因的订单要用它更新，今天的投放周报按这份来算每单成本。');
+      if (L.length) await call('POST', '/im/v1/messages', { receive_id: tgtState.chat, msg_type: 'text', content: JSON.stringify({ text: at + L.join('\n') }) }, { receive_id_type: 'chat_id' });
+    } catch (e) { log('[推广通提醒] 发送失败：' + e.message); }
+  }, 60e3);
+  // 周一：收到 30 天报表就出周报；14:00 还没收到就用现有数据出
+  setInterval(() => { const bj = new Date(Date.now() + 8 * 3600e3); if (bj.getUTCDay() !== 1 || tgtState.weekly === bjDay(Date.now())) return; if (bj.getUTCHours() >= 14) sendAdsWeekly({ weekly: true }); }, 5 * 60e3);
   async function registerLinks(text, who) { // 领稿页提交的链接 → 和群里贴链接一样登记进数据表
     const out = [];
     if (/xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(text)) { const r = await core.handleText(text, who); if (r) out.push(replyForText(r)); }
@@ -452,7 +486,7 @@ async function setup() {
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last(), studioSetup: async () => { const r = await studio.ensure(); r.migrated = await studio.migrateOld(); return r; }, studioDedupe: () => studio.markDups(), tgtIngest: buf => tgt.ingest(buf), studio: () => studio, rows: async (name, days) => { // 私密表格只读：经营日报 / 推广通，最近 N 天（钥匙保护）
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last(), studioSetup: async () => { const r = await studio.ensure(); r.migrated = await studio.migrateOld(); return r; }, studioDedupe: () => studio.markDups(), tgtIngest: buf => tgt.ingest(buf), adsWeekly: async () => { const r = await adsWeekly.report(); return r ? { title: r.title, by: r.by, doc: r.doc, docError: r.docError, text: r.text } : null; }, studio: () => studio, rows: async (name, days) => { // 私密表格只读：经营日报 / 推广通，最近 N 天（钥匙保护）
     const ok = [cfg.dailyTable || '经营日报数据', '推广通数据']; if (!ok.includes(name)) throw new Error('只能读：' + ok.join('、'));
     const app = await core.dailyAppToken(); const t = ((await call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === name); if (!t) throw new Error('没这张表');
     const since = Date.now() - Math.min(days || 45, 400) * 864e5; const out = []; let pt = '';
@@ -551,7 +585,7 @@ async function setup() {
   }
   setInterval(() => { // 每周一 09:30 私聊一份投放周分析
     const bj = new Date(Date.now() + 8 * 3600e3); if (bj.getUTCDay() !== 1) return; const hh = bj.getUTCHours(), mm = bj.getUTCMinutes();
-    if (((hh === 9 && mm >= 30) || hh === 10 || hh === 11) && briefState.ads !== bjDay(Date.now()) && briefState.last === bjDay(Date.now())) sendAds({ weekly: true });
+    if (false && ((hh === 9 && mm >= 30) || hh === 10 || hh === 11) && briefState.ads !== bjDay(Date.now()) && briefState.last === bjDay(Date.now())) sendAds({ weekly: true }); // 已由「投放周报」替代
   }, 60e3);
   setTimeout(async () => { try { if (!(await brief.latestAds())) await brief.ads(); } catch (e) { log('[投放分析] 首次生成出错 ' + e.message); } }, 70e3);
   setInterval(() => {

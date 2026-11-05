@@ -51,7 +51,8 @@ function createTgt({ cfg, api, log }) {
     for (let i = 0; i < add.length; i += 400) await api.call('POST', `/bitable/v1/apps/${A}/tables/${T}/records/batch_create`, { records: add.slice(i, i + 400) });
     for (let i = 0; i < upd.length; i += 400) await api.call('POST', `/bitable/v1/apps/${A}/tables/${T}/records/batch_update`, { records: upd.slice(i, i + 400) });
     log(`[推广通] 新增 ${add.length}，更新 ${upd.length}`);
-    return Object.assign({ rows: list.length, added: add.length, updated: upd.length }, analyze(list.concat(ex.map(x => ({ ts: x.f['日期'], store: val(x.f['门店']), storeId: val(x.f['门店ID']), 花费: +x.f['花费'] || 0, 团购订单量: +x.f['团购订单量'] || 0, 商户浏览量: +x.f['商户浏览量'] || 0 })))));
+    const dset = new Set(list.map(o => bjDay(o.ts)));
+    return Object.assign({ rows: list.length, added: add.length, updated: upd.length, days: dset.size, lastDay: Math.max(...dset) }, analyze(list.concat(ex.map(x => ({ ts: x.f['日期'], store: val(x.f['门店']), storeId: val(x.f['门店ID']), 花费: +x.f['花费'] || 0, 团购订单量: +x.f['团购订单量'] || 0, 商户浏览量: +x.f['商户浏览量'] || 0 })))));
   }
   // 最新一天：各店花费 vs 前 3 周同一天平均，掉一半以上提醒（可能余额不足或计划被停）
   function analyze(all) {
