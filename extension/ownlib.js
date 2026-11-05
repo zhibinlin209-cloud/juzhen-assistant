@@ -192,6 +192,8 @@
           const pool = all.filter(x => !seen.has(x.id) && age(x) <= d && age(x) > prev && num0(x.likes) >= ml * mul).sort((a, b) => num0(b.likes) - num0(a.likes));
           cnt[d] = pool.length; list.push(...pool.slice(0, R.per - list.length));
         }
+        // 小词兜底：90 天内、同一个词里点赞排前 20% 的也算（至少 100 赞），补到 per 篇
+        if (list.length < R.per && !R.days) { const pool90 = all.filter(x => !seen.has(x.id) && age(x) <= 90 && !list.includes(x)).sort((a, b) => num0(b.likes) - num0(a.likes)); const top = pool90.slice(0, Math.ceil(all.filter(x => age(x) <= 90).length * 0.2)).filter(x => num0(x.likes) >= 100); cnt['前20%'] = top.length; list.push(...top.slice(0, R.per - list.length)); }
         const old = all.filter(x => age(x) > (R.days || 90)).length;
         rlog(`「${kw}」搜到 ${all.length} 篇图文，剔除 ${R.days || 90} 天前老帖 ${old} 篇；` + Object.entries(cnt).map(([d, n]) => `${d}天内达标 ${n}`).join('、') + `；用到近 ${used} 天，读 ${list.length} 篇` + (list.length < R.per && !R.days ? '（词偏冷，可换更大的词）' : ''));
         for (const x of list) {
