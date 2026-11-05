@@ -78,16 +78,29 @@
       const t = await srv('/lib/todo?limit=' + S.batch); S.info = t; S.n = t.items.length;
       if (!S.n) { log('都读完了，没有新的笔记'); return; }
       log(`开始读取 ${S.n} 条（全部 ${t.total}，已读 ${t.done}）。后台窗口别关，可以最小化`);
-      // 旧笔记的分享链接会过期（打开显示「暂时无法浏览」）：先去作者主页拿带新口令的笔记地址，再按笔记 ID 打开
+      // 旧笔记的分享链接会过期（打开显示「暂时无法浏览」）：改用标题去搜，在搜索结果里点开（不再走作者主页）
       const fresh = {}; const homesDone = new Set();
       const noteIdOf = async link => { const m0 = link.match(/(?:explore|item)\/([0-9a-f]{24})/); if (m0) return m0[1]; try { const r = await fetch(link, { credentials: 'include' }); const u = decodeURIComponent(r.url || ''); const m = u.match(/(?:explore|item)\/([0-9a-f]{24})/); return m ? m[1] : ''; } catch (e) { return ''; } };
       async function loadHome(home) { if (!home || homesDone.has(home)) return; homesDone.add(home); await nav(home); let st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { if (!(await waitUnblock(st.blocked))) return; await nav(home); }
         const res = await msg({ type: 'rm:collectProfile', limit: 120 }, 300000); ((res && res.list) || []).forEach(x => { if (x.id && x.url && /xsec_token=/.test(x.url)) fresh[x.id] = x.url; }); log(`主页「${(res && res.profile && res.profile.name) || ''}」拿到 ${Object.keys(fresh).length} 条笔记地址`); await sleep(rand(3000, 6000)); }
+      // 用标题搜：在搜索结果里找同一篇（笔记 ID 一样，或标题对得上且作者一样），拿到带新口令的地址
+      async function byTitle(it, nid) {
+        const q = String(it.title || '').replace(/[\u{1F000}-\u{1FFFF}\u2600-\u27BF#️⃣]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 24); if (q.length < 4) return '';
+        const u = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(q)}&source=web_search_result_notes`;
+        await nav(u); let st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { if (!(await waitUnblock(st.blocked))) return ''; await nav(u); }
+        const res = await msg({ type: 'rm:collectList', limit: 20 }, 120000); const list = (res && res.list) || [];
+        const norm = x => String(x || '').replace(/[\s\p{P}\p{S}]/gu, '');
+        const hit = list.find(x => nid && x.id === nid) || list.find(x => norm(x.title) && (norm(x.title).includes(norm(q).slice(0, 10)) || norm(q).includes(norm(x.title).slice(0, 10))) && (!it.acc || !x.author || norm(x.author) === norm(it.acc)));
+        log(hit ? `🔎 用标题搜到《${q.slice(0, 14)}》` : `🔎 标题没搜到《${q.slice(0, 14)}》`); await sleep(rand(2000, 4000));
+        return hit && hit.url ? hit.url : '';
+      }
       for (const it of t.items) {
         if (S.stop) break; S.i++; S.cur = it.acc; forceRender();
-        const nid = await noteIdOf(it.link); if (nid && !fresh[nid] && it.home) await loadHome(it.home);
-        const use = nid && fresh[nid] ? Object.assign({}, it, { link: fresh[nid] }) : it;
-        let r = await readOne(use); if (r.again) r = await readOne(use);
+        const nid = await noteIdOf(it.link);
+        let r = null;
+        // 链接以前读过、已过期：直接用标题搜，不再打开老链接
+        if (!it.expired) { r = await readOne(it); if (r.again) r = await readOne(it); }
+        if (!r || (r.err && r.retry)) { const f = await byTitle(it, nid); if (f) { r = await readOne(Object.assign({}, it, { link: f })); if (r.again) r = await readOne(Object.assign({}, it, { link: f })); } else if (it.title) r = { err: '链接过期，标题也没搜到', retry: false }; else if (!r) r = { err: '链接过期', retry: true }; }
         if (r.stop) { log('验证超时，先停下。处理好后再点开始'); break; }
         try {
           if (r.err) { await srv('/lib/note', { rec: it.rec, link: it.link, error: r.err, retry: r.retry }); S.fail++; log(`✗ ${it.acc}：${r.err}`); }
