@@ -115,8 +115,8 @@ function createBrief({ cfg, api, log, llm }) {
       try {
         const T = (await table(priv, '推广通数据')) || [];
         if (T.length) {
-          const rows = T.map(f => ({ d: typeof f['日期'] === 'number' ? bjDay(f['日期']) : null, store: canon(val(f['门店'])), spend: num(f['花费']) || 0, orders: num(f['团购订单量']) || 0, views: num(f['商户浏览量']) || 0, imp: num(f['曝光']) || 0, clk: num(f['点击']) || 0 })).filter(r => r.d !== null);
-          F.tgt = tgtAnalyze(rows, today, dayStr);
+          const rows = T.map(f => ({ d: typeof f['日期'] === 'number' ? bjDay(f['日期']) : null, store: canon(val(f['门店'])), spend: num(f['花费']) || 0, orders: (f['30日团购订单数'] !== undefined && f['30日团购订单数'] !== null) ? (num(f['30日团购订单数']) || 0) : (num(f['团购订单量']) || 0), orders0: num(f['团购订单量']) || 0, a30: f['30日团购订单数'] !== undefined && f['30日团购订单数'] !== null, views: num(f['商户浏览量']) || 0, imp: num(f['曝光']) || 0, clk: num(f['点击']) || 0 })).filter(r => r.d !== null);
+          F.tgt = tgtAnalyze(rows, today, dayStr); { const rec = rows.filter(r => r.d > today - 29 && r.spend > 0); F.tgt.a30share = rec.length ? rec.filter(r => r.a30).length / rec.length : 0; }
           const flags = F.tgt.flags;
           flags.forEach(x => F.alerts.push(x));
         }
@@ -263,13 +263,13 @@ ${JSON.stringify(F)}`;
   // ---------- 投放分析（AI 写，给驾驶舱和周一私聊）：只基于程序算好的推广通数据 ----------
   async function ads(o) {
     const F = await facts(); if (!F.tgt) return null;
-    const D = { 数据截至: F.tgt.last, 判断标准: F.tgt.rule, 全店单笔成本中位: F.tgt.medCpo, 近7天: { 花费: F.tgt.spend7, 团购订单: F.tgt.orders7, 单笔成本: F.tgt.cpo, 点击率: F.tgt.ctr }, 再前7天: { 花费: F.tgt.spendPrev7, 团购订单: F.tgt.ordersPrev7, 单笔成本: F.tgt.cpoPrev }, 环比: { 花费: F.tgt.dSpend, 团购订单: F.tgt.dOrders, 单笔成本: F.tgt.dCpo, 点击率: F.tgt.dCtr }, 门店: F.tgt.stores.map(x => ({ 门店: x.store, 结论: x.verdict, 原因: x.why, 建议: x.todo, 花费: x.spend7, 花费环比: x.dSpend, 团购订单: x.orders7, 订单环比: x.dOrders, 单笔成本: x.cpo, 成本环比: x.dCpo, 点击率: x.ctr, 点击率环比: x.dCtr, 浏览转化: x.cvr, 转化环比: x.dCvr })), 近4周: F.tgt.weeks, 异常提醒: F.tgt.flags };
+    const D = { 数据截至: F.tgt.last, 口径: '团购订单和单笔成本按「30 日归因团购订单」算（点了广告 30 天内下单都算），比当天下单更准；最近几天的单还在累积，会偏少，看趋势时以前几周为准' + (F.tgt.a30share < 0.8 ? `；目前只有 ${Math.round(F.tgt.a30share * 100)}% 的天数有 30 日归因，其余按当天团购单` : ''), 判断标准: F.tgt.rule, 全店单笔成本中位: F.tgt.medCpo, 近7天: { 花费: F.tgt.spend7, 团购订单: F.tgt.orders7, 单笔成本: F.tgt.cpo, 点击率: F.tgt.ctr }, 再前7天: { 花费: F.tgt.spendPrev7, 团购订单: F.tgt.ordersPrev7, 单笔成本: F.tgt.cpoPrev }, 环比: { 花费: F.tgt.dSpend, 团购订单: F.tgt.dOrders, 单笔成本: F.tgt.dCpo, 点击率: F.tgt.dCtr }, 门店: F.tgt.stores.map(x => ({ 门店: x.store, 结论: x.verdict, 原因: x.why, 建议: x.todo, 花费: x.spend7, 花费环比: x.dSpend, 团购订单: x.orders7, 订单环比: x.dOrders, 单笔成本: x.cpo, 成本环比: x.dCpo, 点击率: x.ctr, 点击率环比: x.dCtr, 浏览转化: x.cvr, 转化环比: x.dCvr })), 近4周: F.tgt.weeks, 异常提醒: F.tgt.flags };
     let r;
     if (!llm) r = { text: plainAds(D), by: '纯数字（没配 AI）' };
     else {
       const prompt = `你是禧聚餐饮的投放分析师。下面是程序算好的「大众点评推广通」数据（近 7 天对比再前 7 天，以及近 4 周趋势）。请写一份投放分析给老板林智斌看。
 要求：
-1. 只能使用数据里出现的数字，不许自己计算新数字、不许编造。
+1. 只能使用数据里出现的数字，不许自己计算新数字、不许编造。开头说明「每单成本按 30 日归因算」。
 2. 每家店的结论和建议只能照「结论 / 原因 / 建议」字段写，不要自己改判断；可以结合「近4周」说趋势（比如连续几周成本在涨/降），但只能引用里面的数字。
 3. 结构（飞书纯文本，不要 # 和 **，不要表格）：
 一句话结论

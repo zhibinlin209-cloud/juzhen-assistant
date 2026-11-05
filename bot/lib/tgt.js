@@ -6,7 +6,8 @@ const { readXlsx } = require('./xlsx');
 const DAY = 864e5, TZ = 8 * 3600e3;
 const STORE = [[/华强北/, '深圳华强北燕南店'], [/前海|HOP/i, '深圳前海HOP店'], [/白石洲/, '深圳白石洲店'], [/江南西/, '广州江南西店'], [/玖洲道/, '珠海玖洲道店'], [/水东街/, '惠州水东街店'], [/33小镇/, '东莞东城33小镇店'], [/创意产业园/, '佛山创意产业园店'], [/千灯湖|灯湖西街|保利西街/, '佛山保利西街店'], [/陈家祠/, '广州陈家祠店'], [/花园城/, '深圳蛇口招商花园城店']];
 const canon = s => { s = String(s || '').replace(/YES也是大排档/, ''); const m = STORE.find(([re]) => re.test(s)); return m ? m[1] : s; };
-const COLS = [['日期', 5], ['门店', 1], ['门店ID', 1], ['花费', 2], ['曝光', 2], ['点击', 2], ['商户浏览量', 2], ['团购订单量', 2], ['订单量', 2], ['7日团购订单数', 2], ['查看团购', 2], ['收藏', 2], ['录入时间', 5]];
+const COLS = [['日期', 5], ['门店', 1], ['门店ID', 1], ['花费', 2], ['曝光', 2], ['点击', 2], ['商户浏览量', 2], ['团购订单量', 2], ['订单量', 2], ['7日团购订单数', 2], ['查看团购', 2], ['收藏', 2], ['15日团购订单数', 2], ['30日团购订单数', 2], ['7日支付订单数', 2], ['15日支付订单数', 2], ['30日支付订单数', 2], ['录入时间', 5]];
+const DATA = COLS.slice(3, -1); // 花费 … 30日支付订单数
 const num = v => { const x = parseFloat(String(v ?? '').replace(/,/g, '')); return isFinite(x) ? x : 0; };
 const bjDay = t => Math.floor((t + TZ) / DAY);
 
@@ -16,7 +17,7 @@ function parseTgt(buf) {
   return rows.slice(hi + 1).filter(r => /^\d{8}$/.test(String(r[col('日期')] || '').trim())).map(r => {
     const d = String(r[col('日期')]).trim(); const ts = Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)) - TZ;
     const o = { ts, date: `${d.slice(4, 6)}/${d.slice(6, 8)}`, storeId: String(r[col('门店ID')] || '').trim(), store: canon(r[col('门店名称')]) };
-    for (const [c] of COLS.slice(3, 12)) o[c] = num(r[col(c)]);
+    for (const [c] of DATA) o[c] = col(c) >= 0 ? num(r[col(c)]) : null;
     return o;
   });
 }
@@ -28,7 +29,10 @@ function createTgt({ cfg, api, log }) {
     if (tid) return tid; const A = app(); const all = []; let pt = '';
     do { const d = await api.call('GET', `/bitable/v1/apps/${A}/tables`, null, Object.assign({ page_size: 100 }, pt ? { page_token: pt } : {})); all.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
     const t = all.find(x => x.name === '推广通数据');
-    if (t) return (tid = t.table_id);
+    if (t) { // 老表补上新列（7/15/30 日归因）
+      const fd = await api.call('GET', `/bitable/v1/apps/${A}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const hv = new Set((fd.items || []).map(f => f.field_name));
+      for (const [field_name, type] of COLS) if (!hv.has(field_name)) await api.call('POST', `/bitable/v1/apps/${A}/tables/${t.table_id}/fields`, { field_name, type });
+      return (tid = t.table_id); }
     const d = await api.call('POST', `/bitable/v1/apps/${A}/tables`, { table: { name: '推广通数据', default_view_name: '全部', fields: COLS.map(([field_name, type]) => ({ field_name, type })) } });
     log('[推广通] 新建表：推广通数据'); return (tid = d.table_id);
   }
@@ -43,7 +47,7 @@ function createTgt({ cfg, api, log }) {
     const A = app(), T = await table(); const ex = await existing();
     const key = (ts, id) => `${bjDay(ts)}|${id}`; const map = new Map(ex.map(x => [key(x.f['日期'], val(x.f['门店ID'])), x.id]));
     const add = [], upd = []; const now = Date.now();
-    for (const o of list) { const fields = { 日期: o.ts, 门店: o.store, 门店ID: o.storeId, 录入时间: now }; COLS.slice(3, 12).forEach(([c]) => { fields[c] = o[c]; }); const id = map.get(key(o.ts, o.storeId)); if (id) upd.push({ record_id: id, fields }); else add.push({ fields }); }
+    for (const o of list) { const fields = { 日期: o.ts, 门店: o.store, 门店ID: o.storeId, 录入时间: now }; DATA.forEach(([c]) => { if (o[c] !== null) fields[c] = o[c]; }); const id = map.get(key(o.ts, o.storeId)); if (id) upd.push({ record_id: id, fields }); else add.push({ fields }); }
     for (let i = 0; i < add.length; i += 400) await api.call('POST', `/bitable/v1/apps/${A}/tables/${T}/records/batch_create`, { records: add.slice(i, i + 400) });
     for (let i = 0; i < upd.length; i += 400) await api.call('POST', `/bitable/v1/apps/${A}/tables/${T}/records/batch_update`, { records: upd.slice(i, i + 400) });
     log(`[推广通] 新增 ${add.length}，更新 ${upd.length}`);
