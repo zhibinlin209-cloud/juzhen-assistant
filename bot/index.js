@@ -246,6 +246,15 @@ async function setup() {
   setTimeout(async () => { const f = path.join(DATA_DIR, 'sph-clean.json'); if (fs.existsSync(f)) return; try { const r = await core.sphCleanTitles(); fs.writeFileSync(f, JSON.stringify(r)); log('[视频号] 清掉占位标题 ' + r.length + ' 条：' + r.join('、')); } catch (e) { log('[视频号] 清标题出错 ' + e.message); } }, 50e3);
   // ---------- 收消息 ----------
   const seen = new Set(); let markDaily = null;
+  // Live 图拆成：静态图（转成 jpg）+ 动态短视频（mov）
+  async function toJpg(buf, name) { if (!/\.(heic|heif)$/i.test(name)) return { buf, name }; try { const conv = require('heic-convert'); const out = await conv({ buffer: buf, format: 'JPEG', quality: 0.9 }); return { buf: Buffer.from(out), name: name.replace(/\.(heic|heif)$/i, '.jpg') }; } catch (e) { log('[收稿] HEIC 转 JPG 失败（' + e.message + '），按原图存'); return { buf, name }; } }
+  async function liveFiles(buf, name, isMedia) {
+    if (/\.livp$/i.test(name)) { const { unzip } = require('./lib/xlsx'); const z = unzip(buf); const out = [];
+      for (const [n, get] of Object.entries(z)) { if (/\.(heic|heif|jpe?g|png)$/i.test(n)) { const j = await toJpg(get(), n.split('/').pop()); out.push(j); } else if (/\.mov$/i.test(n)) out.push({ buf: get(), name: n.split('/').pop(), video: true, live: true }); }
+      return out.sort((a, b) => (a.video ? 1 : 0) - (b.video ? 1 : 0)); }
+    if (isMedia || /\.mov$/i.test(name)) return [{ buf, name: /\.\w+$/.test(name) ? name : name + '.mov', video: true, live: true }];
+    return [await toJpg(buf, name)];
+  }
   function flatten(type, content) { // 文本 / 富文本 → 文字 + 图片
     let c = {}; try { c = JSON.parse(content || '{}'); } catch (e) { }
     if (type === 'text') return { text: c.text || '', images: [] };
@@ -266,6 +275,17 @@ async function setup() {
     const sid = ((data.sender || {}).sender_id || {}).open_id || '';
     if (m.message_type === 'media' || m.message_type === 'file') {
       let c = {}; try { c = JSON.parse(m.content || '{}'); } catch (e) { }
+      log(`[消息] ${m.message_type} ${c.file_name || '(无文件名)'}${c.duration ? ' 时长' + c.duration + 'ms' : ''}${draft.active(sid) ? ' · 收稿中' : ''}`);
+      // 实况照片（Live 图）：iPhone 会发成 .livp 压缩包、.heic 图，或 3 秒左右的 .mov；都当图文素材收，不把稿子改成视频
+      const live = /\.(livp|heic|heif)$/i.test(c.file_name || '') || (m.message_type === 'media' && +c.duration > 0 && +c.duration <= 3600);
+      const isImgFile = /\.(jpe?g|png|webp|heic|heif|livp)$/i.test(c.file_name || '');
+      if (draft.active(sid) && (live || isImgFile)) {
+        try {
+          const buf = await fileBuf(m.message_id, c.file_key); const files = await liveFiles(buf, c.file_name || 'live.mov', m.message_type === 'media');
+          const p = await draft.addMedia(sid, files); if (p) await reply(m.message_id, `🖼 ${live ? '实况照片（Live 图）' : '图片'}已归到「${p.code}」（素材共 ${p.n} 个）` + (files.some(f => f.live) ? '，动态部分存成了短视频，发布时可选「实况」' : ''));
+        } catch (e) { log('[收稿] Live 图处理出错：' + e.message); await reply(m.message_id, '⚠️ 这张 Live 图没存进去：' + e.message.slice(0, 80)); }
+        return;
+      }
       if (draft.active(sid) && /\.(mp4|m4v|mov)$/i.test(c.file_name || '')) {
         try { const buf = await fileBuf(m.message_id, c.file_key); const p = await draft.addMedia(sid, [{ buf, name: c.file_name, video: true }]); if (p) await reply(m.message_id, `🎬 视频已归到「${p.code}」（素材共 ${p.n} 个）`); } catch (e) { log('[收稿] 视频处理失败：' + e.message); await reply(m.message_id, '⚠️ 视频没存进稿件库：' + e.message.slice(0, 60)); }
         return;

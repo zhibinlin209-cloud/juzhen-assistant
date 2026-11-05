@@ -39,4 +39,4 @@ function readXlsx(buf) {
   }
   return rows;
 }
-module.exports = { readXlsx };
+module.exports = { readXlsx, unzip };

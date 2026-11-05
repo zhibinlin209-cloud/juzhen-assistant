@@ -115,7 +115,7 @@ function createDraft({ api, core, upload, log, resolver }) {
   async function addNow(p, files) {
     files = await files; if (!files || !files.length || !p.id) return p;
     const T = await tbl();
-    const toks = []; for (const f of files) { try { toks.push({ file_token: await upload(f.buf, f.name, f.video ? 'bitable_file' : 'bitable_image', T.app) }); if (f.video) p.type = '视频'; } catch (e) { log('[收稿] 素材上传失败：' + e.message); } }
+    const toks = []; for (const f of files) { try { toks.push({ file_token: await upload(f.buf, f.name, f.video ? 'bitable_file' : 'bitable_image', T.app) }); if (f.video && !f.live) p.type = '视频'; } catch (e) { log('[收稿] 素材上传失败：' + e.message); } }
     if (!toks.length) return p;
     const cur = await api.call('GET', `/bitable/v1/apps/${T.app}/tables/${T.tid}/records/${p.id}`);
     const old = ((cur.record || {}).fields || {})['素材'] || [];
