@@ -452,7 +452,12 @@ async function setup() {
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last(), studioSetup: async () => { const r = await studio.ensure(); r.migrated = await studio.migrateOld(); return r; }, studioDedupe: () => studio.markDups(), studio: () => studio });
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last(), studioSetup: async () => { const r = await studio.ensure(); r.migrated = await studio.migrateOld(); return r; }, studioDedupe: () => studio.markDups(), studio: () => studio, rows: async (name, days) => { // 私密表格只读：经营日报 / 推广通，最近 N 天（钥匙保护）
+    const ok = [cfg.dailyTable || '经营日报数据', '推广通数据']; if (!ok.includes(name)) throw new Error('只能读：' + ok.join('、'));
+    const app = await core.dailyAppToken(); const t = ((await call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === name); if (!t) throw new Error('没这张表');
+    const since = Date.now() - Math.min(days || 45, 400) * 864e5; const out = []; let pt = '';
+    do { const d = await call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '日期', operator: 'isGreater', value: ['ExactDate', String(since)] }] } }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || []).map(r => r.fields)); pt = d.has_more ? d.page_token : ''; } while (pt);
+    return { ok: true, n: out.length, rows: out }; } });
   rawIO.taskLink = id => web.taskLink(id);
   let briefState = {}; try { briefState = JSON.parse(fs.readFileSync(BRIEF_FILE, 'utf8')); } catch (e) { }
   let briefing = false;
