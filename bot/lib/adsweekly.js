@@ -33,7 +33,8 @@ function createAdsWeekly({ cfg, api, core, log, canon, bossId, saveKind }) {
     const lastSun = today - dow - 1; // 上周日
     const first = Math.min(...T.map(r => r.d)); const weeks = [];
     for (let end = lastSun; end - 6 >= first - 6 && weeks.length < 30; end -= 7) weeks.unshift(end);
-    const stores = [...new Set(T.filter(r => r.spend > 0).map(r => r.store))];
+    const CLOSED = new RegExp((cfg.adsClosed || ['陈家祠', '百信广场']).join('|'));
+    const stores = [...new Set(T.filter(r => r.spend > 0).map(r => r.store))].filter(s => !CLOSED.test(s));
     const has30 = T.filter(r => r.d > lastSun - 28 && r.spend > 0); const share30 = has30.length ? has30.filter(r => r.o30 !== null).length / has30.length : 0;
 
     const per = stores.map(s => {
@@ -55,14 +56,16 @@ function createAdsWeekly({ cfg, api, core, log, canon, bossId, saveKind }) {
       const lo = half >= 2 ? avg(sorted.slice(0, half).map(w => w.相对花园城)) : null, hi = half >= 2 ? avg(sorted.slice(-half).map(w => w.相对花园城)) : null;
       const best = mature.slice().sort((a, b) => a.每单成本 - b.每单成本)[0], worst = mature.slice().sort((a, b) => b.每单成本 - a.每单成本)[0];
       const histCpo = mature.length ? r0(mature.reduce((a, w) => a + w.花费, 0) / Math.max(1, mature.reduce((a, w) => a + w.团购单30日, 0))) : null;
-      const base = on.slice(-2); const baseSpend = base.length ? r0(avg(base.map(w => w.花费))) : 0;
+      // 现在的正常周预算：最近一个「花费 ≥ 这家店投放周中位一半」的周（避开余额不足停掉的周）；最近 3 周都是 0 = 计划停投
+      const medOn = median(on.map(w => w.花费)) || 0; const normal = on.slice().reverse().find(w => w.花费 >= medOn * 0.5);
+      const stopped = W.slice(-3).every(w => w.花费 === 0); const baseSpend = stopped ? 0 : normal ? normal.花费 : 0;
       return {
         门店: s, 本周: cur, 上周: prev,
         本周对上周: cur && prev ? { 花费: pc(cur.花费, prev.花费), 团购单: pc(cur.团购单30日, prev.团购单30日), 每单成本: pc(cur.每单成本, prev.每单成本), 相对花园城: pc(cur.相对花园城, prev.相对花园城) } : null,
         近4周平均: last4.length ? { 花费: r0(avg(last4.map(w => w.花费))), 团购单: r1(avg(last4.map(w => w.团购单30日))), 每单成本: r0(last4.reduce((a, w) => a + w.花费, 0) / Math.max(1, last4.reduce((a, w) => a + w.团购单30日, 0))), 相对花园城: r1(avg(last4.filter(w => w.相对花园城 !== null).map(w => w.相对花园城)) * 100) / 100 } : null,
         历史: { 投放周数: on.length, 停投周数: off.length, 归因完整周的平均每单成本: histCpo, 最便宜的一周: best ? `${best.周} ${best.每单成本} 元` : null, 最贵的一周: worst ? `${worst.周} ${worst.每单成本} 元` : null },
         营业额敏感度: { 投放周相对花园城: relOn === null ? null : Math.round(relOn * 100) / 100, 停投周相对花园城: relOff === null ? null : Math.round(relOff * 100) / 100, 投比停: pc(relOn, relOff), 高花费周比低花费周: pc(hi, lo) },
-        近两周投放周均花费: baseSpend, 逐周: W.slice(-12).map(({ end, ...w }) => w)
+        近两周投放周均花费: baseSpend, 状态: stopped ? '计划停投中（近 3 周没花费）' : (cur && cur.花费 < medOn * 0.5 ? '本周花费明显偏低（可能余额不足/计划被停）' : '在投'), 逐周: W.slice(-12).map(({ end, ...w }) => w)
       };
     });
     // 分类：成本（对比各店历史每单成本中位）+ 敏感度
@@ -72,7 +75,7 @@ function createAdsWeekly({ cfg, api, core, log, canon, bossId, saveKind }) {
       p.成本档 = c === null || med === null ? '未知' : c <= med * 0.85 ? '便宜' : c >= med * 1.3 ? '贵' : '中等';
       p.敏感档 = sens === null ? '未知' : sens >= 5 ? '敏感' : sens <= -3 ? '不敏感' : Math.abs(sens) < 3 ? '不敏感' : '略敏感';
     });
-    const plan = (name, rule) => { const L = per.map(p => { const k = rule(p); const b = p.近两周投放周均花费 || 0; return { 门店: p.门店, 现在周均: b, 调整: k === 0 ? '维持' : (k > 0 ? '+' : '') + Math.round(k * 100) + '%', 建议周预算: Math.round(b * (1 + k) / 10) * 10 }; }); return { 方案: name, 合计周预算: L.reduce((a, x) => a + x.建议周预算, 0), 现在合计: L.reduce((a, x) => a + x.现在周均, 0), 门店: L }; };
+    const plan = (name, rule) => { const L = per.map(p => { const b = p.近两周投放周均花费 || 0; const k = b ? rule(p) : 0; return { 门店: p.门店, 现在周均: b, 调整: !b ? '停投中（不动）' : k === 0 ? '维持' : (k > 0 ? '+' : '') + Math.round(k * 100) + '%', 建议周预算: Math.round(b * (1 + k) / 10) * 10 }; }); return { 方案: name, 合计周预算: L.reduce((a, x) => a + x.建议周预算, 0), 现在合计: L.reduce((a, x) => a + x.现在周均, 0), 门店: L }; };
     const plans = [
       plan('A 保守（省钱）', p => p.成本档 === '贵' && p.敏感档 !== '敏感' ? -0.3 : p.成本档 === '贵' ? -0.15 : 0),
       plan('B 平衡（推荐候选）', p => p.成本档 === '贵' ? -0.2 : p.成本档 === '便宜' && /敏感/.test(p.敏感档) && p.敏感档 !== '不敏感' ? 0.2 : 0),
@@ -110,15 +113,16 @@ function createAdsWeekly({ cfg, api, core, log, canon, bossId, saveKind }) {
 1. 只能引用数据里出现的数字，不许自己计算新数字（不许自己加减乘除、不许算百分比），数据里没有的就写「数据缺」。
 2. 每单成本一律按 30 日归因（口径里写了）；最近 4 周归因没满 30 天，说成本时要提醒「还在累积」。
 3. 判断投放有没有用，同时看两条：平台里的每单成本（成本档），和营业额敏感度（敏感档）。成本便宜但营业额不敏感的店，说明广告带来的单占比小；成本贵但敏感的店，不要轻易砍。
-4. 方案只能从「方案」里的 A/B/C 三套选一套推荐，可以说明对哪家店做小调整的理由，但金额只能引用方案里的数字。
-5. 结构（纯文本，不要 # 和 **，不要表格；每个小标题单独一行，用【】括起来）：
+4. 「状态」是计划停投中的店，方案里不给预算，只在诊断里说要不要考虑重启（可以引用它停投前后的相对花园城）；本周花费偏低的店要提醒可能余额不足。
+5. 方案只能从「方案」里的 A/B/C 三套选一套推荐，可以说明对哪家店做小调整的理由，但金额只能引用方案里的数字。
+6. 结构（纯文本，不要 # 和 **，不要表格；每个小标题单独一行，用【】括起来）：
 【一句话结论】
 【和之前所有周比】整体和每家店：本周 vs 上周、vs 近 4 周平均、vs 历史（最便宜/最贵的一周、归因完整周的平均每单成本），点出趋势
 【每家店诊断】每家一段：成本档 + 敏感档 + 说明 + 建议
 【三套方案】每套一两句话说清楚改了哪几家、合计周预算
 【我推荐】推荐哪套、为什么、风险是什么
 【请你确认】列 3–5 个要老板拍板的决定，每条一句，写成可以回答「同意/不同意」的问题
-6. 1500 字以内。
+7. 1800 字以内。每家店诊断控制在 3 句话。
 【数据】
 ${JSON.stringify(F)}`;
     let r;
