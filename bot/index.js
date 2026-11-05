@@ -295,12 +295,16 @@ async function setup() {
     }
     if ((data.sender || {}).sender_type === 'user' && m.chat_id === dailyChatNow()) rememberBoss(((data.sender || {}).sender_id || {}).open_id);
     if (text && /^\s*(简报|日报简报|今日简报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendBrief({ replyTo: m.message_id, manual: true }); return; }
-    // 在发布群里发「派稿」→ 今天待发布的稿件卡片发到这个群，并 @ 对应的人（只认老板发的命令）
+    // 在发布群里发「派稿」→ 今天待发布的稿件卡片发到这个群，并 @ 对应的人（群里谁发都行；同一天已经派过的不重复派）
     if (text && /^\s*(派稿|发稿|今日派稿)\s*$/.test(text) && m.chat_id !== dailyChatNow()) {
-      if (boss && sid !== boss) return;
+      if ((data.sender || {}).sender_type !== 'user') return;
       try {
         try { await fillAccounts(); } catch (e) { log('[账号] 补账号出错 ' + e.message); }
-        const list = await dispatch.today(); if (!list.length) { await reply(m.message_id, '今天没有「派稿日期 = 今天、状态 = 待发布」的稿件'); return; }
+        const all0 = await dispatch.today(); if (!all0.length) { await reply(m.message_id, '今天没有「派稿日期 = 今天、状态 = 待发布」的稿件'); return; }
+        const today0 = Math.floor((Date.now() + 8 * 3600e3) / 864e5); let dsp0 = {}; try { dsp0 = JSON.parse(fs.readFileSync(path.join(DATA_DIR, 'dispatched.json'), 'utf8')); } catch (e) { }
+        const list = all0.filter(r => !(dsp0[r.id] && dsp0[r.id].day === today0 && dsp0[r.id].chat === m.chat_id));
+        if (!list.length) { await reply(m.message_id, `今天的 ${all0.length} 张稿件已经派过了，没有新的待发布稿件。发「进度」看谁还没发。`); return; }
+        log(`[领稿] ${sid === boss ? '老板' : '群成员'}发起派稿：新 ${list.length} 张（今天共 ${all0.length} 张）`);
         const members = {}; try { let pt = ''; do { const d = await call('GET', `/im/v1/chats/${m.chat_id}/members`, null, Object.assign({ member_id_type: 'open_id', page_size: 100 }, pt ? { page_token: pt } : {})); (d.items || []).forEach(x => { if (x.name) members[x.name.trim()] = x.member_id; }); pt = d.has_more ? d.page_token : ''; } while (pt); } catch (e) { log('[领稿] 读不到群成员（@ 不了人）：' + e.message); }
         const DF = path.join(DATA_DIR, 'dispatched.json'); let dsp = {}; try { dsp = JSON.parse(fs.readFileSync(DF, 'utf8')); } catch (e) { }
         let n = 0, noAt = []; for (const r of list) { dsp[r.id] = { chat: m.chat_id, day: Math.floor((Date.now() + 8 * 3600e3) / 864e5), at: r.at || '' }; const vv = x => Array.isArray(x) ? x.map(y => y.text || y).join('') : (x && x.text) || x || ''; const who = String(vv(r.f['发布人员'])).trim(), acc = String(vv(r.f['账号名称'])).trim(); r.at = members[acc] || members[who] || ''; if (!r.at && who) noAt.push(who); await dispatch.send(r, { type: 'chat_id', id: m.chat_id }); n++; }
