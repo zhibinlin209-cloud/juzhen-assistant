@@ -12,11 +12,15 @@ const num = v => { const x = parseFloat(String(v ?? '').replace(/,/g, '')); retu
 const bjDay = t => Math.floor((t + TZ) / DAY);
 
 function parseTgt(buf) {
-  const rows = readXlsx(buf); const hi = rows.findIndex(r => r.includes('日期') && r.includes('花费') && r.includes('门店名称'));
-  if (hi < 0) return null; const H = rows[hi]; const col = n => H.indexOf(n);
-  return rows.slice(hi + 1).filter(r => /^\d{8}$/.test(String(r[col('日期')] || '').trim())).map(r => {
-    const d = String(r[col('日期')]).trim(); const ts = Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)) - TZ;
-    const o = { ts, date: `${d.slice(4, 6)}/${d.slice(6, 8)}`, storeId: String(r[col('门店ID')] || '').trim(), store: canon(r[col('门店名称')]) };
+  // 两种导出都认：①「下载.xlsx」（日期 20261020、门店名称、花费…、30日团购订单数）②「门店报表_起_止.xlsx」（日期 11-05、推广门店、花费（元）…，没有归因列）
+  const rows = readXlsx(buf); const clean = x => String(x ?? '').replace(/[（(][^）)]*[）)]/g, '').trim();
+  const hi = rows.findIndex(r => { const h = r.map(clean); return h.includes('日期') && h.includes('花费') && (h.includes('门店名称') || h.includes('推广门店')); });
+  if (hi < 0) return null; const H = rows[hi].map(clean); const col = n => H.indexOf(n); const nameCol = col('门店名称') >= 0 ? col('门店名称') : col('推广门店');
+  const now = new Date(Date.now() + TZ); const Y = now.getUTCFullYear(), M = now.getUTCMonth() + 1;
+  const ymd = v => { const t = String(v ?? '').trim(); let m = t.match(/^(\d{4})-?(\d{2})-?(\d{2})$/); if (m) return [+m[1], +m[2], +m[3]]; m = t.match(/^(\d{1,2})[-/.](\d{1,2})$/); if (m) { const mo = +m[1]; return [mo > M + 1 ? Y - 1 : Y, mo, +m[2]]; } if (/^\d{5}(\.\d+)?$/.test(t)) { const d = new Date(Date.UTC(1899, 11, 30) + parseFloat(t) * DAY); return [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()]; } return null; };
+  return rows.slice(hi + 1).map(r => ({ r, d: ymd(r[col('日期')]) })).filter(x => x.d && String(x.r[nameCol] || '').trim()).map(({ r, d }) => {
+    const ts = Date.UTC(d[0], d[1] - 1, d[2]) - TZ;
+    const o = { ts, date: `${String(d[1]).padStart(2, '0')}/${String(d[2]).padStart(2, '0')}`, storeId: String(r[col('门店ID')] || '').trim(), store: canon(r[nameCol]) };
     for (const [c] of DATA) o[c] = col(c) >= 0 ? num(r[col(c)]) : null;
     return o;
   });
