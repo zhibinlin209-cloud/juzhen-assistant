@@ -89,6 +89,11 @@ async function setup() {
     const buf = Buffer.from(await r.arrayBuffer()); return `data:${r.headers.get('content-type') || 'image/jpeg'};base64,` + buf.toString('base64');
   }
   let lastUnknownXlsx = null;
+  async function findXlsx() { // 投放群最近一份 xlsx（重启后也能找回）
+    const chats = [tgtState && tgtState.chat, dailyChat].filter(Boolean);
+    for (const ch of chats) { try { const d = await call('GET', '/im/v1/messages', null, { container_id_type: 'chat', container_id: ch, sort_type: 'ByCreateTimeDesc', page_size: 30 }); for (const it of d.items || []) { if (it.msg_type !== 'file') continue; let c = {}; try { c = JSON.parse((it.body || {}).content || '{}'); } catch (e) { } if (/\.xlsx$/i.test(c.file_name || '')) return { mid: it.message_id, key: c.file_key, name: c.file_name, chat: ch }; } } catch (e) { log('[表格文件] 翻群消息出错：' + e.message); } }
+    return null;
+  }
   async function fileBuf(messageId, key) {
     const r = await fetch(`${API}/im/v1/messages/${messageId}/resources/${key}?type=file`, { headers: { authorization: 'Bearer ' + await token() } });
     if (!r.ok) { const t = await r.text().catch(() => ''); throw new Error('下载文件失败 HTTP ' + r.status + ' ' + t.slice(0, 200)); }
@@ -309,7 +314,7 @@ async function setup() {
             return;
           }
           const r = await tgt.ingest(buf); if (r) { await reply(m.message_id, replyForTgt(r));
-            if (r.rows) { tgtState.chat = m.chat_id; if (sid) tgtState.sender = sid; if (r.lastDay) tgtState.lastDay = Math.max(tgtState.lastDay || 0, r.lastDay); saveTS();
+            if (r.rows) { tgtState.chat = m.chat_id; if (r.lastDay) tgtState.lastDay = Math.max(tgtState.lastDay || 0, r.lastDay); saveTS();
               const wk = new Date(Date.now() + 8 * 3600e3).getUTCDay() === 1 && (r.days || 0) >= 20 && tgtState.weekly !== bjDay(Date.now());
               if (wk) { await reply(m.message_id, '📅 收到近 30 天报表，正在出本周投放周报（按 30 日归因算每单成本），几分钟后私聊林总'); sendAdsWeekly({ weekly: true }); }
               else brief.ads().catch(e => log('[投放分析] 出错 ' + e.message)); } }
@@ -501,12 +506,16 @@ async function setup() {
   // 投放数据群提醒：每天 9 点（前一天的推广通日报还没进来才提醒），每周一 9 点提醒导出近 30 天报表
   setInterval(async () => {
     const bj = new Date(Date.now() + 8 * 3600e3); const hh = bj.getUTCHours(), mm = bj.getUTCMinutes(), today = bjDay(Date.now());
-    if (!tgtState.chat || hh !== 9 || mm > 5 || tgtState.remind === today) return; tgtState.remind = today; saveTS();
-    const at = tgtState.sender ? `<at user_id="${tgtState.sender}"></at> ` : '';
+    if (!tgtState.chat || !(hh === 9 || hh === 10) || mm > 5 || tgtState.remind === today * 100 + hh) return; tgtState.remind = today * 100 + hh; saveTS();
+    if (hh === 10 && (tgtState.lastDay || 0) >= today - 1 && bj.getUTCDay() !== 1) return; // 10 点：日报已经到了就不再提醒
+    if (hh === 10 && bj.getUTCDay() === 1 && (tgtState.lastDay || 0) >= today - 1 && tgtState.weekly === today) return;
+    let who = tgtState.reporterId || ''; const name = cfg.tgtReporter || '刘泽荣';
+    if (!who) { try { let pt = ''; do { const d = await call('GET', `/im/v1/chats/${tgtState.chat}/members`, null, Object.assign({ member_id_type: 'open_id', page_size: 100 }, pt ? { page_token: pt } : {})); const f = (d.items || []).find(x => String(x.name || '').trim() === name); if (f) who = f.member_id; pt = d.has_more && !who ? d.page_token : ''; } while (pt); if (who) { tgtState.reporterId = who; saveTS(); } } catch (e) { log('[推广通提醒] 找不到 ' + name + '：' + e.message); } }
+    const at = who ? `<at user_id="${who}"></at> ` : `@${name} `;
     try {
       const L = [];
-      if ((tgtState.lastDay || 0) < today - 1) L.push('⏰ 早上好，请把昨天的「推广通门店报表」导出发到群里（机器人自动入库、查余额和计划有没有停）。');
-      if (bj.getUTCDay() === 1) L.push('📅 今天周一：请再导出一份「近 30 天」的推广通门店报表发群里（日期选 30 天前到昨天）。30 日归因的订单要用它更新，今天的投放周报按这份来算每单成本。');
+      if ((tgtState.lastDay || 0) < today - 1) L.push(hh === 9 ? '⏰ 早上好，请把昨天的「推广通门店报表」导出发到群里（机器人自动入库、查余额和计划有没有停）。' : '⏰ 再提醒一次：昨天的「推广通门店报表」还没收到，麻烦尽快发群里。');
+      if (bj.getUTCDay() === 1 && tgtState.weekly !== today) L.push('📅 今天周一：请再导出一份「近 30 天」的推广通门店报表发群里（日期选 30 天前到昨天）。30 日归因的订单要用它更新，今天的投放周报按这份来算每单成本。');
       if (L.length) await call('POST', '/im/v1/messages', { receive_id: tgtState.chat, msg_type: 'text', content: JSON.stringify({ text: at + L.join('\n') }) }, { receive_id_type: 'chat_id' });
     } catch (e) { log('[推广通提醒] 发送失败：' + e.message); }
   }, 60e3);
@@ -519,7 +528,7 @@ async function setup() {
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last(), studioSetup: async () => { const r = await studio.ensure(); r.migrated = await studio.migrateOld(); return r; }, studioDedupe: () => studio.markDups(), tgtIngest: buf => tgt.ingest(buf), lastXlsx: async () => { if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); const rr = readXlsx(b); return { name: lastUnknownXlsx.name, rows: rr.length, head: rr.slice(0, 8) }; }, reingestLast: async () => { if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); return tgt.ingest(b); }, adsWeekly: async () => { const r = await adsWeekly.report(); return r ? { title: r.title, by: r.by, doc: r.doc, docError: r.docError, text: r.text } : null; }, studio: () => studio, rows: async (name, days) => { // 私密表格只读：经营日报 / 推广通，最近 N 天（钥匙保护）
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last(), studioSetup: async () => { const r = await studio.ensure(); r.migrated = await studio.migrateOld(); return r; }, studioDedupe: () => studio.markDups(), tgtIngest: buf => tgt.ingest(buf), lastXlsx: async () => { if (!lastUnknownXlsx) lastUnknownXlsx = await findXlsx(); if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); const rr = readXlsx(b); return { name: lastUnknownXlsx.name, rows: rr.length, head: rr.slice(0, 8) }; }, reingestLast: async () => { if (!lastUnknownXlsx) lastUnknownXlsx = await findXlsx(); if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); return tgt.ingest(b); }, adsWeekly: async () => { const r = await adsWeekly.report(); return r ? { title: r.title, by: r.by, doc: r.doc, docError: r.docError, text: r.text } : null; }, studio: () => studio, rows: async (name, days) => { // 私密表格只读：经营日报 / 推广通，最近 N 天（钥匙保护）
     const ok = [cfg.dailyTable || '经营日报数据', '推广通数据']; if (!ok.includes(name)) throw new Error('只能读：' + ok.join('、'));
     const app = await core.dailyAppToken(); const t = ((await call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === name); if (!t) throw new Error('没这张表');
     const since = Date.now() - Math.min(days || 45, 400) * 864e5; const out = []; let pt = '';
