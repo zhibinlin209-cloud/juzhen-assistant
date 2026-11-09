@@ -1,4 +1,4 @@
-/* 群里 @机器人 提的需求 / 问题 / 疑问：记下来，每晚汇总私聊给老板
+/* 群里 @机器人 提的需求 / 问题 / 疑问：记下来，马上私聊转给老板
  * 用通义（chat）分类和整理，不花 Claude 的 token
  */
 'use strict';
@@ -11,7 +11,7 @@ const HELP = `机器人现在会做的事：
 - 稿件存放群：发「编号+标题+正文」再发图片/视频/Live 图 → 收稿；在发布群发「派稿」→ 派当天的稿；「进度」→ 看发布进度
 - 经营日报群：门店营业日报自动入库；投放数据群：推广通报表自动入库，每天 9/10 点提醒`;
 
-function createFeedback({ dataDir, chat, log }) {
+function createFeedback({ dataDir, chat, log, notify }) {
   const F = path.join(dataDir, 'feedback.json');
   let st = { items: [], sumAt: 0 }; try { st = Object.assign(st, JSON.parse(fs.readFileSync(F, 'utf8'))); } catch (e) { }
   const save = () => { try { fs.writeFileSync(F, JSON.stringify(st)); } catch (e) { } };
@@ -40,7 +40,9 @@ ${it.parent ? '他回复的那条消息：' + it.parent + '\n' : ''}他说：${i
     st.items.push(it); if (st.items.length > 500) st.items = st.items.slice(-500); save();
     log(`[需求] ${it.group} ${it.who}（${it.type}）：${it.text.slice(0, 80)}`);
     const tag = { 需求: '需求', 问题: '问题', 疑问: '疑问' }[it.type] || '需求';
-    return (answer ? `💡 ${answer}\n` : '') + `📝 已记下这条${tag}${it.summary ? '：「' + it.summary + '」' : ''}，今晚会汇总给管理员处理。`;
+    let sent = false;
+    if (notify) { try { await notify(`📮 群里有新${tag}\n群：${it.group}\n谁：${it.who || '未知'}\n原话：${it.text}` + (it.parent ? `\n回复的是：${it.parent.slice(0, 200)}` : '') + (answer ? `\n机器人已先回答：${answer}` : '') + `\n\n要改的话直接告诉 Claude。`); sent = true; } catch (e) { log('[需求] 私聊老板出错：' + e.message); } }
+    return (answer ? `💡 ${answer}\n` : '') + `📝 已记下这条${tag}${it.summary ? '：「' + it.summary + '」' : ''}，${sent ? '已转给管理员' : '会转给管理员'}处理。`;
   }
 
   const pending = () => st.items.filter(x => x.t > (st.sumAt || 0));

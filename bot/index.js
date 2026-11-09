@@ -187,7 +187,7 @@ async function setup() {
     }
     throw new Error(last);
   }
-  const feedback = require('./lib/feedback').createFeedback({ dataDir: DATA_DIR, chat, log });
+  const feedback = require('./lib/feedback').createFeedback({ dataDir: DATA_DIR, chat, log, notify: async t => { if (!boss) throw new Error('还不知道老板是谁'); await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'open_id' }); } });
   const tgt = createTgt({ cfg, api: { call }, log, store });
   const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log, store });
   await core.load(true);
@@ -437,7 +437,7 @@ async function setup() {
     if (rewrite && m.parent_id) { try { const pm = await call('GET', `/im/v1/messages/${m.parent_id}`); const it = (pm.items || [])[0]; if (it) { const f2 = flatten(it.msg_type, (it.body || {}).content); ltext = (f2.text || '') + '\n' + (text || ''); } } catch (e) { log('[重写] 读被回复的消息出错：' + e.message); } }
     if (rewrite && !/xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(ltext || '') && !isDouyinLink(ltext)) { await reply(m.message_id, '要重写哪条？请「回复」那条链接消息，再 @我 说「重写」；或者把链接和「@我 重写」发在同一条消息里。'); return; }
     if (rewrite) text = ltext;
-    // @机器人 说需求 / 问题 / 疑问（不带链接）→ 记下来，每晚 21:00 汇总私聊老板
+    // @机器人 说需求 / 问题 / 疑问（不带链接）→ 记下来，马上私聊转给老板
     { const atBot = (m.mentions || []).some(x => /禧聚|助手|机器人|AI/i.test(String(x.name || ''))); const fb = text ? text.replace(/@_user_\d+/g, '').trim() : '';
       if (atBot && !rewrite && fb.length >= 2 && !/https?:\/\//.test(text)) {
         try { let parent = ''; if (m.parent_id) { try { const pm = await call('GET', `/im/v1/messages/${m.parent_id}`); const it = (pm.items || [])[0]; if (it) parent = flatten(it.msg_type, (it.body || {}).content).text || ''; } catch (e) { } }
@@ -657,8 +657,6 @@ async function setup() {
     return `📋 今日派稿进度：派出 ${live.length} 条，已发布 ${done.length} 条，还没发 ${todo.length} 条` + (todo.length ? '\n\n还没发：\n' + todo.map(x => `· ${x.v.who || '?'} · ${x.v.code}`).join('\n') : '\n\n🎉 全部发完了') + (done.length ? '\n\n已发布：\n' + done.map(x => `· ${x.v.who || '?'} · ${x.v.code}`).join('\n') : '');
   }
   const PST = path.join(DATA_DIR, 'publish-state.json'); let pst = {}; try { pst = JSON.parse(fs.readFileSync(PST, 'utf8')); } catch (e) { }
-  { let fbDay = 0; setInterval(async () => { const bj = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (bj.getUTCHours() !== 21 || fbDay === d || !boss) return; fbDay = d; // 每晚 21:00：群里的需求汇总私聊老板
-    try { const t = await feedback.summary({ mark: true }); if (t) { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'open_id' }); log('[需求] 已把今天的需求汇总发给老板'); } } catch (e) { log('[需求] 汇总发送出错：' + e.message); } }, 5 * 60e3); }
   setInterval(async () => { // 20:00 群里 @ 还没发的人；21:30 群里发当天进度
     const bj = new Date(Date.now() + 8 * 3600e3), hh = bj.getUTCHours(), mm = bj.getUTCMinutes(), day = Math.floor((Date.now() + 8 * 3600e3) / 864e5);
     const chats = PCHATS(); if (!chats.length) return; const doRemind = hh === 20 && pst.remind !== day, doSum = hh === 21 && mm >= 30 && pst.sum !== day; if (doRemind) pst.remind = day; if (doSum) pst.sum = day; if (doRemind || doSum) fs.writeFileSync(PST, JSON.stringify(pst));
