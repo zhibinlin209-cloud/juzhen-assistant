@@ -21,7 +21,7 @@ function titleOf(v) {
 }
 const dayStart = t => { const d = new Date(t); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
 
-function createCore({ cfg, api, log }) {
+function createCore({ cfg, api, log, store }) {
   log = log || console.log;
   const st = { table: null, fields: null, rows: null, accts: null, at: 0, appToken: '' };
 
@@ -309,6 +309,8 @@ function createCore({ cfg, api, log }) {
       const lwv = lw ? num(lw.fields['总营业额']) : null;
       out.push(Object.assign({}, r, { updated: !!ex, lastWeek: lwv, wow: lwv ? Math.round((r.total - lwv) / lwv * 1000) / 10 : null }));
     }
+    // 双写：先落本地库（库里失败不影响飞书，飞书失败也不影响库）
+    if (store && store.ok) { try { store.upsertDailys(add.map(x => x.fields).concat(upd.map(x => x.fields))); } catch (e) { log('[数据库] 写日报失败：' + e.message); } }
     for (let i = 0; i < add.length; i += 400) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/batch_create`, { records: add.slice(i, i + 400) });
     for (let i = 0; i < upd.length; i += 400) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/batch_update`, { records: upd.slice(i, i + 400) });
     log(`[日报] 新增 ${add.length}，更新 ${upd.length}`);

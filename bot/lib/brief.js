@@ -4,6 +4,7 @@
  * 3) 程序核对 AI 写的数字，对不上就改发纯数字版
  */
 'use strict';
+const { dbOn } = require('./store');
 const DAY = 864e5, TZ = 8 * 3600e3; // 北京时间
 const bjDay = t => Math.floor((t + TZ) / DAY);                 // 北京时间的「第几天」
 const dayStr = d => new Date(d * DAY).toISOString().slice(5, 10).replace('-', '/');
@@ -63,7 +64,7 @@ function tgtAnalyze(rows, today, dayStr) {
 }
 const RULE = { dropPct: -0.15, badRed: 2, scoreDrop: 0.1, hotDays: 14, hotTimes: 2, minXhs: 1000, minDy: 3000, engXhs: 0.05, engDy: 0.03 };
 
-function createBrief({ cfg, api, log, llm }) {
+function createBrief({ cfg, api, log, llm, store }) {
   log = log || console.log;
   const tokens = {};
   async function appOf(url) {
@@ -75,8 +76,13 @@ function createBrief({ cfg, api, log, llm }) {
   async function tables(app) { const out = []; let pt = ''; do { const d = await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, Object.assign({ page_size: 100 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt); return out; }
   async function rows(app, tid) { const out = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${tid}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt); return out.map(r => r.fields || {}); }
   const nk = x => String(x).replace(/最新|[-_\s—－·]/g, '');
-  async function table(app, name) { const all = await tables(app); const t = all.find(x => x.name === name) || all.find(x => nk(x.name) === nk(name)); return t ? rows(app, t.table_id) : null; }
-
+  // 日报 / 推广通：本地库优先（没有行数限制、读得也快）；库不可用或开关关掉就退回读飞书
+  async function table(app, name) {
+    if (store && store.ok && store.ready() && dbOn(cfg)) {
+      if (name === (cfg.dailyTable || '经营日报数据')) return store.queryDaily({});
+      if (name === '推广通数据') return store.queryTgt({});
+    }
+    const all = await tables(app); const t = all.find(x => x.name === name) || all.find(x => nk(x.name) === nk(name)); return t ? rows(app, t.table_id) : null; }
   // ---------- 1. 程序算数字 ----------
   async function facts(now) {
     now = now || Date.now();

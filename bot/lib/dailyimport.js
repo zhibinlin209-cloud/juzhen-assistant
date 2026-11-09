@@ -7,6 +7,7 @@
  * 只写私密表格的「经营日报数据」
  */
 'use strict';
+const { dbOn } = require('./store');
 const DAY = 864e5, TZ = 8 * 3600e3;
 const num = v => { if (v === null || v === undefined || v === '') return null; const s = String(v).replace(/[¥￥,人%\s]/g, ''); const n = parseFloat(s); return isFinite(n) ? n : null; };
 // 日期：'2025/01/01'、'2025-01-01' 或 Excel 序号
@@ -46,7 +47,7 @@ function parse(rows) {
   return { good, outliers, fixed, dups, badDate, skipped, med };
 }
 
-function createDailyImport({ cfg, api, core, log }) {
+function createDailyImport({ cfg, api, core, log, store }) {
   async function run(parsedList) {
     const app = await core.dailyAppToken(); if (app === await core.appToken()) throw new Error('私密表格配置不对');
     const name = cfg.dailyTable || '门店营业日报';
@@ -62,15 +63,20 @@ function createDailyImport({ cfg, api, core, log }) {
       if (e) { const ev = +e.fields['总营业额']; if (isFinite(ev) && Math.abs(ev - x.f.总营业额) > 1) diff.push(`${x.store} ${new Date(x.ts + TZ).toISOString().slice(0, 10)} 表里 ${ev} / 导出 ${x.f.总营业额}`); continue; }
       add.push({ fields: Object.assign({ 日期: x.ts, 门店: x.store, 来源: '华付历史导入', 录入时间: Date.now() }, x.f) });
     }
+    if (store && store.ok) { try { store.upsertDailys(add.map(x => x.fields)); } catch (e) { log('[数据库] 写历史日报失败：' + e.message); } }
     for (let i = 0; i < add.length; i += 400) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/batch_create`, { records: add.slice(i, i + 400) });
     log(`[历史日报] 新增 ${add.length}，表里已有跳过 ${parsedList.length - add.length}（数字不一致 ${diff.length}）`);
     return { added: add.length, existed: parsedList.length - add.length, diff };
   }
   // 核对用：每家店的天数、起止、来源、营业额合计
   async function check() {
-    const app = await core.dailyAppToken(); const name = cfg.dailyTable || '门店营业日报';
-    const tabs = (await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []; const t = tabs.find(x => x.name === name);
-    const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { field_names: ['日期', '门店', '总营业额', '来源'] }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    let recs;
+    if (store && store.ok && store.ready() && dbOn(cfg)) recs = store.queryDaily({}).map(f => ({ fields: f })); // 本地库优先
+    else {
+      const app = await core.dailyAppToken(); const name = cfg.dailyTable || '门店营业日报';
+      const tabs = (await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []; const t = tabs.find(x => x.name === name);
+      recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { field_names: ['日期', '门店', '总营业额', '来源'] }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    }
     const v = x => Array.isArray(x) ? x.map(y => (y && y.text) || y).join('') : (x ?? '');
     const S = {}; const seen = {}; let dup = 0;
     recs.forEach(r => { const f = r.fields; const s = v(f['门店']) || '（空）'; const dd = Math.floor(((f['日期'] || 0) + TZ) / DAY); const k = s + '|' + dd; if (seen[k]) dup++; seen[k] = 1; const o = S[s] = S[s] || { n: 0, min: Infinity, max: 0, sum: 0, src: {} }; o.n++; o.min = Math.min(o.min, dd); o.max = Math.max(o.max, dd); o.sum += +f['总营业额'] || 0; const so = v(f['来源']) || '（空）'; o.src[so] = (o.src[so] || 0) + 1; });

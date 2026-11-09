@@ -23,6 +23,9 @@ const { createCreator } = require('./lib/creator');
 const { createStudio } = require('./lib/aistudio');
 const { readXlsx } = require('./lib/xlsx');
 const { createDeep } = require('./lib/deep');
+const { createStore, dbOn } = require('./lib/store');
+const { createDbMigrate } = require('./lib/dbmigrate');
+const { createDbBackup } = require('./lib/dbbackup');
 
 const DATA_DIR = process.env.BOT_DATA_DIR || __dirname; // 云端：密钥和日志放在代码目录之外
 const CFG_FILE = path.join(DATA_DIR, 'config.json');
@@ -61,6 +64,9 @@ async function setup() {
   // 私密设置（不含密钥）：营业日报写到哪张私密表格
   try { const extra = path.join(DATA_DIR, 'private.json'); if (fs.existsSync(extra)) Object.assign(cfg, JSON.parse(fs.readFileSync(extra, 'utf8'))); } catch (e) { log('private.json 读取失败：', e.message); }
   log(cfg.dailyBaseUrl ? '营业日报 → 私密表格（只写这里）' : '营业日报：还没设置私密表格，收到也不会记录');
+  // 本地数据库：日报、推广通的主库（data/xiju.db）。打不开就自动退回只走飞书，机器人照样跑
+  const store = createStore({ dataDir: DATA_DIR, log });
+  if (!dbOn(cfg)) log('[数据库] cfg.useDb 关着，读写都走飞书表格');
   if (!cfg.appSecret) { console.log('没填 App Secret，删掉 config.json 重新运行'); process.exit(1); }
 
   // ---------- 飞书接口 ----------
@@ -165,8 +171,8 @@ async function setup() {
     }
     throw new Error(last);
   }
-  const tgt = createTgt({ cfg, api: { call }, log });
-  const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log });
+  const tgt = createTgt({ cfg, api: { call }, log, store });
+  const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log, store });
   await core.load(true);
   const people = createPeople({ cfg, api: { call }, log });
   const resolver = async (name, kind) => { const p = await people.resolve(name, kind).catch(() => null); if (!p) return null; return { who: p['真实姓名'], acc: /小红书/.test(kind) ? p['小红书账号'] : p['抖音账号'] }; };
@@ -176,7 +182,8 @@ async function setup() {
   const ownlib = createOwnLib({ cfg, api: { call }, core, upload, download: dl, log, dataDir: DATA_DIR });
   setTimeout(() => ownlib.backfill().catch(() => { }), 90e3); setInterval(() => ownlib.backfill(200).catch(() => { }), 30 * 60e3);
   const official = createOfficial({ cfg, api: { call }, log });
-  const histImport = HIST.createDailyImport({ cfg, api: { call }, core, log });
+  const histImport = HIST.createDailyImport({ cfg, api: { call }, core, log, store });
+  const dbMigrate = createDbMigrate({ cfg, api: { call }, core, store, log });
   const campaign = createCampaign({ cfg, api: { call }, upload, log });
   { const CF = path.join(DATA_DIR, 'campaigns.json'); let C = []; try { C = JSON.parse(fs.readFileSync(CF, 'utf8')); } catch (e) { }
     campaign.names = () => C.slice();
@@ -205,7 +212,7 @@ async function setup() {
   // 每周一 10:40（内容分析 10:00 之后）自动写一批
   { const CF2 = path.join(DATA_DIR, 'create-state.json'); let cs = {}; try { cs = JSON.parse(fs.readFileSync(CF2, 'utf8')); } catch (e) { }
     setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCDay() !== 1 || b.getUTCHours() !== 10 || b.getUTCMinutes() < 40 || cs.week === d) return; cs.week = d; try { fs.writeFileSync(CF2, JSON.stringify(cs)); } catch (e) { } try { await sendCreate({ n: cfg.weeklyDrafts || 8 }); } catch (e) { log('[创作] 每周写稿失败：' + e.message); } }, 5 * 60e3); }
-  const annual = createAnnual({ cfg, api: { call }, core, llm: cfg.qwenKey ? (p => chat(p, 3500)) : null, log });
+  const annual = createAnnual({ cfg, api: { call }, core, llm: cfg.qwenKey ? (p => chat(p, 3500)) : null, log, store });
   async function sendAnnual(replyTo) {
     const r = await annual.report(); await brief.saveKind('经营复盘', { text: r.text, by: r.by }, r.F); log('[经营复盘] 已生成（' + r.by + '）');
     const text = `📊 经营复盘（数据截至 ${r.F.截至}）\n\n` + r.text.replace(/^📊[^\n]*\n+/, '');
@@ -493,13 +500,25 @@ async function setup() {
   }
   setTimeout(pollDaily, 15e3); setInterval(pollDaily, 10 * 60e3);
 
+  // ---------- 本地库：一次性迁移 + 每周备份 ----------
+  // 迁移必须放在启动 90 秒后跑：云端更新脚本只等 25 秒，占着启动就会被判失败整版回滚
+  if (store.ok) {
+    setTimeout(() => {
+      if (!dbOn(cfg)) return;
+      dbMigrate.migrate().then(r => { if (r.skipped) log('[数据库] 迁移跳过：' + r.skipped); }).catch(e => log('[数据库] 迁移失败（下次启动再试）：' + e.message));
+    }, 90e3);
+    setInterval(() => dbBackup.tick(), 5 * 60e3);
+    // 每天 04:10 把飞书两张表重新同步进库（有人在飞书里手动改过数字也能跟上；只更新不删除），同步完再核对一次
+    let resyncDay = 0; setInterval(() => { const bj = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (!dbOn(cfg) || bj.getUTCHours() !== 4 || bj.getUTCMinutes() < 10 || resyncDay === d) return; resyncDay = d; dbMigrate.migrate({ force: true }).catch(e => log('[数据库] 每日同步失败：' + e.message)); }, 5 * 60e3);
+  }
+
   // ---------- 每日 CEO 简报 ----------
   const BOSS_FILE = path.join(DATA_DIR, 'boss.txt'), BRIEF_FILE = path.join(DATA_DIR, 'brief-state.json');
   let boss = cfg.bossOpenId || (() => { try { return fs.readFileSync(BOSS_FILE, 'utf8').trim(); } catch (e) { return ''; } })();
   function rememberBoss(id) { if (!id || id === boss) return; boss = id; try { fs.writeFileSync(BOSS_FILE, id); } catch (e) { } log('[简报] 记住了老板的飞书账号，以后简报私聊发送'); }
-  const brief = createBrief({ cfg, api: { call }, log, llm: cfg.qwenKey ? chat : null });
+  const brief = createBrief({ cfg, api: { call }, log, llm: cfg.qwenKey ? chat : null, store });
   // 推广通投放周报（30 日归因 + 和之前所有周对比 + 三套方案，DeepSeek 写，存飞书云文档）
-  const adsWeekly = require('./lib/adsweekly').createAdsWeekly({ cfg, api: { call }, core, log, canon: require('./lib/tgt').canon, bossId: () => boss, saveKind: (k, r, d) => brief.saveKind(k, r, d) });
+  const adsWeekly = require('./lib/adsweekly').createAdsWeekly({ cfg, api: { call }, core, log, canon: require('./lib/tgt').canon, bossId: () => boss, saveKind: (k, r, d) => brief.saveKind(k, r, d), store });
   const TS_FILE = path.join(DATA_DIR, 'tgt-state.json'); let tgtState = {}; try { tgtState = JSON.parse(fs.readFileSync(TS_FILE, 'utf8')); } catch (e) { }
   const saveTS = () => { try { fs.writeFileSync(TS_FILE, JSON.stringify(tgtState)); } catch (e) { } };
   async function sendAdsWeekly(o) {
@@ -538,13 +557,21 @@ async function setup() {
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last(), studioSetup: async () => { const r = await studio.ensure(); r.migrated = await studio.migrateOld(); return r; }, studioDedupe: () => studio.markDups(), tgtIngest: buf => tgt.ingest(buf), chatMsgs: async (q, n) => { const out = []; let pt = ''; let k = 0; do { const d = await call('GET', '/im/v1/messages', null, Object.assign({ container_id_type: 'chat', container_id: dailyChat, sort_type: 'ByCreateTimeDesc', page_size: 50 }, pt ? { page_token: pt } : {})); for (const it of d.items || []) { const c = (it.body || {}).content || ''; if (!q || c.includes(q)) out.push({ t: new Date(+it.create_time + 8 * 3600e3).toISOString().slice(5, 16), type: it.msg_type, sender: (it.sender || {}).sender_type, c: c.slice(0, 1500) }); } pt = d.has_more ? d.page_token : ''; k++; } while (pt && k < (n || 4)); return out; }, lastXlsx: async (q) => { if (q) lastUnknownXlsx = await findXlsx(new RegExp(q)); else if (!lastUnknownXlsx) lastUnknownXlsx = await findXlsx(); if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); const rr = readXlsx(b); return { name: lastUnknownXlsx.name, rows: rr.length, head: rr.slice(0, 8) }; }, reingestLast: async (q) => { if (q) lastUnknownXlsx = await findXlsx(new RegExp(q)); else if (!lastUnknownXlsx) lastUnknownXlsx = await findXlsx(); if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); return tgt.ingest(b); }, adsWeekly: async () => { const r = await adsWeekly.report(); return r ? { title: r.title, by: r.by, doc: r.doc, docError: r.docError, text: r.text } : null; }, studio: () => studio, rows: async (name, days) => { // 私密表格只读：经营日报 / 推广通，最近 N 天（钥匙保护）
+  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last(), studioSetup: async () => { const r = await studio.ensure(); r.migrated = await studio.migrateOld(); return r; }, studioDedupe: () => studio.markDups(), tgtIngest: buf => tgt.ingest(buf), chatMsgs: async (q, n) => { const out = []; let pt = ''; let k = 0; do { const d = await call('GET', '/im/v1/messages', null, Object.assign({ container_id_type: 'chat', container_id: dailyChat, sort_type: 'ByCreateTimeDesc', page_size: 50 }, pt ? { page_token: pt } : {})); for (const it of d.items || []) { const c = (it.body || {}).content || ''; if (!q || c.includes(q)) out.push({ t: new Date(+it.create_time + 8 * 3600e3).toISOString().slice(5, 16), type: it.msg_type, sender: (it.sender || {}).sender_type, c: c.slice(0, 1500) }); } pt = d.has_more ? d.page_token : ''; k++; } while (pt && k < (n || 4)); return out; }, lastXlsx: async (q) => { if (q) lastUnknownXlsx = await findXlsx(new RegExp(q)); else if (!lastUnknownXlsx) lastUnknownXlsx = await findXlsx(); if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); const rr = readXlsx(b); return { name: lastUnknownXlsx.name, rows: rr.length, head: rr.slice(0, 8) }; }, reingestLast: async (q) => { if (q) lastUnknownXlsx = await findXlsx(new RegExp(q)); else if (!lastUnknownXlsx) lastUnknownXlsx = await findXlsx(); if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); return tgt.ingest(b); }, adsWeekly: async () => { const r = await adsWeekly.report(); return r ? { title: r.title, by: r.by, doc: r.doc, docError: r.docError, text: r.text } : null; }, dbCheck: () => dbMigrate.check(), archivable: d => dbMigrate.archivable(d), studio: () => studio, rows: async (name, days) => { // 私密表格只读：经营日报 / 推广通，最近 N 天（钥匙保护）
     const ok = [cfg.dailyTable || '经营日报数据', '推广通数据']; if (!ok.includes(name)) throw new Error('只能读：' + ok.join('、'));
+    // 开关开着且库可用：直接读本地库（不受飞书行数限制）
+    if (store.ok && store.ready() && dbOn(cfg)) {
+      const from = Date.now() - Math.min(days || 45, 400) * 864e5;
+      const out = name === (cfg.dailyTable || '经营日报数据') ? store.queryDaily({ from }) : store.queryTgt({ from });
+      return { ok: true, n: out.length, rows: out, src: 'db' };
+    }
     const app = await core.dailyAppToken(); const t = ((await call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === name); if (!t) throw new Error('没这张表');
     const since = Date.now() - Math.min(days || 45, 400) * 864e5; const out = []; let pt = '';
     do { const d = await call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '日期', operator: 'isGreater', value: ['ExactDate', String(since)] }] } }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || []).map(r => r.fields)); pt = d.has_more ? d.page_token : ''; } while (pt);
     return { ok: true, n: out.length, rows: out }; } });
   rawIO.taskLink = id => web.taskLink(id);
+  // 每周一 03:00 把库导成 xlsx + .db 两份存到飞书云空间私密文件夹（只给老板，留最近 8 份）
+  const dbBackup = createDbBackup({ cfg, api: { call }, log, store, upload, bossId: () => boss, dataDir: DATA_DIR });
   let briefState = {}; try { briefState = JSON.parse(fs.readFileSync(BRIEF_FILE, 'utf8')); } catch (e) { }
   let briefing = false;
   async function sendBrief(o) {

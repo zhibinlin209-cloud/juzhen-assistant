@@ -26,7 +26,7 @@ function parseTgt(buf) {
   });
 }
 
-function createTgt({ cfg, api, log }) {
+function createTgt({ cfg, api, log, store }) {
   const app = () => { const m = String(cfg.dailyBaseUrl || '').match(/\/base\/([A-Za-z0-9]+)/); if (!m) throw new Error('NO_PRIVATE_BASE'); return m[1]; };
   let tid = null;
   async function table() {
@@ -52,6 +52,8 @@ function createTgt({ cfg, api, log }) {
     const key = (ts, id) => `${bjDay(ts)}|${id}`; const map = new Map(ex.map(x => [key(x.f['日期'], val(x.f['门店ID'])), x.id]));
     const add = [], upd = []; const now = Date.now();
     for (const o of list) { const fields = { 日期: o.ts, 门店: o.store, 门店ID: o.storeId, 录入时间: now }; DATA.forEach(([c]) => { if (o[c] !== null) fields[c] = o[c]; }); const id = map.get(key(o.ts, o.storeId)); if (id) upd.push({ record_id: id, fields }); else add.push({ fields }); }
+    // 双写：先落本地库（库里失败不影响飞书，飞书失败也不影响库）
+    if (store && store.ok) { try { store.upsertTgts(add.map(x => x.fields).concat(upd.map(x => x.fields))); } catch (e) { log('[数据库] 写推广通失败：' + e.message); } }
     for (let i = 0; i < add.length; i += 400) await api.call('POST', `/bitable/v1/apps/${A}/tables/${T}/records/batch_create`, { records: add.slice(i, i + 400) });
     for (let i = 0; i < upd.length; i += 400) await api.call('POST', `/bitable/v1/apps/${A}/tables/${T}/records/batch_update`, { records: upd.slice(i, i + 400) });
     log(`[推广通] 新增 ${add.length}，更新 ${upd.length}`);
@@ -79,4 +81,4 @@ function replyForTgt(r) {
   if (!r) return ''; if (!r.rows) return '⚠️ 这份推广通报表里没有读到数据行';
   return `📊 推广通报表已入库：${r.rows} 行（新增 ${r.added}、更新 ${r.updated}）\n最新一天 ${r.last}：花费 ${r.spend}，团购订单 ${r.orders}，商户浏览 ${r.views}` + (r.flags && r.flags.length ? '\n⚠️ ' + r.flags.join('\n⚠️ ') : '');
 }
-module.exports = { createTgt, parseTgt, replyForTgt, canon };
+module.exports = { createTgt, parseTgt, replyForTgt, canon, COLS };

@@ -2,6 +2,7 @@
  * 口径：只用有营业额的天；同比按同月份、同店、两年都有数据的天对比日均；装修/录错缺的天不算
  */
 'use strict';
+const { dbOn } = require('./store');
 const DAY = 864e5, TZ = 8 * 3600e3;
 const v = x => Array.isArray(x) ? x.map(y => (y && y.text) || y).join('') : (x ?? '');
 const n = x => { const k = typeof x === 'number' ? x : parseFloat(String(v(x)).replace(/[,¥￥%]/g, '')); return isFinite(k) ? k : null; };
@@ -9,11 +10,15 @@ const r0 = x => x == null ? null : Math.round(x), r1 = x => x == null ? null : M
 const pct = (a, b) => (a != null && b) ? r1((a - b) / b * 100) : null;
 const avg = a => { const k = a.filter(x => x != null); return k.length ? k.reduce((s, x) => s + x, 0) / k.length : null; };
 
-function createAnnual({ cfg, api, core, llm, log }) {
+function createAnnual({ cfg, api, core, llm, log, store }) {
   async function rows() {
-    const app = await core.dailyAppToken(); const name = cfg.dailyTable || '门店营业日报';
-    const t = ((await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === name);
-    const out = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    let out;
+    if (store && store.ok && store.ready() && dbOn(cfg)) out = store.queryDaily({}).map(f => ({ fields: f })); // 本地库优先
+    else {
+      const app = await core.dailyAppToken(); const name = cfg.dailyTable || '门店营业日报';
+      const t = ((await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === name);
+      out = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+    }
     const seen = new Map();
     out.forEach(r => { const f = r.fields || {}; const s = String(v(f['门店']) || '').trim(); const ts = f['日期']; const tot = n(f['总营业额']); if (!s || typeof ts !== 'number' || !tot || tot < 500) return; const d = new Date(ts + TZ); if (d.getUTCFullYear() < 2025) return;
       seen.set(s + '|' + Math.floor((ts + TZ) / DAY), { s, ts, y: d.getUTCFullYear(), m: d.getUTCMonth() + 1, wd: d.getUTCDay(), tot, din: n(f['到店消费']), del: n(f['外卖']), lunch: n(f['午市']), dinner: n(f['晚市']), pur: n(f['采购总额']), staff: n(f['上班人数']), per: n(f['人均产值']), loss: n(f['报损']), dp: n(f['点评评分']), mt: n(f['美团评分']), dpBad: n(f['点评差评']) || 0, mtBad: n(f['美团差评']) || 0, chk: n(f['收藏打卡']) }); });

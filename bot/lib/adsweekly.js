@@ -3,6 +3,7 @@
  * 数字全部程序算好，AI 只能引用（核对不过就用纯数字版）。
  */
 'use strict';
+const { dbOn } = require('./store');
 const DAY = 864e5, TZ = 8 * 3600e3;
 const bjDay = t => Math.floor((t + TZ) / DAY);
 const dstr = d => new Date(d * DAY).toISOString().slice(5, 10).replace('-', '/');
@@ -15,8 +16,13 @@ const avg = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
 const median = a => { const s = a.filter(x => x !== null && isFinite(x)).sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : null; };
 const INDEX = /花园城|蛇口/; // 粤迹花园城：从不投推广通，当大盘参照
 
-function createAdsWeekly({ cfg, api, core, log, canon, bossId, saveKind }) {
+function createAdsWeekly({ cfg, api, core, log, canon, bossId, saveKind, store }) {
   async function rows(name) {
+    // 本地库优先（推广通、日报都在库里）；库不可用或开关关掉就退回读飞书
+    if (store && store.ok && store.ready() && dbOn(cfg)) {
+      if (name === '推广通数据') return store.queryTgt({});
+      if (name === (cfg.dailyTable || '经营日报数据')) return store.queryDaily({});
+    }
     const app = await core.dailyAppToken(); const t = ((await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === name); if (!t) return [];
     const out = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || []).map(r => r.fields || {})); pt = d.has_more ? d.page_token : ''; } while (pt);
     return out;
