@@ -86,6 +86,19 @@ function createCore({ cfg, api, log, store }) {
   const opts = name => ((st.fields || []).find(f => f.name === name) || {}).options || [];
   const dupOf = p => { const k = P.xhsKey(p.xhs || p.link); const n = P.norm(p.title); return st.rows.find(r => (k && r.key === k) || (p.code && r.code === p.code) || (p.noteId && r.key === 'n:' + p.noteId) || (n.length >= 6 && r.title && P.dice(n, P.norm(r.title)) >= 0.92)); };
 
+  // 派稿记录（近 45 天、有账号的）按标题找：相似度 ≥ 0.8 认作同一篇
+  let pgCache = { at: 0, rows: [] };
+  async function pgMatch(title) {
+    const n = P.norm(title || ''); if (n.length < 6) return null;
+    if (Date.now() - pgCache.at > 5 * 60e3) {
+      const app = await appToken(); const tid = await ensurePaigao(); const out = []; let pt = '';
+      do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${tid}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+      const since = Date.now() - 45 * 864e5;
+      pgCache = { at: Date.now(), rows: out.map(r => r.fields || {}).filter(f => (f['派稿日期'] || 0) > since && String(val(f['账号名称']) || '').trim()).map(f => ({ t: P.norm(String(val(f['标题']) || '')), acc: String(val(f['账号名称'])).trim(), who: String(val(f['发布人员']) || '').trim() })) };
+    }
+    let best = null, bs = 0; for (const r of pgCache.rows) { if (!r.t) continue; const sc = P.dice(n, r.t); if (sc > bs) { bs = sc; best = r; } }
+    return bs >= 0.8 ? best : null;
+  }
   // ---------- 分享 → 新增行 ----------
   async function handleText(text, senderName) {
     const posts = P.parse(text); if (!posts.length) return null;
@@ -95,9 +108,14 @@ function createCore({ cfg, api, log, store }) {
     for (const p of posts) {
       if (dupOf(p)) { out.dups.push(p); continue; }
       if (p.xhs && api.fetchXhs) { const info = await api.fetchXhs(p.xhs); Object.assign(p, info || {}); if (info && info.id) p.noteId = info.id; if (dupOf(p)) { out.dups.push(p); continue; } }
-      const a = (p.uid && st.accts.find(x => x.uid === p.uid)) || (p.nick && st.accts.find(x => x.name === p.nick));
+      let a = (p.uid && st.accts.find(x => x.uid === p.uid)) || (p.nick && st.accts.find(x => x.name === p.nick));
       p.account = a ? a.name : (p.nick || '');
-      const person = (senderName && opts('人员').find(o => senderName.includes(o) || o.includes(senderName))) || (a && a.person) || '';
+      // 服务器读不到小红书作者时：按标题对派稿记录（派稿时就定了账号和发布人）
+      let pgPerson = '';
+      const dn = posts.length === 1 ? ((text.match(/来自【(.{1,30}?)】的分享/) || [])[1] || '').trim() : ''; // 点评分享里带的昵称，常和小红书昵称一样
+      if (!p.account && dn) { const b = st.accts.find(x => x.name === dn); if (b) { a = b; p.account = b.name; p.via = '点评昵称'; } }
+      if (!p.account) { try { const g = await pgMatch(p.title); if (g) { p.account = g.acc; pgPerson = g.who; a = st.accts.find(x => x.name === g.acc) || a; p.via = '派稿记录'; } } catch (e) { } }
+      const person = (pgPerson && opts('人员').find(o => pgPerson.includes(o) || o.includes(pgPerson))) || (senderName && opts('人员').find(o => senderName.includes(o) || o.includes(senderName))) || (a && a.person) || '';
       const f = { '发布日期': dayStart(p.time || Date.now()) };
       if (opts('投流状态').includes('未投流')) f['投流状态'] = '未投流';
       if (p.account) f['账号昵称'] = p.account; if (a && a.home) f['主页链接'] = a.home; if (person && opts('人员').includes(person)) f['人员'] = person;
