@@ -63,8 +63,8 @@ function createCore({ cfg, api, log, store }) {
     const linkCol = (linkCands.find(f => /抖音/.test(f.name)) || linkCands.find(f => /作品|视频/.test(f.name)) || linkCands[0] || {}).name || '';
     const accCol = ['账号名称', '账号昵称', '账号'].find(c => meta.some(f => f.name === c)) || '';
     const links = new Set(), accts = new Set();
-    const linkIds = new Map(); recs.forEach(r => { const f = r.fields || {}; const l = linkCol ? String(val(f[linkCol]) || '') : ''; const k = dyKey(l); if (k) { links.add(k); linkIds.set(k, r.record_id); } const a = accCol ? String(val(f[accCol]) || '').trim() : ''; if (a) accts.add(a); });
-    vt[name] = { id: t.table_id, name, fields: meta.map(f => f.name), meta, linkCol, accCol, links, linkIds, accts, rows, at: Date.now() };
+    const linkIds = new Map(), personOf = new Map(); recs.slice().sort((a, b) => ((a.fields || {})['发布日期'] || 0) - ((b.fields || {})['发布日期'] || 0)).forEach(r => { const f = r.fields || {}; const ac = String(val(f['账号名称'] || f['账号昵称']) || '').trim(), pe = String(val(f['发布人员'] || f['人员']) || '').trim(); if (ac && pe) personOf.set(P.norm(ac), pe); }); recs.forEach(r => { const f = r.fields || {}; const l = linkCol ? String(val(f[linkCol]) || '') : ''; const k = dyKey(l); if (k) { links.add(k); linkIds.set(k, r.record_id); } const a = accCol ? String(val(f[accCol]) || '').trim() : ''; if (a) accts.add(a); });
+    vt[name] = { id: t.table_id, name, fields: meta.map(f => f.name), meta, linkCol, accCol, links, linkIds, personOf, accts, rows, at: Date.now() };
     log(`[表] ${name}：${rows.length} 条可对，${accts.size} 个账号，链接列「${linkCol || '没找到'}」，账号列「${accCol || '没找到'}」`); return vt[name];
   }
   async function load(force) {
@@ -113,7 +113,12 @@ function createCore({ cfg, api, log, store }) {
     if (a && a.home) f['主页链接'] = a.home; else if (info.uid) f['主页链接'] = { link: `https://www.xiaohongshu.com/user/profile/${info.uid}`, text: `https://www.xiaohongshu.com/user/profile/${info.uid}` };
     if (a && a.person && opts('人员').includes(a.person)) f['人员'] = a.person;
     if (info.time) f['发布日期'] = dayStart(+info.time);
-    const app = await appToken(); await api.call('PUT', `/bitable/v1/apps/${app}/tables/${st.table.id}/records/${rec}`, { fields: f }); r.account = f['账号昵称'];
+    let cur = {}; const app = await appToken(); try { cur = ((await api.call('GET', `/bitable/v1/apps/${app}/tables/${st.table.id}/records/${rec}`)).record || {}).fields || {}; } catch (e) { }
+    if (f['人员'] && String(val(cur['人员']) || '').trim()) delete f['人员'];
+    const txt = [info.title, r.title, info.desc, (info.tags || []).join(' ')].filter(Boolean).join(' ');
+    if (!String(val(cur['笔记城市']) || '').trim()) { const c = P.optionFor(P.cityOf(txt), opts('笔记城市')); if (c) f['笔记城市'] = c; }
+    if (!String(val(cur['笔记门店']) || '').trim()) { const s2 = P.optionFor(P.storeOf(txt), opts('笔记门店')); if (s2) f['笔记门店'] = s2; }
+    await api.call('PUT', `/bitable/v1/apps/${app}/tables/${st.table.id}/records/${rec}`, { fields: f }); r.account = f['账号昵称'];
     log(`[登记] 插件补账号：《${(r.title || '').slice(0, 16)}》→ ${f['账号昵称']}${a ? '' : '（表里还没有这个号，按作者昵称填）'}`);
     return { ok: true, account: f['账号昵称'], known: !!a };
   }
@@ -140,12 +145,18 @@ function createCore({ cfg, api, log, store }) {
     const r = T.meta; const has = n => r.find(x => x.name === n);
     if (info.author && info.needAcc !== false) { const acc = [...T.accts].find(a => P.norm(a) === P.norm(info.author)) || String(info.author).trim(); const af = has(T.accCol); if (af && af.type === 1) f[T.accCol] = acc; else if (af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc; f.__acc = acc; }
     const put = (n, v) => { const c = has(n); if (!c || v === null || v === undefined || v === '') return; f[n] = c.type === 2 ? Number(v) : String(v); };
+    let cur = {}; try { const app0 = await appToken(); cur = ((await api.call('GET', `/bitable/v1/apps/${app0}/tables/${T.id}/records/${rec}`)).record || {}).fields || {}; } catch (e) { }
+    const accNow = f.__acc || String(val(cur[T.accCol]) || '').trim();
+    const pf = has('发布人员') || has('人员'); if (pf && !String(val(cur[pf.name]) || '').trim() && accNow) { const by = T.personOf.get(P.norm(accNow)); const o = by && (pf.options || []).find(x => x === by); if (o) f[pf.name] = pf.type === 4 ? [o] : o; }
+    if (has('区域定位') && !String(val(cur['区域定位']) || '').trim()) { const rg = regionOf([info.title, info.desc, info.poi, (info.tags || []).join(' ')].filter(Boolean).join(' ')); if (rg) f['区域定位'] = rg; }
     put('点赞量', info.likes); put('评论量', info.comments); put('转发量', info.shares); put('收藏量', info.collects);
     const acc = f.__acc; delete f.__acc; if (!Object.keys(f).length) return { ok: false, error: '没读到可写的数据' };
     const app = await appToken(); await api.call('PUT', `/bitable/v1/apps/${app}/tables/${T.id}/records/${rec}`, { fields: f });
     log(`[抖音登记] 插件补：${table} ${acc ? '账号 ' + acc + '，' : ''}赞 ${info.likes ?? '—'} 评 ${info.comments ?? '—'} 转 ${info.shares ?? '—'}`); vt[table] = null;
     return { ok: true, account: acc || '' };
   }
+  // 地理位置：标题 / 正文 / 话题 / 定位里提到的城市 + 商圈（门店），写成「深圳 华强北」
+  const regionOf = t => { const c = P.cityOf(t || ''), st2 = P.storeOf(t || ''); return [c, st2 === '创产' ? '创意产业园' : st2].filter(Boolean).join(' '); };
   const sphLinksOf = t => [...new Set((String(t || '').match(/https?:\/\/(?:weixin\.qq\.com\/sph\/[A-Za-z0-9_-]+|channels\.weixin\.qq\.com\/[^\s，。)）]+)/g) || []))];
   // 回复抖音链接消息发视频号链接：把视频号链接补进那条抖音作品所在的行
   async function attachSph(dyText, sphText) {
@@ -174,7 +185,7 @@ function createCore({ cfg, api, log, store }) {
       const dn = posts.length === 1 ? ((text.match(/来自【(.{1,30}?)】的分享/) || [])[1] || '').trim() : ''; // 点评分享里带的昵称，常和小红书昵称一样
       if (!p.account && dn) { const b = st.accts.find(x => x.name === dn); if (b) { a = b; p.account = b.name; p.via = '点评昵称'; } }
       if (!p.account) { try { const g = await pgMatch(p.title); if (g) { p.account = g.acc; pgPerson = g.who; a = st.accts.find(x => x.name === g.acc) || a; p.via = '派稿记录'; } } catch (e) { } }
-      const person = (pgPerson && opts('人员').find(o => pgPerson.includes(o) || o.includes(pgPerson))) || (senderName && opts('人员').find(o => senderName.includes(o) || o.includes(senderName))) || (a && a.person) || '';
+      const person = (a && a.person && opts('人员').includes(a.person) ? a.person : '') || (pgPerson && opts('人员').find(o => pgPerson.includes(o) || o.includes(pgPerson))) || (senderName && opts('人员').find(o => senderName.includes(o) || o.includes(senderName))) || '';
       const f = { '发布日期': dayStart(p.time || Date.now()) };
       if (opts('投流状态').includes('未投流')) f['投流状态'] = '未投流';
       if (p.account) f['账号昵称'] = p.account; if (a && a.home) f['主页链接'] = a.home; if (person && opts('人员').includes(person)) f['人员'] = person;
@@ -431,7 +442,11 @@ function createCore({ cfg, api, log, store }) {
       if (acc && af && af.type === 1) f[T.accCol] = acc; else if (acc && af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc;
       const df = T.meta.find(x => x.name === '发布日期'); if (df && df.type === 5) f['发布日期'] = dayStart(p.time || Date.now());
       if (p.sph) { const sc = T.meta.find(x => /^视频号(链接)?$/.test(x.name)); if (sc) f[sc.name] = sc.type === 15 ? { link: p.sph, text: p.sph } : p.sph; }
-      const pf = T.meta.find(x => x.name === '发布人员') || T.meta.find(x => x.name === '人员'); const person = senderName && pf && (pf.options || []).find(o => senderName.includes(o) || o.includes(senderName)); if (person) f['人员'] = pf.type === 4 ? [person] : person;
+      const pf = T.meta.find(x => x.name === '发布人员') || T.meta.find(x => x.name === '人员');
+      // 发布人员：先按账号对（这个号以前是谁发的），对不上再看群里发链接的人
+      const byAcc = acc && T.personOf.get(P.norm(acc)); const person = pf && ((byAcc && (pf.options || []).find(o => o === byAcc)) || (senderName && (pf.options || []).find(o => senderName.includes(o) || o.includes(senderName))));
+      if (person) f[pf.name] = pf.type === 4 ? [person] : person;
+      const rg = T.meta.find(x => x.name === '区域定位'); const region = regionOf(p.title); if (rg && region) f['区域定位'] = region;
       if (exId) { // 重写：覆盖原来那一行（同一张表；账号读不出时保留原账号；发布时间读不出时保留原日期）
         const U = dupT; if (!p.time) delete f['发布日期']; if (U !== T) { Object.keys(f).forEach(k => { if (!U.meta.some(x => x.name === k)) delete f[k]; }); }
         (upd[U.name] = upd[U.name] || { T: U, recs: [] }).recs.push({ record_id: exId, fields: f }); out.updated.push(Object.assign(p, { table: U.name, account: acc || '' })); if (!acc) hot.dy++; continue; }
