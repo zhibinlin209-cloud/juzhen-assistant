@@ -7,7 +7,9 @@ const r2 = x => (x === null || x === undefined || !isFinite(x) ? null : Math.rou
 
 function parseOne(t) {
   const g = re => { const m = t.match(re); return m ? m[1] : null; };
-  const dm = t.match(/日期[:：]\s*(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})/); const date = dm ? `${dm[1]}-${dm[2].padStart(2, '0')}-${dm[3].padStart(2, '0')}` : null; const store = (g(/门店[:：]\s*([^\n*]+)/) || '').replace(/\s+/g, '').trim();
+  const dm = t.match(/日期[:：]\s*(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})/); const date = dm ? `${dm[1]}-${dm[2].padStart(2, '0')}-${dm[3].padStart(2, '0')}` : null; let store = (g(/门店[:：][ \t]*([^\n*]+)/) || '').replace(/\s+/g, '').trim();
+  if (!store) { // 「门店：」空着时，从标题行拿（如「也是惠州水东街店-经营日报」「也是佛山创意产业园店 丨 营业日概况」）
+    const first = (t.split('\n').map(x => x.trim()).find(Boolean) || ''); const m = first.replace(/^(YES)?也是(大排档)?/, '').match(/^[(（]?([^\s丨|\-—–:：]{2,30}?店)/); if (m) store = m[1].replace(/[()（）]/g, ''); }
   if (!date || !store) return null;
   const d = date.split('-').map(Number);
   const staffM = t.match(/共计上班人数[:：]\s*(\d+)\s*人\s*[（(]\s*楼面[:：]\s*(\d+)\s*人[，,]\s*厨房[:：]\s*(\d+)\s*人/);
@@ -30,7 +32,9 @@ function parseOne(t) {
 function parseDaily(text) {
   const src = String(text || '').replace(/\r/g, '').replace(/\*\*/g, '').replace(/\n\s*\n/g, '\n');
   if (!/营业日概况|当天(?:总)?营业额/.test(src)) return [];
-  const parts = src.split(/(?=以下为营业日概况)/).filter(p => /当天(?:总)?营业额/.test(p));
+  // 按「以下为营业日概况」拆；标题行（如「也是惠州水东街店-经营日报」）在上一段的最后一行，带进来给门店名兜底
+  const raw = src.split(/(?=以下为营业日概况)/); const parts = [];
+  raw.forEach((p, i) => { if (!/当天(?:总)?营业额/.test(p)) return; const prev = i ? (raw[i - 1].split('\n').map(x => x.trim()).filter(Boolean).pop() || '') : ''; parts.push(prev && !/当天(?:总)?营业额/.test(prev) ? prev + '\n' + p : p); });
   return (parts.length ? parts : [src]).map(parseOne).filter(Boolean);
 }
 
