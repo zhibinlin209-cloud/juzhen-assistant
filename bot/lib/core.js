@@ -178,9 +178,14 @@ function createCore({ cfg, api, log, store }) {
     return done;
   }
   // ---------- 分享 → 新增行 ----------
+  // 消息里手写的「人员：xx」「账号：xx」——人写的优先，比猜的准
+  const explicitOf = t => { const s = String(t || ''); const g = re => ((s.match(re) || [])[1] || '').replace(/[，,。；;]+$/, '').trim(); return { person: g(/(?:^|\n)\s*(?:发布)?人员\s*[:：]\s*([^\n]{1,20})/), acc: g(/(?:^|\n)\s*账号(?:名称|昵称)?\s*[:：]\s*([^\n]{1,40})/) }; };
+  // 人员名对选项：完全一样 → 唯一一个同时含名字和账号的 → 唯一一个含名字的 → 都没有就原样写（飞书会新建这个选项）
+  const pickPerson = (name, options, acc) => { if (!name) return ''; const n = P.norm(name); const ex = options.find(o => P.norm(o) === n); if (ex) return ex; const wa = acc ? options.filter(o => o.includes(name) && P.norm(o).includes(P.norm(acc))) : []; if (wa.length === 1) return wa[0]; const c = options.filter(o => o.includes(name)); if (c.length === 1) return c[0]; return name; };
   async function handleText(text, senderName, opt) {
     opt = opt || {}; const posts = P.parse(text); if (!posts.length) return null;
     await load(opt.rewrite);
+    const E = explicitOf(text);
     const out = { created: [], dups: [], noAcct: [], updated: [] }; const upd = [];
     const rows = [];
     for (const p of posts) {
@@ -188,15 +193,16 @@ function createCore({ cfg, api, log, store }) {
       if (p.xhs && api.fetchXhs) { const info = await api.fetchXhs(p.xhs); Object.assign(p, info || {}); if (info && info.id) p.noteId = info.id; ex = ex || dupOf(p); if (ex && !opt.rewrite) { out.dups.push(p); continue; } }
       let a = (p.uid && st.accts.find(x => x.uid === p.uid)) || (p.nick && st.accts.find(x => x.name === p.nick));
       p.account = a ? a.name : (p.nick || '');
+      if (E.acc) { const b = st.accts.find(x => P.norm(x.name) === P.norm(E.acc)); a = b || null; p.account = b ? b.name : E.acc; p.via = '消息里写的账号'; }
       // 服务器读不到小红书作者时：按标题对派稿记录（派稿时就定了账号和发布人）
       let pgPerson = '';
       const dn = posts.length === 1 ? ((text.match(/来自【(.{1,30}?)】的分享/) || [])[1] || '').trim() : ''; // 点评分享里带的昵称，常和小红书昵称一样
       if (!p.account && dn) { const b = st.accts.find(x => x.name === dn); if (b) { a = b; p.account = b.name; p.via = '点评昵称'; } }
       if (!p.account) { try { const g = await pgMatch(p.title); if (g) { p.account = g.acc; pgPerson = g.who; a = st.accts.find(x => x.name === g.acc) || a; p.via = '派稿记录'; } } catch (e) { } }
-      const person = (a && a.person && opts('人员').includes(a.person) ? a.person : '') || (pgPerson && opts('人员').find(o => pgPerson.includes(o) || o.includes(pgPerson))) || (senderName && opts('人员').find(o => senderName.includes(o) || o.includes(senderName))) || '';
+      const person = (E.person && pickPerson(E.person, opts('人员'), p.account)) || (a && a.person && opts('人员').includes(a.person) ? a.person : '') || (pgPerson && opts('人员').find(o => pgPerson.includes(o) || o.includes(pgPerson))) || (senderName && opts('人员').find(o => senderName.includes(o) || o.includes(senderName))) || '';
       const f = { '发布日期': dayStart(p.time || Date.now()) };
       if (opts('投流状态').includes('未投流')) f['投流状态'] = '未投流';
-      if (p.account) f['账号昵称'] = p.account; if (a && a.home) f['主页链接'] = a.home; if (person && opts('人员').includes(person)) f['人员'] = person;
+      if (p.account) f['账号昵称'] = p.account; if (a && a.home) f['主页链接'] = a.home; if (person && (opts('人员').includes(person) || person === E.person)) f['人员'] = person;
       if (p.code) f['合作码'] = p.code;
       const c = P.optionFor(p.city, opts('笔记城市')), s = P.optionFor(p.store, opts('笔记门店')), ty = P.optionFor(p.type, opts('笔记类型'));
       if (c) f['笔记城市'] = c; if (s) f['笔记门店'] = s; if (ty) f['笔记类型'] = ty;
@@ -440,7 +446,7 @@ function createCore({ cfg, api, log, store }) {
   const DY = require('./douyin');
   async function handleDouyin(text, senderName, hint, opt) {
     opt = opt || {};
-    const posts = DY.parseDouyin(text); if (!posts.length) return null;
+    const posts = DY.parseDouyin(text); if (!posts.length) return null; const E = explicitOf(text);
     const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'];
     const Ts = []; for (const n of names) { const T = await loadT(n, true); if (T) Ts.push(T); }
     const out = { created: [], dups: [], noAcct: [], noCol: [], updated: [] }; const add = {}; const upd = {};
@@ -456,6 +462,7 @@ function createCore({ cfg, api, log, store }) {
       if (dupT && !(opt.rewrite && exId)) { // 重复：作品已登记过，但这次带了视频号链接 → 只把视频号链接补进那一行
         const sc = p.sph && exId && dupT.meta.find(x => /^视频号(链接)?$/.test(x.name)); if (sc) { (upd[dupT.name] = upd[dupT.name] || { T: dupT, recs: [] }).recs.push({ record_id: exId, fields: { [sc.name]: sc.type === 15 ? { link: p.sph, text: p.sph } : p.sph } }); p.sphAdded = true; const er = dupT.rows.find(r => r.id === exId) || {}; sphRegs.push({ link: p.sph, title: er.title || p.title, account: er.account || p.nick || '', person: dupT.personOf.get(P.norm(er.account || '')) || '', region: '', date: er.date || p.time || null, kind: /素人/.test(dupT.name) ? '素人号' : '矩阵号', from: dupT.name }); }
         out.dups.push(Object.assign(p, { table: dupT.name })); continue; }
+      if (E.acc) p.nick = E.acc;
       let T = p.nick && Ts.find(T => [...T.accts].some(a => P.norm(a) === P.norm(p.nick)));
       if (!T) { // 账号读不出（电脑端复制的链接不带作者名）：按群定表先登记，账号和数据交给插件补
         const H = hint === '素人' ? Ts.find(x => /素人/.test(x.name)) : hint === '矩阵' ? Ts.find(x => /矩阵/.test(x.name)) : null;
@@ -463,13 +470,13 @@ function createCore({ cfg, api, log, store }) {
       if (!T.linkCol) { out.noCol.push(Object.assign(p, { table: T.name })); continue; }
       const lf = T.meta.find(f => f.name === T.linkCol); const f = {};
       f[T.linkCol] = lf.type === 15 ? { link: p.url, text: p.url } : p.url;
-      const af = T.meta.find(x => x.name === T.accCol); const acc = p.pending ? '' : [...T.accts].find(a => P.norm(a) === P.norm(p.nick));
+      const af = T.meta.find(x => x.name === T.accCol); const acc = p.pending ? (E.acc || '') : [...T.accts].find(a => P.norm(a) === P.norm(p.nick));
       if (acc && af && af.type === 1) f[T.accCol] = acc; else if (acc && af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc;
       const df = T.meta.find(x => x.name === '发布日期'); if (df && df.type === 5) f['发布日期'] = dayStart(p.time || Date.now());
       if (p.sph) { const sc = T.meta.find(x => /^视频号(链接)?$/.test(x.name)); if (sc) f[sc.name] = sc.type === 15 ? { link: p.sph, text: p.sph } : p.sph; }
       const pf = T.meta.find(x => x.name === '发布人员') || T.meta.find(x => x.name === '人员');
       // 发布人员：先按账号对（这个号以前是谁发的），对不上再看群里发链接的人
-      const byAcc = acc && T.personOf.get(P.norm(acc)); const person = pf && ((byAcc && (pf.options || []).find(o => o === byAcc)) || (senderName && (pf.options || []).find(o => senderName.includes(o) || o.includes(senderName))));
+      const byAcc = acc && T.personOf.get(P.norm(acc)); const person = pf && ((E.person && (pf.type === 3 || pf.type === 4 ? pickPerson(E.person, pf.options || [], acc) : (pf.options || []).find(o => P.norm(o) === P.norm(E.person)))) || (byAcc && (pf.options || []).find(o => o === byAcc)) || (senderName && (pf.options || []).find(o => senderName.includes(o) || o.includes(senderName))));
       if (person) f[pf.name] = pf.type === 4 ? [person] : person;
       const rg = T.meta.find(x => x.name === '区域定位'); const region = regionOf(p.title); if (rg && region) f['区域定位'] = region;
       if (exId) { // 重写：覆盖原来那一行（同一张表；账号读不出时保留原账号；发布时间读不出时保留原日期）
