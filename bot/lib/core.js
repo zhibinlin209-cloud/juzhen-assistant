@@ -165,7 +165,7 @@ function createCore({ cfg, api, log, store }) {
     const app = await appToken(); const done = [];
     for (let i = 0; i < posts.length && i < sphs.length; i++) {
       const k = dyKey(posts[i].url); const T = Ts.find(x => x.linkIds.has(k)); if (!T) continue; const sc = T.meta.find(x => /^视频号(链接)?$/.test(x.name)); if (!sc) continue;
-      await api.call('PUT', `/bitable/v1/apps/${app}/tables/${T.id}/records/${T.linkIds.get(k)}`, { fields: { [sc.name]: sc.type === 15 ? { link: sphs[i], text: sphs[i] } : sphs[i] } }); done.push({ table: T.name, title: posts[i].title });
+      await api.call('PUT', `/bitable/v1/apps/${app}/tables/${T.id}/records/${T.linkIds.get(k)}`, { fields: { [sc.name]: sc.type === 15 ? { link: sphs[i], text: sphs[i] } : sphs[i] } }); done.push({ table: T.name, title: posts[i].title }); const er = T.rows.find(r => r.id === T.linkIds.get(k)) || {}; try { await regSph([{ link: sphs[i], title: er.title || posts[i].title, account: er.account || '', person: T.personOf.get(P.norm(er.account || '')) || '', date: er.date || null, kind: /素人/.test(T.name) ? '素人号' : '矩阵号', from: T.name }]); } catch (e) { }
     }
     return done;
   }
@@ -335,6 +335,23 @@ function createCore({ cfg, api, log, store }) {
       return o; };
     return { app, id: t.table_id, rows, fit };
   }
+  // 抖音作品带的视频号链接：同步登记到视频号表（标题、账号、发布人员、区域定位、发布日期一起写；已有的只补空格子）
+  async function regSph(list) {
+    list = (list || []).filter(x => x && x.link); if (!list.length) return { created: 0, filled: 0 };
+    let T; try { T = await sphTable(); } catch (e) { log('[视频号] 同步登记失败：' + e.message); return { created: 0, filled: 0, error: e.message }; }
+    const add = [], upd = []; const now = Date.now();
+    for (const x of list) {
+      const f = { 视频号链接: { link: x.link, text: x.link }, 标题: x.title || null, 账号名称: x.account || null, 发布人员: x.person || null, 区域定位: x.region || null, 发布日期: x.date ? dayStart(x.date) : null, 类型: '视频', 账号类型: x.kind || null, 来源: x.from || null };
+      const ex = T.rows.find(r => sphKey(r.link) === sphKey(x.link));
+      if (!ex) { f['登记时间'] = now; if (!f['发布日期']) f['发布日期'] = dayStart(now); add.push({ fields: T.fit(f) }); continue; }
+      const g = {}; if (!ex.title && f.标题) g.标题 = f.标题; if (!ex.acc && f.账号名称) g.账号名称 = f.账号名称; if (!ex.person && f.发布人员) g.发布人员 = f.发布人员; if (!ex.kind && f.账号类型) g.账号类型 = f.账号类型;
+      const gg = T.fit(g); if (f.区域定位) { /* 区域定位只在原来空着时写 */ } if (Object.keys(gg).length) upd.push({ record_id: ex.id, fields: gg });
+    }
+    if (add.length) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_create`, { records: add });
+    if (upd.length) await api.call('POST', `/bitable/v1/apps/${T.app}/tables/${T.id}/records/batch_update`, { records: upd });
+    if (add.length || upd.length) log(`[视频号] 随抖音同步登记：新增 ${add.length}，补全 ${upd.length}（${SPH_NAME}）`);
+    return { created: add.length, filled: upd.length };
+  }
   async function handleChannelsLink(text, sender) {
     const links = [...new Set((String(text).match(/https?:\/\/(?:weixin\.qq\.com\/sph\/[A-Za-z0-9_-]+|channels\.weixin\.qq\.com\/[^\s，。)）]+)/g) || []))];
     if (!links.length) return null;
@@ -420,7 +437,7 @@ function createCore({ cfg, api, log, store }) {
     const Ts = []; for (const n of names) { const T = await loadT(n, true); if (T) Ts.push(T); }
     const out = { created: [], dups: [], noAcct: [], noCol: [], updated: [] }; const add = {}; const upd = {};
     // 同一条消息里的视频号链接：和抖音作品一对一（数量相同按顺序配；只有一个抖音作品时配第一个）
-    const sphs = sphLinksOf(text); posts.forEach((p, i) => { p.sph = sphs.length === posts.length ? sphs[i] : posts.length === 1 ? sphs[0] : ''; });
+    const sphs = sphLinksOf(text); posts.forEach((p, i) => { p.sph = sphs.length === posts.length ? sphs[i] : posts.length === 1 ? sphs[0] : ''; }); const sphRegs = [];
     for (const p of posts) {
       const info = api.fetchDouyin ? await api.fetchDouyin(p.url) : {};
       if (info.title && (p.truncated || info.title.length > p.title.length)) p.title = info.title;
@@ -429,7 +446,7 @@ function createCore({ cfg, api, log, store }) {
       const dupT = Ts.find(T => keys.some(k => T.links.has(k)) || (P.norm(p.title).length >= 8 && T.rows.some(r => (!p.nick || !r.account || P.norm(r.account) === P.norm(p.nick)) && sim(P.norm(p.title), P.norm(r.title)) >= 0.95)));
       const exId = dupT && keys.map(k => dupT.linkIds.get(k)).find(Boolean);
       if (dupT && !(opt.rewrite && exId)) { // 重复：作品已登记过，但这次带了视频号链接 → 只把视频号链接补进那一行
-        const sc = p.sph && exId && dupT.meta.find(x => /^视频号(链接)?$/.test(x.name)); if (sc) { (upd[dupT.name] = upd[dupT.name] || { T: dupT, recs: [] }).recs.push({ record_id: exId, fields: { [sc.name]: sc.type === 15 ? { link: p.sph, text: p.sph } : p.sph } }); p.sphAdded = true; }
+        const sc = p.sph && exId && dupT.meta.find(x => /^视频号(链接)?$/.test(x.name)); if (sc) { (upd[dupT.name] = upd[dupT.name] || { T: dupT, recs: [] }).recs.push({ record_id: exId, fields: { [sc.name]: sc.type === 15 ? { link: p.sph, text: p.sph } : p.sph } }); p.sphAdded = true; const er = dupT.rows.find(r => r.id === exId) || {}; sphRegs.push({ link: p.sph, title: er.title || p.title, account: er.account || p.nick || '', person: dupT.personOf.get(P.norm(er.account || '')) || '', region: '', date: er.date || p.time || null, kind: /素人/.test(dupT.name) ? '素人号' : '矩阵号', from: dupT.name }); }
         out.dups.push(Object.assign(p, { table: dupT.name })); continue; }
       let T = p.nick && Ts.find(T => [...T.accts].some(a => P.norm(a) === P.norm(p.nick)));
       if (!T) { // 账号读不出（电脑端复制的链接不带作者名）：按群定表先登记，账号和数据交给插件补
@@ -449,12 +466,15 @@ function createCore({ cfg, api, log, store }) {
       const rg = T.meta.find(x => x.name === '区域定位'); const region = regionOf(p.title); if (rg && region) f['区域定位'] = region;
       if (exId) { // 重写：覆盖原来那一行（同一张表；账号读不出时保留原账号；发布时间读不出时保留原日期）
         const U = dupT; if (!p.time) delete f['发布日期']; if (U !== T) { Object.keys(f).forEach(k => { if (!U.meta.some(x => x.name === k)) delete f[k]; }); }
+        if (p.sph) sphRegs.push({ link: p.sph, title: p.title, account: acc || '', person: person || '', region: f['区域定位'] || '', date: p.time || null, kind: /素人/.test(U.name) ? '素人号' : '矩阵号', from: U.name });
         (upd[U.name] = upd[U.name] || { T: U, recs: [] }).recs.push({ record_id: exId, fields: f }); out.updated.push(Object.assign(p, { table: U.name, account: acc || '' })); if (!acc) hot.dy++; continue; }
+      if (p.sph) sphRegs.push({ link: p.sph, title: p.title, account: acc || '', person: person || '', region: f['区域定位'] || '', date: p.time || null, kind: /素人/.test(T.name) ? '素人号' : '矩阵号', from: T.name });
       (add[T.name] = add[T.name] || { T, recs: [] }).recs.push({ fields: f }); out.created.push(Object.assign(p, { table: T.name, account: acc })); T.links.add(dyKey(p.url));
     }
     const app = await appToken();
     for (const { T, recs } of Object.values(add)) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/batch_create`, { records: recs }); vt[T.name] = null; }
     for (const { T, recs } of Object.values(upd)) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/batch_update`, { records: recs }); vt[T.name] = null; log(`[抖音登记] 重写 ${recs.length} 条（${T.name}）`); }
+    if (sphRegs.length) { try { out.sph = await regSph(sphRegs); } catch (e) { log('[视频号] 同步登记出错：' + e.message); } }
     return out;
   }
 
@@ -629,6 +649,7 @@ function replyForDouyin(r) {
   r.dups.forEach(p => L.push(`↩️ 抖音「${short(p.title)}」在「${p.table}」里已经有了，没重复登记${p.sphAdded ? '，视频号链接已补进那一行' : '（要覆盖就回复链接消息、@我 说「重写」）'}`));
   r.noAcct.forEach(p => L.push(`❓ 抖音「${short(p.title)}」：账号「${p.nick || '读不出'}」在矩阵号表和素人号表里都没有，没登记。是新账号的话先把账号加进表里再发一次（发到素人号回收群或抖音发布群，读不出的也会先登记、再由插件补账号）`));
   r.noCol.forEach(p => L.push(`⚠️ 「${p.table}」里找不到放抖音链接的列，没登记`));
+  if (r.sph && (r.sph.created || r.sph.filled)) L.push(`📺 视频号链接已同步登记到视频号表（新增 ${r.sph.created}${r.sph.filled ? '，补全 ' + r.sph.filled : ''}）`);
   return L.join('\n');
 }
 
