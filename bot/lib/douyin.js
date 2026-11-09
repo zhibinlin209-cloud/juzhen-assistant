@@ -4,14 +4,19 @@
  */
 'use strict';
 const URL_RE = /https?:\/\/v\.douyin\.com\/[A-Za-z0-9_-]+\/?|https?:\/\/(?:www\.)?(?:iesdouyin|douyin)\.com\/(?:share\/)?(?:video|note)\/\d+[^\s]*/g;
+// 电脑网页端：douyin.com/jingxuan?modal_id=…、/user/…?modal_id=…、/search/…?modal_id=…、?vid=… 都换成 www.douyin.com/video/ID
+const PC_RE = /https?:\/\/(?:www\.)?douyin\.com\/[^\s\u4e00-\u9fa5，。]*?[?&#](?:modal_id|vid)=(\d{12,})[^\s\u4e00-\u9fa5，。]*/g;
+const ANY_RE = new RegExp(PC_RE.source + '|' + URL_RE.source, 'g');
+const isDouyinLink = t => /v\.douyin\.com\/|iesdouyin\.com\/|douyin\.com\/(?:share\/)?(?:video|note)\/\d|douyin\.com\/\S*?[?&#](?:modal_id|vid)=\d{12,}/.test(String(t || ''));
+const canon = u => { const m = u.match(/[?&#](?:modal_id|vid)=(\d{12,})/); if (m && !/\/(?:video|note)\/\d/.test(u)) return 'https://www.douyin.com/video/' + m[1]; const v = u.match(/^(https?:\/\/(?:www\.)?(?:iesdouyin|douyin)\.com\/(?:share\/)?(?:video|note)\/\d+)/); return v ? v[1].replace(/iesdouyin\.com\/share\//, 'douyin.com/') : u; };
 const clean = s => String(s || '').replace(/\[|\]|\(|\)/g, ' ').replace(/(\.{3}|…)+\s*$/, '').replace(/\s+/g, ' ').trim();
 
 function parseDouyin(text) {
   const src = String(text || '');
   const out = []; const seen = new Set(); let last = 0; let m;
-  URL_RE.lastIndex = 0;
-  while ((m = URL_RE.exec(src))) {
-    const url = m[0].replace(/[)\]]+$/, '');
+  ANY_RE.lastIndex = 0;
+  while ((m = ANY_RE.exec(src))) {
+    const url = canon(m[0].replace(/[)\]]+$/, ''));
     const seg = src.slice(last, m.index); last = m.index + m[0].length;
     const key = url.replace(/\/$/, ''); if (seen.has(key)) continue; seen.add(key);
     const nickM = seg.match(/【(.+?)的(?:图文)?作品】/);
@@ -43,4 +48,4 @@ async function fetchDouyin(url) {
   } catch (e) { return {}; }
 }
 
-module.exports = { parseDouyin, fetchDouyin };
+module.exports = { parseDouyin, fetchDouyin, isDouyinLink };

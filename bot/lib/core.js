@@ -50,6 +50,10 @@ function createCore({ cfg, api, log, store }) {
   }
   const vt = {}; // 抖音 / 视频号用的表
   const dyKey = u => { const t = String(u || ''); const a = t.match(/v\.douyin\.com\/([A-Za-z0-9_-]+)/); if (a) return 's:' + a[1]; const b = t.match(/(?:video|note)\/(\d{8,})/); return b ? 'i:' + b[1] : ''; };
+  // 抖音短链 → 作品 ID 对照（手机短链和电脑网页链接互认，避免同一条作品登记两行）
+  const DYID_F = require('path').join(process.env.BOT_DATA_DIR || require('path').join(__dirname, '..'), 'dy-ids.json');
+  let dyIds = {}; try { dyIds = JSON.parse(require('fs').readFileSync(DYID_F, 'utf8')); } catch (e) { }
+  const rememberDy = (k, id) => { if (!k || !id || !k.startsWith('s:') || dyIds[k] === id) return; dyIds[k] = id; try { require('fs').writeFileSync(DYID_F, JSON.stringify(dyIds)); } catch (e) { } };
   async function loadT(name, force) {
     if (vt[name] && !force && Date.now() - vt[name].at < 5 * 60e3) return vt[name];
     const app = await appToken(); const all = await listTables(); const nk = x => String(x).replace(/最新|[-_\s—－·]/g, ''); const t = all.find(x => x.name === name) || all.find(x => nk(x.name) === nk(name)); if (!t) { log('[表] 没找到：' + name); return null; } if (t.name !== name) log(`[表] 「${name}」已改名为「${t.name}」，照常使用`);
@@ -63,7 +67,7 @@ function createCore({ cfg, api, log, store }) {
     const linkCol = (linkCands.find(f => /抖音/.test(f.name)) || linkCands.find(f => /作品|视频/.test(f.name)) || linkCands[0] || {}).name || '';
     const accCol = ['账号名称', '账号昵称', '账号'].find(c => meta.some(f => f.name === c)) || '';
     const links = new Set(), accts = new Set();
-    const linkIds = new Map(), personOf = new Map(); recs.slice().sort((a, b) => ((a.fields || {})['发布日期'] || 0) - ((b.fields || {})['发布日期'] || 0)).forEach(r => { const f = r.fields || {}; const ac = String(val(f['账号名称'] || f['账号昵称']) || '').trim(), pe = String(val(f['发布人员'] || f['人员']) || '').trim(); if (ac && pe) personOf.set(P.norm(ac), pe); }); recs.forEach(r => { const f = r.fields || {}; const l = linkCol ? String(val(f[linkCol]) || '') : ''; const k = dyKey(l); if (k) { links.add(k); linkIds.set(k, r.record_id); } const a = accCol ? String(val(f[accCol]) || '').trim() : ''; if (a) accts.add(a); });
+    const linkIds = new Map(), personOf = new Map(); recs.slice().sort((a, b) => ((a.fields || {})['发布日期'] || 0) - ((b.fields || {})['发布日期'] || 0)).forEach(r => { const f = r.fields || {}; const ac = String(val(f['账号名称'] || f['账号昵称']) || '').trim(), pe = String(val(f['发布人员'] || f['人员']) || '').trim(); if (ac && pe) personOf.set(P.norm(ac), pe); }); recs.forEach(r => { const f = r.fields || {}; const l = linkCol ? String(val(f[linkCol]) || '') : ''; const k = dyKey(l); if (k) { links.add(k); linkIds.set(k, r.record_id); const k2 = dyIds[k] ? 'i:' + dyIds[k] : ''; if (k2) { links.add(k2); if (!linkIds.has(k2)) linkIds.set(k2, r.record_id); } } const a = accCol ? String(val(f[accCol]) || '').trim() : ''; if (a) accts.add(a); });
     vt[name] = { id: t.table_id, name, fields: meta.map(f => f.name), meta, linkCol, accCol, links, linkIds, personOf, accts, rows, at: Date.now() };
     log(`[表] ${name}：${rows.length} 条可对，${accts.size} 个账号，链接列「${linkCol || '没找到'}」，账号列「${accCol || '没找到'}」`); return vt[name];
   }
@@ -123,17 +127,20 @@ function createCore({ cfg, api, log, store }) {
     return { ok: true, account: f['账号昵称'], known: !!a };
   }
   // 抖音：近 14 天登记的作品，没账号或没点赞数的，交给插件在办公室电脑打开读（服务器读不到抖音）
-  const triedDy = {};
+  const triedDy = {}; let dyFilling = false;
   async function dyPending(limit) {
     hot.dy = 0;
-    const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据']; const out = []; const since = Date.now() - 14 * 864e5; const app = await appToken();
+    const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据']; const out = [], allL = []; const since = Date.now() - 14 * 864e5; const app = await appToken();
     for (const n of names) { const T = await loadT(n); if (!T || !T.linkCol) continue; let pt = ''; const recs = [];
       do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '发布日期', operator: 'isGreater', value: ['ExactDate', String(since)] }] } }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
-      recs.forEach(r => { const f = r.fields || {}; const link = (String(val(f[T.linkCol]) || '').match(/https?:\/\/\S+/) || [])[0]; if (!link) return; const acc = String(val(f[T.accCol]) || '').trim(); const day = Math.floor(Date.now() / 864e5);
+      recs.forEach(r => { const f = r.fields || {}; const link = (String(val(f[T.linkCol]) || '').match(/https?:\/\/\S+/) || [])[0]; if (!link) return; allL.push(link); const acc = String(val(f[T.accCol]) || '').trim(); const day = Math.floor(Date.now() / 864e5);
         // 缺账号：最多试 3 次；只缺数据：每天读一次（数据会涨，14 天内每天更新）
         const n0 = triedDy[r.record_id] || 0; const ok = !acc ? n0 < 3 : triedDy[r.record_id + ':' + day] === undefined;
         if (ok) out.push({ table: T.name, rec: r.record_id, link, needAcc: !acc, date: f['发布日期'] || 0 }); });
     }
+    // 顺带把旧行的抖音短链解析成作品 ID（每次最多 20 条，后台跑）
+    if (api.fetchDouyin && !dyFilling) { const todo = [...new Set(allL)].filter(l => /v\.douyin\.com/.test(l) && !dyIds[dyKey(l)]).slice(0, 20);
+      if (todo.length) { dyFilling = true; (async () => { let n = 0; for (const l of todo) { try { const i = await api.fetchDouyin(l); if (i && i.id) { rememberDy(dyKey(l), i.id); n++; } } catch (e) { } await new Promise(r => setTimeout(r, 1500)); } dyFilling = false; if (n) { log(`[抖音登记] 旧短链解析出作品 ID ${n} 条`); names.forEach(x => { vt[x] = null; }); } })(); } }
     out.sort((a, b) => (b.needAcc - a.needAcc) || (b.date - a.date));
     const pick = out.slice(0, limit || 5); const day = Math.floor(Date.now() / 864e5); pick.forEach(x => { triedDy[x.rec] = (triedDy[x.rec] || 0) + 1; triedDy[x.rec + ':' + day] = 1; });
     if (pick.length) log(`[抖音登记] 插件来取待补 ${pick.length} 条（共 ${out.length} 条待补）`);
@@ -149,6 +156,7 @@ function createCore({ cfg, api, log, store }) {
     const accNow = f.__acc || String(val(cur[T.accCol]) || '').trim();
     const pf = has('发布人员') || has('人员'); if (pf && !String(val(cur[pf.name]) || '').trim() && accNow) { const by = T.personOf.get(P.norm(accNow)); const o = by && (pf.options || []).find(x => x === by); if (o) f[pf.name] = pf.type === 4 ? [o] : o; }
     if (has('区域定位') && !String(val(cur['区域定位']) || '').trim()) { const rg = regionOf([info.title, info.desc, info.poi, (info.tags || []).join(' ')].filter(Boolean).join(' ')); if (rg) f['区域定位'] = rg; }
+    { const tc = r.find(x => x.name === '标题' && x.type === 1); const t0 = String(info.title || info.desc || '').replace(/\s+/g, ' ').trim().slice(0, 120); if (tc && t0 && !String(val(cur['标题']) || '').trim()) f['标题'] = t0; }
     put('点赞量', info.likes); put('评论量', info.comments); put('转发量', info.shares); put('收藏量', info.collects);
     const acc = f.__acc; delete f.__acc; if (!Object.keys(f).length) return { ok: false, error: '没读到可写的数据' };
     const app = await appToken(); await api.call('PUT', `/bitable/v1/apps/${app}/tables/${T.id}/records/${rec}`, { fields: f });
@@ -441,7 +449,7 @@ function createCore({ cfg, api, log, store }) {
     for (const p of posts) {
       const info = api.fetchDouyin ? await api.fetchDouyin(p.url) : {};
       if (info.title && (p.truncated || info.title.length > p.title.length)) p.title = info.title;
-      p.nick = info.nick || p.nick; p.time = info.time || null; p.id = info.id || '';
+      p.nick = info.nick || p.nick; p.time = info.time || null; p.id = info.id || ((p.url.match(/(?:video|note)\/(\d{8,})/) || [])[1] || ''); rememberDy(dyKey(p.url), p.id);
       const keys = [dyKey(p.url), p.id ? 'i:' + p.id : ''].filter(Boolean);
       const dupT = Ts.find(T => keys.some(k => T.links.has(k)) || (P.norm(p.title).length >= 8 && T.rows.some(r => (!p.nick || !r.account || P.norm(r.account) === P.norm(p.nick)) && sim(P.norm(p.title), P.norm(r.title)) >= 0.95)));
       const exId = dupT && keys.map(k => dupT.linkIds.get(k)).find(Boolean);

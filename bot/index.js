@@ -18,7 +18,7 @@
   } }
 const fs = require('fs'); const path = require('path'); const readline = require('readline');
 const { createCore, replyForText, replyForImage, replyForDaily, replyForDouyin, replyForChannels } = require('./lib/core');
-const { fetchDouyin } = require('./lib/douyin');
+const { fetchDouyin, isDouyinLink } = require('./lib/douyin');
 const { createBrief, bjDay } = require('./lib/brief');
 const { createWeb } = require('./lib/web');
 const { createTgt, replyForTgt } = require('./lib/tgt');
@@ -433,7 +433,7 @@ async function setup() {
     const rewrite = !!(text && /重写|重新登记|覆盖/.test(text) && (m.mentions || []).some(x => /禧聚|助手|机器人|AI/i.test(String(x.name || ''))));
     let ltext = text;
     if (rewrite && m.parent_id) { try { const pm = await call('GET', `/im/v1/messages/${m.parent_id}`); const it = (pm.items || [])[0]; if (it) { const f2 = flatten(it.msg_type, (it.body || {}).content); ltext = (f2.text || '') + '\n' + (text || ''); } } catch (e) { log('[重写] 读被回复的消息出错：' + e.message); } }
-    if (rewrite && !/xhslink|dpurl|ctrip\.com|xiaohongshu\.com|v\.douyin\.com|iesdouyin\.com|douyin\.com\/(video|note)/.test(ltext || '')) { await reply(m.message_id, '要重写哪条？请「回复」那条链接消息，再 @我 说「重写」；或者把链接和「@我 重写」发在同一条消息里。'); return; }
+    if (rewrite && !/xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(ltext || '') && !isDouyinLink(ltext)) { await reply(m.message_id, '要重写哪条？请「回复」那条链接消息，再 @我 说「重写」；或者把链接和「@我 重写」发在同一条消息里。'); return; }
     if (rewrite) text = ltext;
     try {
       if (text && /xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(text)) {
@@ -442,16 +442,16 @@ async function setup() {
         if (r) { log(`[登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForText(r)); }
       }
       // 回复抖音链接的消息、只发视频号链接 → 补进那条抖音作品的同一行
-      if (text && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !/v\.douyin\.com|douyin\.com\/(video|note)/.test(text) && m.parent_id) {
+      if (text && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !isDouyinLink(text) && m.parent_id) {
         try { const pm = await call('GET', `/im/v1/messages/${m.parent_id}`); const it = (pm.items || [])[0]; const pt = it ? (flatten(it.msg_type, (it.body || {}).content).text || '') : '';
-          if (/v\.douyin\.com|douyin\.com\/(video|note)/.test(pt)) { const d = await core.attachSph(pt, text); if (d && d.length) { await reply(m.message_id, `✅ 视频号链接已补进「${d[0].table}」里那条抖音作品的同一行` + (d.length > 1 ? `（共 ${d.length} 条）` : '')); return; } }
+          if (isDouyinLink(pt)) { const d = await core.attachSph(pt, text); if (d && d.length) { await reply(m.message_id, `✅ 视频号链接已补进「${d[0].table}」里那条抖音作品的同一行` + (d.length > 1 ? `（共 ${d.length} 条）` : '')); return; } }
         } catch (e) { log('[视频号] 补进抖音行出错：' + e.message); }
       }
-      if (text && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !/xhslink|xiaohongshu\.com|dpurl|v\.douyin\.com/.test(text)) {
+      if (text && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !/xhslink|xiaohongshu\.com|dpurl/.test(text) && !isDouyinLink(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
         try { const r = await core.handleChannelsLink(text, who); if (r) { log(`[登记] 视频号 ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForChannels(r)); } } catch (e) { if (e.message === 'NO_SPH_TABLE') await reply(m.message_id, '⚠️ 营销部多维表格里还没有「视频号-数据」这张表，请先建一张空表（名字一字不差），机器人会自动补齐列'); else { log('视频号登记出错：', e.message); await reply(m.message_id, '⚠️ 视频号链接没登记成功：' + e.message.replace(/\/bitable\S*/g, '').slice(-120)); } }
       }
-      if (text && /v\.douyin\.com|iesdouyin\.com|douyin\.com\/(video|note)/.test(text)) {
+      if (text && isDouyinLink(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
         try { const gn2 = await chatName(m.chat_id); const r = await core.handleDouyin(text, who, /素人/.test(gn2) ? '素人' : /矩阵|视频稿件/.test(gn2) && /抖音|视频/.test(gn2) ? '矩阵' : '', { rewrite }); if (r) { log(`[抖音登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}，没找到账号 ${r.noAcct.length}`); await reply(m.message_id, replyForDouyin(r)); } } catch (e) { log('抖音登记出错：', e.message); await reply(m.message_id, '⚠️ 抖音链接没登记成功：' + e.message.slice(0, 60)); }
       }
@@ -581,7 +581,7 @@ async function setup() {
   async function registerLinks(text, who) { // 领稿页提交的链接 → 和群里贴链接一样登记进数据表
     const out = [];
     if (/xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(text)) { const r = await core.handleText(text, who); if (r) out.push(replyForText(r)); }
-    if (/v\.douyin\.com|iesdouyin\.com|douyin\.com\/(video|note)/.test(text)) { try { const r = await core.handleDouyin(text, who); if (r) out.push(replyForDouyin(r)); } catch (e) { out.push('⚠️ 抖音没登记上：' + e.message.slice(0, 60)); } }
+    if (isDouyinLink(text)) { try { const r = await core.handleDouyin(text, who); if (r) out.push(replyForDouyin(r)); } catch (e) { out.push('⚠️ 抖音没登记上：' + e.message.slice(0, 60)); } }
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
