@@ -5,7 +5,7 @@
 const http = require('http'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 
-function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, adsWeekly, lastXlsx, reingestLast, chatMsgs, dbCheck, archivable, chats }) {
+function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, adsWeekly, lastXlsx, reingestLast, chatMsgs, dbCheck, archivable, chats, core }) {
   const key = crypto.createHash('sha256').update('xiju-cockpit:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (who, exp, kind) => { const body = `${kind}.${who}.${exp}`; return b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url'); };
@@ -129,6 +129,8 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
         if (p === '/lib/lastxlsx' && lastXlsx) { try { return sendc(res, 200, JSON.stringify(req.method === 'POST' ? await reingestLast(String(u.searchParams.get('q') || '')) : await lastXlsx(String(u.searchParams.get('q') || '')))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         if (p === '/lib/chatmsgs' && chatMsgs) { try { return sendc(res, 200, JSON.stringify(await chatMsgs(String(u.searchParams.get('q') || ''), +u.searchParams.get('pages') || 4))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         if (p === '/lib/chats' && chats) { try { return sendc(res, 200, JSON.stringify(await chats())); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
+        if (p === '/lib/xhs/noacct' && req.method === 'GET' && core) { try { return sendc(res, 200, JSON.stringify({ ok: true, items: await core.noAcct(+u.searchParams.get('limit') || 5) })); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
+        if (p === '/lib/xhs/acct' && req.method === 'POST' && core) { let b = ''; for await (const c of req) { b += c; if (b.length > 20000) break; } try { const j = JSON.parse(b); return sendc(res, 200, JSON.stringify(await core.fillAcct(j.rec, j))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         if (p === '/lib/dailycheck' && req.method === 'GET' && dailyCheck) return sendc(res, 200, JSON.stringify(await dailyCheck()));
         // 数据库核对：每家店在飞书和本地库里的行数、日期范围、营业额合计，逐店对比
         if (p === '/lib/dbcheck' && req.method === 'GET' && dbCheck) { try { return sendc(res, 200, JSON.stringify(await dbCheck())); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }

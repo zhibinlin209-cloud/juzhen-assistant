@@ -99,6 +99,24 @@ function createCore({ cfg, api, log, store }) {
     let best = null, bs = 0; for (const r of pgCache.rows) { if (!r.t) continue; const sc = P.dice(n, r.t); if (sc > bs) { bs = sc; best = r; } }
     return bs >= 0.8 ? best : null;
   }
+  // 账号没认出来的近 30 天笔记：交给插件在办公室电脑的 Chrome 里打开读作者（服务器 IP 被小红书拦）
+  const tried = {};
+  async function noAcct(limit) {
+    await load(true); const since = Date.now() - 30 * 864e5;
+    return st.rows.filter(r => !r.account && /xiaohongshu|xhslink/.test(r.xhs) && (r.date || Date.now()) > since && (tried[r.id] || 0) < 3).slice(0, limit || 5).map(r => { tried[r.id] = (tried[r.id] || 0) + 1; return { rec: r.id, link: r.xhs, title: r.title }; });
+  }
+  async function fillAcct(rec, info) {
+    await load(); const r = st.rows.find(x => x.id === rec); if (!r) return { ok: false, error: '没找到这一行' };
+    const nick = String(info.author || '').trim(); if (!nick) return { ok: false, error: '没读到作者' };
+    const a = (info.uid && st.accts.find(x => x.uid === info.uid)) || st.accts.find(x => x.name === nick);
+    const f = { '账号昵称': a ? a.name : nick };
+    if (a && a.home) f['主页链接'] = a.home; else if (info.uid) f['主页链接'] = { link: `https://www.xiaohongshu.com/user/profile/${info.uid}`, text: `https://www.xiaohongshu.com/user/profile/${info.uid}` };
+    if (a && a.person && opts('人员').includes(a.person)) f['人员'] = a.person;
+    if (info.time) f['发布日期'] = dayStart(+info.time);
+    const app = await appToken(); await api.call('PUT', `/bitable/v1/apps/${app}/tables/${st.table.id}/records/${rec}`, { fields: f }); r.account = f['账号昵称'];
+    log(`[登记] 插件补账号：《${(r.title || '').slice(0, 16)}》→ ${f['账号昵称']}${a ? '' : '（表里还没有这个号，按作者昵称填）'}`);
+    return { ok: true, account: f['账号昵称'], known: !!a };
+  }
   // ---------- 分享 → 新增行 ----------
   async function handleText(text, senderName) {
     const posts = P.parse(text); if (!posts.length) return null;
@@ -484,7 +502,7 @@ function createCore({ cfg, api, log, store }) {
     }
     return out;
   }
-  return { handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, dailyAppToken, load, loadT, _st: st, _match: match };
+  return { noAcct, fillAcct, handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, dailyAppToken, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案

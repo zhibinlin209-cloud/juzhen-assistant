@@ -42,7 +42,7 @@
           const e = map[id] || map[Object.keys(map)[0]]; const n = e && un(e.note); if (!n || !(n.noteId || n.title || n.desc)) return { none: true, href: location.href, text: (document.body.innerText || '').slice(0, 300) };
           const ii = n.interactInfo || {}; const pic = x => x.urlDefault || x.url || ((x.infoList || []).find(i => /DFT|WB_DFT/.test(i.imageScene)) || (x.infoList || [])[0] || {}).url || '';
           return JSON.parse(JSON.stringify({ id: n.noteId || id, type: n.type === 'video' ? 'video' : 'note', title: n.title || '', desc: (n.desc || '').replace(/#([^#\[]+)\[话题\]#/g, '#$1'), tags: (n.tagList || []).map(t => t.name).filter(Boolean),
-            images: (n.imageList || []).map(pic).filter(Boolean), likes: ii.likedCount, collects: ii.collectedCount, comments: ii.commentCount, shares: ii.shareCount, author: (n.user || {}).nickname || '', time: n.time || null, ip: n.ipLocation || '' }));
+            images: (n.imageList || []).map(pic).filter(Boolean), likes: ii.likedCount, collects: ii.collectedCount, comments: ii.commentCount, shares: ii.shareCount, author: (n.user || {}).nickname || '', uid: (n.user || {}).userId || (n.user || {}).user_id || '', time: n.time || null, ip: n.ipLocation || '' }));
         } catch (err) { return { none: true, err: String(err) }; }
       } });
       return r && r.result;
@@ -175,6 +175,21 @@
     } catch (e) { olog('✗ ' + e.message); toast(e.message); }
     finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } O.busy = false; forceRender(); }
   }
+
+  // ---------- 自动补账号：群里登记的小红书链接，服务器读不到作者的，插件每 15 分钟在后台打开读一次（每次最多 5 条） ----------
+  const A = { busy: false, last: 0, n: 0, log: [] };
+  async function autoAcct() {
+    if (A.busy || S.busy || (typeof R !== 'undefined' && R.busy) || (typeof T !== 'undefined' && T.busy)) return; A.busy = true;
+    try {
+      const j = await srv('/lib/xhs/noacct?limit=5'); const items = j.items || []; if (!items.length) return;
+      for (const it of items) {
+        const r = await readOne({ link: it.link }); if (r.stop) break; const nt = r.note || {};
+        if (nt.author) { try { const k = await srv('/lib/xhs/acct', { rec: it.rec, author: nt.author, uid: nt.uid || '', time: nt.time || null }); A.n++; A.log.unshift(`${new Date().toLocaleTimeString('zh-CN', { hour12: false })} 《${(it.title || '').slice(0, 14)}》→ ${k.account || nt.author}`); A.log = A.log.slice(0, 10); } catch (e) { } }
+        await sleep(rand(8000, 15000));
+      }
+    } catch (e) { } finally { try { if (win && !S.busy) { await chrome.windows.remove(win.id); win = null; } } catch (e) { } A.busy = false; A.last = Date.now(); forceRender(); }
+  }
+  setTimeout(() => autoAcct(), 60e3); setInterval(() => autoAcct(), 15 * 60e3);
 
   // ---------- 同类爆款调研：在小红书搜同类关键词，读回近期高赞笔记 ----------
   // 关键词：门店商圈 → 城市攻略 → 品类 → 场景 → 爆款句式（前面带 * 的不限地区，门槛翻倍）
