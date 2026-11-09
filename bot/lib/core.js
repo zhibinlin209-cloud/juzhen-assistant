@@ -100,9 +100,9 @@ function createCore({ cfg, api, log, store }) {
     return bs >= 0.8 ? best : null;
   }
   // 账号没认出来的近 30 天笔记：交给插件在办公室电脑的 Chrome 里打开读作者（服务器 IP 被小红书拦）
-  const tried = {};
+  const tried = {}; const hot = { xhs: 0, dy: 0 }; // 群里刚登记、账号待补的：插件每分钟来问，有就马上去读
   async function noAcct(limit) {
-    await load(true); noAcct.calls = (noAcct.calls || 0) + 1; if (noAcct.calls % 4 === 1) log('[登记] 插件来取待补账号'); const since = Date.now() - 30 * 864e5;
+    hot.xhs = 0; await load(true); noAcct.calls = (noAcct.calls || 0) + 1; if (noAcct.calls % 4 === 1) log('[登记] 插件来取待补账号'); const since = Date.now() - 30 * 864e5;
     return st.rows.filter(r => !r.account && /xiaohongshu|xhslink/.test(r.xhs) && (r.date || Date.now()) > since && (tried[r.id] || 0) < 3).sort((a, b) => (b.date || 0) - (a.date || 0) || (b.id > a.id ? 1 : -1)).slice(0, limit || 5).map(r => { tried[r.id] = (tried[r.id] || 0) + 1; return { rec: r.id, link: r.xhs, title: r.title }; });
   }
   async function fillAcct(rec, info) {
@@ -120,6 +120,7 @@ function createCore({ cfg, api, log, store }) {
   // 抖音：近 14 天登记的作品，没账号或没点赞数的，交给插件在办公室电脑打开读（服务器读不到抖音）
   const triedDy = {};
   async function dyPending(limit) {
+    hot.dy = 0;
     const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据']; const out = []; const since = Date.now() - 14 * 864e5; const app = await appToken();
     for (const n of names) { const T = await loadT(n); if (!T || !T.linkCol) continue; let pt = ''; const recs = [];
       do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '发布日期', operator: 'isGreater', value: ['ExactDate', String(since)] }] } }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
@@ -170,7 +171,7 @@ function createCore({ cfg, api, log, store }) {
       if (c) f['笔记城市'] = c; if (s) f['笔记门店'] = s; if (ty) f['笔记类型'] = ty;
       if (p.xhs) f['小红书链接'] = { link: p.xhs, text: p.xhs }; if (p.dp) f['点评链接'] = { link: p.dp, text: p.dp }; if (p.ctrip) f['携程链接'] = p.ctrip; if (p.wx) f['微信贴图'] = { link: p.wx, text: p.wx };
       rows.push(f); out.created.push(Object.assign(p, { person, storeOpt: s }));
-      if (!p.account) out.noAcct.push(p);
+      if (!p.account) { out.noAcct.push(p); hot.xhs++; }
     }
     if (rows.length) { const app = await appToken(); await api.call('POST', `/bitable/v1/apps/${app}/tables/${st.table.id}/records/batch_create`, { records: rows.map(fields => ({ fields })) }); st.rows = null; }
     return out;
@@ -399,7 +400,7 @@ function createCore({ cfg, api, log, store }) {
       let T = p.nick && Ts.find(T => [...T.accts].some(a => P.norm(a) === P.norm(p.nick)));
       if (!T) { // 账号读不出（电脑端复制的链接不带作者名）：按群定表先登记，账号和数据交给插件补
         const H = hint === '素人' ? Ts.find(x => /素人/.test(x.name)) : hint === '矩阵' ? Ts.find(x => /矩阵/.test(x.name)) : null;
-        if (!H) { out.noAcct.push(p); continue; } T = H; p.pending = true; }
+        if (!H) { out.noAcct.push(p); continue; } T = H; p.pending = true; hot.dy++; }
       if (!T.linkCol) { out.noCol.push(Object.assign(p, { table: T.name })); continue; }
       const lf = T.meta.find(f => f.name === T.linkCol); const f = {};
       f[T.linkCol] = lf.type === 15 ? { link: p.url, text: p.url } : p.url;
@@ -532,7 +533,7 @@ function createCore({ cfg, api, log, store }) {
     }
     return out;
   }
-  return { noAcct, fillAcct, dyPending, dyFill, handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, dailyAppToken, load, loadT, _st: st, _match: match };
+  return { hot: () => Object.assign({}, hot), noAcct, fillAcct, dyPending, dyFill, handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, dailyAppToken, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案

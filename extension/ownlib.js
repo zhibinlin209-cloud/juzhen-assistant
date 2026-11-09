@@ -198,6 +198,8 @@
     } catch (e) { } finally { try { if (win && !S.busy) { await chrome.windows.remove(win.id); win = null; } } catch (e) { } A.busy = false; A.last = Date.now(); forceRender(); }
   }
   setTimeout(() => autoAcct(), 60e3); setInterval(() => autoAcct(), 15 * 60e3);
+  // 群里刚发的链接：每分钟问一次服务器，有待补的就马上读（1–2 分钟内补上）
+  setInterval(async () => { if (A.busy) return; try { const h = await srv('/lib/hot'); if ((h.xhs || 0) + (h.dy || 0) > 0) autoAcct(); } catch (e) { } }, 60e3);
 
   // ---------- 同类爆款调研：在小红书搜同类关键词，读回近期高赞笔记 ----------
   // 关键词：门店商圈 → 城市攻略 → 品类 → 场景 → 爆款句式（前面带 * 的不限地区，门槛翻倍）
