@@ -396,11 +396,6 @@ async function setup() {
     // 门店营业日报（华付数科等机器人发的也收）
     if (text && /营业日概况|当天总营业额/.test(text)) {
       if (typeof markDaily === 'function') markDaily(m.message_id, m.chat_id);
-      // 发送人 → 门店：门店行和标题都读不出时，按这个人以前发的门店补（只在他只发过一家店时用）
-      const sid = ((data.sender || {}).sender_id || {}).open_id || ((data.sender || {}).sender_id || {}).app_id || ''; const SF = path.join(DATA_DIR, 'daily-senders.json'); let sm = {}; try { sm = JSON.parse(fs.readFileSync(SF, 'utf8')); } catch (e) { }
-      const D0 = require('./lib/daily'); let p0 = []; try { p0 = D0.parseDaily(text); } catch (e) { }
-      if (!p0.length && sid && sm[sid] && /门店[:：]\s*(\n|$)/.test(text)) { text = text.replace(/门店[:：]\s*(?=\n|$)/, '门店：' + sm[sid]); log(`[日报] 门店没写，按发送人以前发的门店补成「${sm[sid]}」`); }
-      else if (p0.length === 1 && sid && p0[0].store && sm[sid] !== p0[0].store) { sm[sid] = p0[0].store; try { fs.writeFileSync(SF, JSON.stringify(sm)); } catch (e) { } }
       try { const r = await core.handleDaily(text, (data.sender || {}).sender_type === 'app' ? '日报机器人' : '群消息'); if (r && r.length) { log(`[日报] ${r.map(x => x.store + ' ' + x.date).join('、')}`); if (cfg.replyDaily !== false) await reply(m.message_id, replyForDaily(r)); } else { log('[日报] 有一条没读懂（日期或门店读不出）'); await reply(m.message_id, '⚠️ 这条日报没读懂：日期或门店没读出来。格式应为「日期：2026-11-02」「门店：xxx店」，已通知管理员'); } } catch (e) { if (e.message === 'NO_PRIVATE_BASE') { log('收到营业日报，但还没配置私密表格（config.json 的 dailyBaseUrl），没有记录'); await reply(m.message_id, '⚠️ 还没设置营业日报的私密表格，这条先不记录（不会写进营销部共享表）'); } else log('处理日报出错：', e.message); }
       return;
     }
