@@ -509,9 +509,9 @@ function createCore({ cfg, api, log, store }) {
 function replyForText(r) {
   if (!r) return '';
   const L = [];
-  if (r.created.length) L.push(`✅ 已登记 ${r.created.length} 条：` + r.created.map(p => `\n· ${p.title.slice(0, 20)}｜${p.account || '账号待补'}${p.storeOpt ? '｜' + p.storeOpt : ''}`).join(''));
+  if (r.created.length) L.push(`✅ 已登记 ${r.created.length} 条：` + r.created.map(p => `\n· ${p.title.slice(0, 20)}｜${p.account ? p.account + (p.via ? '（按' + p.via + '认出）' : '') : '账号待补'}${p.storeOpt ? '｜' + p.storeOpt : ''}`).join(''));
   if (r.dups.length) L.push(`↩️ ${r.dups.length} 条之前登记过，跳过`);
-  if (r.noAcct.length) L.push(`⚠️ ${r.noAcct.length} 条没认出是哪个号，请到飞书表里补「账号昵称」`);
+  if (r.noAcct.length) L.push(`⏳ ${r.noAcct.length} 条暂时没认出是哪个号，插件会在 15 分钟内自动打开笔记补上「账号昵称」，不用手动填`);
   return L.join('\n');
 }
 function replyForDaily(list) {
