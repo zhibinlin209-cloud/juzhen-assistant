@@ -181,12 +181,18 @@
   async function autoAcct() {
     if (A.busy || S.busy || (typeof R !== 'undefined' && R.busy) || (typeof T !== 'undefined' && T.busy)) return; A.busy = true;
     try {
-      const j = await srv('/lib/xhs/noacct?limit=5'); const items = j.items || []; if (!items.length) return;
+      const j = await srv('/lib/xhs/noacct?limit=5'); const items = j.items || [];
       for (const it of items) {
         const r = await readOne({ link: it.link }); if (r.stop) break; const nt = r.note || {};
         if (nt.author) { try { const k = await srv('/lib/xhs/acct', { rec: it.rec, author: nt.author, uid: nt.uid || '', time: nt.time || null }); A.n++; A.log.unshift(`${new Date().toLocaleTimeString('zh-CN', { hour12: false })} 《${(it.title || '').slice(0, 14)}》→ ${k.account || nt.author}`); A.log = A.log.slice(0, 10); } catch (e) { } }
         await sleep(rand(8000, 15000));
       }
+      // 抖音：补账号 + 点赞/评论/转发（服务器读不到抖音）
+      try { const d = await srv('/lib/dy/pending?limit=5'); for (const it of d.items || []) {
+        await nav(it.link); let st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { if (!(await waitUnblock(st.blocked))) break; await nav(it.link); }
+        const rp = await msg({ type: 'rm:readPost', maxComments: 0 }, 45000); const pp = (rp && rp.post) || {};
+        if (pp.author || pp.likes !== undefined) { try { await srv('/lib/dy/fill', { table: it.table, rec: it.rec, author: pp.author || '', likes: pp.likes, comments: pp.comments, shares: pp.shares, collects: pp.collects }); A.n++; } catch (e) { } }
+        await sleep(rand(8000, 15000)); } } catch (e) { }
     } catch (e) { } finally { try { if (win && !S.busy) { await chrome.windows.remove(win.id); win = null; } } catch (e) { } A.busy = false; A.last = Date.now(); forceRender(); }
   }
   setTimeout(() => autoAcct(), 60e3); setInterval(() => autoAcct(), 15 * 60e3);

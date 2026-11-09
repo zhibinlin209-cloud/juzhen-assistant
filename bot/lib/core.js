@@ -117,6 +117,33 @@ function createCore({ cfg, api, log, store }) {
     log(`[登记] 插件补账号：《${(r.title || '').slice(0, 16)}》→ ${f['账号昵称']}${a ? '' : '（表里还没有这个号，按作者昵称填）'}`);
     return { ok: true, account: f['账号昵称'], known: !!a };
   }
+  // 抖音：近 14 天登记的作品，没账号或没点赞数的，交给插件在办公室电脑打开读（服务器读不到抖音）
+  const triedDy = {};
+  async function dyPending(limit) {
+    const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据']; const out = []; const since = Date.now() - 14 * 864e5; const app = await appToken();
+    for (const n of names) { const T = await loadT(n); if (!T || !T.linkCol) continue; let pt = ''; const recs = [];
+      do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '发布日期', operator: 'isGreater', value: ['ExactDate', String(since)] }] } }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
+      recs.forEach(r => { const f = r.fields || {}; const link = (String(val(f[T.linkCol]) || '').match(/https?:\/\/\S+/) || [])[0]; if (!link) return; const acc = String(val(f[T.accCol]) || '').trim(); const day = Math.floor(Date.now() / 864e5);
+        // 缺账号：最多试 3 次；只缺数据：每天读一次（数据会涨，14 天内每天更新）
+        const n0 = triedDy[r.record_id] || 0; const ok = !acc ? n0 < 3 : triedDy[r.record_id + ':' + day] === undefined;
+        if (ok) out.push({ table: T.name, rec: r.record_id, link, needAcc: !acc, date: f['发布日期'] || 0 }); });
+    }
+    out.sort((a, b) => (b.needAcc - a.needAcc) || (b.date - a.date));
+    const pick = out.slice(0, limit || 5); const day = Math.floor(Date.now() / 864e5); pick.forEach(x => { triedDy[x.rec] = (triedDy[x.rec] || 0) + 1; triedDy[x.rec + ':' + day] = 1; });
+    if (pick.length) log(`[抖音登记] 插件来取待补 ${pick.length} 条（共 ${out.length} 条待补）`);
+    return pick;
+  }
+  async function dyFill(table, rec, info) {
+    const T = await loadT(table, true); if (!T) return { ok: false, error: '没这张表' }; const f = {};
+    const r = T.meta; const has = n => r.find(x => x.name === n);
+    if (info.author) { const acc = [...T.accts].find(a => P.norm(a) === P.norm(info.author)) || String(info.author).trim(); const af = has(T.accCol); if (af && af.type === 1) f[T.accCol] = acc; else if (af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc; f.__acc = acc; }
+    const put = (n, v) => { const c = has(n); if (!c || v === null || v === undefined || v === '') return; f[n] = c.type === 2 ? Number(v) : String(v); };
+    put('点赞量', info.likes); put('评论量', info.comments); put('转发量', info.shares); put('收藏量', info.collects);
+    const acc = f.__acc; delete f.__acc; if (!Object.keys(f).length) return { ok: false, error: '没读到可写的数据' };
+    const app = await appToken(); await api.call('PUT', `/bitable/v1/apps/${app}/tables/${T.id}/records/${rec}`, { fields: f });
+    log(`[抖音登记] 插件补：${table} ${acc ? '账号 ' + acc + '，' : ''}赞 ${info.likes ?? '—'} 评 ${info.comments ?? '—'} 转 ${info.shares ?? '—'}`); vt[table] = null;
+    return { ok: true, account: acc || '' };
+  }
   // ---------- 分享 → 新增行 ----------
   async function handleText(text, senderName) {
     const posts = P.parse(text); if (!posts.length) return null;
@@ -356,7 +383,7 @@ function createCore({ cfg, api, log, store }) {
 
   // ---------- 抖音分享 → 先在矩阵号表找账号，找不到再去素人号表；找到就在那张表登记新作品 ----------
   const DY = require('./douyin');
-  async function handleDouyin(text, senderName) {
+  async function handleDouyin(text, senderName, hint) {
     const posts = DY.parseDouyin(text); if (!posts.length) return null;
     const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'];
     const Ts = []; for (const n of names) { const T = await loadT(n, true); if (T) Ts.push(T); }
@@ -368,13 +395,15 @@ function createCore({ cfg, api, log, store }) {
       const keys = [dyKey(p.url), p.id ? 'i:' + p.id : ''].filter(Boolean);
       const dupT = Ts.find(T => keys.some(k => T.links.has(k)) || (P.norm(p.title).length >= 8 && T.rows.some(r => (!p.nick || !r.account || P.norm(r.account) === P.norm(p.nick)) && sim(P.norm(p.title), P.norm(r.title)) >= 0.95)));
       if (dupT) { out.dups.push(Object.assign(p, { table: dupT.name })); continue; }
-      const T = p.nick && Ts.find(T => [...T.accts].some(a => P.norm(a) === P.norm(p.nick)));
-      if (!T) { out.noAcct.push(p); continue; }
+      let T = p.nick && Ts.find(T => [...T.accts].some(a => P.norm(a) === P.norm(p.nick)));
+      if (!T) { // 账号读不出（电脑端复制的链接不带作者名）：按群定表先登记，账号和数据交给插件补
+        const H = hint === '素人' ? Ts.find(x => /素人/.test(x.name)) : hint === '矩阵' ? Ts.find(x => /矩阵/.test(x.name)) : null;
+        if (!H) { out.noAcct.push(p); continue; } T = H; p.pending = true; }
       if (!T.linkCol) { out.noCol.push(Object.assign(p, { table: T.name })); continue; }
       const lf = T.meta.find(f => f.name === T.linkCol); const f = {};
       f[T.linkCol] = lf.type === 15 ? { link: p.url, text: p.url } : p.url;
-      const af = T.meta.find(x => x.name === T.accCol); const acc = [...T.accts].find(a => P.norm(a) === P.norm(p.nick));
-      if (af && af.type === 1) f[T.accCol] = acc; else if (af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc;
+      const af = T.meta.find(x => x.name === T.accCol); const acc = p.pending ? '' : [...T.accts].find(a => P.norm(a) === P.norm(p.nick));
+      if (acc && af && af.type === 1) f[T.accCol] = acc; else if (acc && af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc;
       const df = T.meta.find(x => x.name === '发布日期'); if (df && df.type === 5) f['发布日期'] = dayStart(p.time || Date.now());
       const pf = T.meta.find(x => x.name === '发布人员') || T.meta.find(x => x.name === '人员'); const person = senderName && pf && (pf.options || []).find(o => senderName.includes(o) || o.includes(senderName)); if (person) f['人员'] = pf.type === 4 ? [person] : person;
       (add[T.name] = add[T.name] || { T, recs: [] }).recs.push({ fields: f }); out.created.push(Object.assign(p, { table: T.name, account: acc })); T.links.add(dyKey(p.url));
@@ -502,7 +531,7 @@ function createCore({ cfg, api, log, store }) {
     }
     return out;
   }
-  return { noAcct, fillAcct, handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, dailyAppToken, load, loadT, _st: st, _match: match };
+  return { noAcct, fillAcct, dyPending, dyFill, handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, dailyAppToken, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案
@@ -549,9 +578,9 @@ function replyForChannels(r) {
 function replyForDouyin(r) {
   const short = t => (t || '').length > 18 ? t.slice(0, 18) + '…' : (t || '（无标题）');
   const L = [];
-  r.created.forEach(p => L.push(`✅ 抖音「${short(p.title)}」→ 已登记到「${p.table}」（${p.account}）`));
+  r.created.forEach(p => L.push(`✅ 抖音「${short(p.title)}」→ 已登记到「${p.table}」（${p.account || '账号待补，插件会在 15 分钟内自动补上'}）`));
   r.dups.forEach(p => L.push(`↩️ 抖音「${short(p.title)}」在「${p.table}」里已经有了，没重复登记`));
-  r.noAcct.forEach(p => L.push(`❓ 抖音「${short(p.title)}」：账号「${p.nick || '读不出'}」在矩阵号表和素人号表里都没有，没登记。是新账号的话先把账号加进表里再发一次`));
+  r.noAcct.forEach(p => L.push(`❓ 抖音「${short(p.title)}」：账号「${p.nick || '读不出'}」在矩阵号表和素人号表里都没有，没登记。是新账号的话先把账号加进表里再发一次（发到素人号回收群或抖音发布群，读不出的也会先登记、再由插件补账号）`));
   r.noCol.forEach(p => L.push(`⚠️ 「${p.table}」里找不到放抖音链接的列，没登记`));
   return L.join('\n');
 }

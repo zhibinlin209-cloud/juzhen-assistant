@@ -441,7 +441,7 @@ async function setup() {
       }
       if (text && /v\.douyin\.com|iesdouyin\.com|douyin\.com\/(video|note)/.test(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
-        try { const r = await core.handleDouyin(text, who); if (r) { log(`[抖音登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}，没找到账号 ${r.noAcct.length}`); await reply(m.message_id, replyForDouyin(r)); } } catch (e) { log('抖音登记出错：', e.message); await reply(m.message_id, '⚠️ 抖音链接没登记成功：' + e.message.slice(0, 60)); }
+        try { const gn2 = await chatName(m.chat_id); const r = await core.handleDouyin(text, who, /素人/.test(gn2) ? '素人' : /矩阵|视频稿件/.test(gn2) && /抖音|视频/.test(gn2) ? '矩阵' : ''); if (r) { log(`[抖音登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}，没找到账号 ${r.noAcct.length}`); await reply(m.message_id, replyForDouyin(r)); } } catch (e) { log('抖音登记出错：', e.message); await reply(m.message_id, '⚠️ 抖音链接没登记成功：' + e.message.slice(0, 60)); }
       }
       if (images.length) {
         if (!cfg.qwenKey) log('收到截图，但 config.json 没填通义千问 Key，跳过');
