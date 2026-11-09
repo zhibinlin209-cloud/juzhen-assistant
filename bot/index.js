@@ -441,6 +441,12 @@ async function setup() {
         const r = await core.handleText(text, who, { rewrite });
         if (r) { log(`[登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForText(r)); }
       }
+      // 回复抖音链接的消息、只发视频号链接 → 补进那条抖音作品的同一行
+      if (text && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !/v\.douyin\.com|douyin\.com\/(video|note)/.test(text) && m.parent_id) {
+        try { const pm = await call('GET', `/im/v1/messages/${m.parent_id}`); const it = (pm.items || [])[0]; const pt = it ? (flatten(it.msg_type, (it.body || {}).content).text || '') : '';
+          if (/v\.douyin\.com|douyin\.com\/(video|note)/.test(pt)) { const d = await core.attachSph(pt, text); if (d && d.length) { await reply(m.message_id, `✅ 视频号链接已补进「${d[0].table}」里那条抖音作品的同一行` + (d.length > 1 ? `（共 ${d.length} 条）` : '')); return; } }
+        } catch (e) { log('[视频号] 补进抖音行出错：' + e.message); }
+      }
       if (text && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !/xhslink|xiaohongshu\.com|dpurl|v\.douyin\.com/.test(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
         try { const r = await core.handleChannelsLink(text, who); if (r) { log(`[登记] 视频号 ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForChannels(r)); } } catch (e) { if (e.message === 'NO_SPH_TABLE') await reply(m.message_id, '⚠️ 营销部多维表格里还没有「视频号-数据」这张表，请先建一张空表（名字一字不差），机器人会自动补齐列'); else { log('视频号登记出错：', e.message); await reply(m.message_id, '⚠️ 视频号链接没登记成功：' + e.message.replace(/\/bitable\S*/g, '').slice(-120)); } }
