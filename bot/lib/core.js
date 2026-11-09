@@ -417,7 +417,9 @@ function createCore({ cfg, api, log, store }) {
       const keys = [dyKey(p.url), p.id ? 'i:' + p.id : ''].filter(Boolean);
       const dupT = Ts.find(T => keys.some(k => T.links.has(k)) || (P.norm(p.title).length >= 8 && T.rows.some(r => (!p.nick || !r.account || P.norm(r.account) === P.norm(p.nick)) && sim(P.norm(p.title), P.norm(r.title)) >= 0.95)));
       const exId = dupT && keys.map(k => dupT.linkIds.get(k)).find(Boolean);
-      if (dupT && !(opt.rewrite && exId)) { out.dups.push(Object.assign(p, { table: dupT.name })); continue; }
+      if (dupT && !(opt.rewrite && exId)) { // 重复：作品已登记过，但这次带了视频号链接 → 只把视频号链接补进那一行
+        const sc = p.sph && exId && dupT.meta.find(x => /^视频号(链接)?$/.test(x.name)); if (sc) { (upd[dupT.name] = upd[dupT.name] || { T: dupT, recs: [] }).recs.push({ record_id: exId, fields: { [sc.name]: sc.type === 15 ? { link: p.sph, text: p.sph } : p.sph } }); p.sphAdded = true; }
+        out.dups.push(Object.assign(p, { table: dupT.name })); continue; }
       let T = p.nick && Ts.find(T => [...T.accts].some(a => P.norm(a) === P.norm(p.nick)));
       if (!T) { // 账号读不出（电脑端复制的链接不带作者名）：按群定表先登记，账号和数据交给插件补
         const H = hint === '素人' ? Ts.find(x => /素人/.test(x.name)) : hint === '矩阵' ? Ts.find(x => /矩阵/.test(x.name)) : null;
@@ -609,7 +611,7 @@ function replyForDouyin(r) {
   const L = [];
   (r.updated || []).forEach(p => L.push(`♻️ 抖音「${short(p.title)}」→ 已重写「${p.table}」里原来那一行（${p.account || '账号没读出，保留原账号/插件补'}）`));
   r.created.forEach(p => L.push(`✅ 抖音「${short(p.title)}」→ 已登记到「${p.table}」（${p.account || '账号待补，插件会在 15 分钟内自动补上'}）${p.sph ? '，视频号链接也登记在同一行' : ''}`));
-  r.dups.forEach(p => L.push(`↩️ 抖音「${short(p.title)}」在「${p.table}」里已经有了，没重复登记（要覆盖就回复链接消息、@我 说「重写」）`));
+  r.dups.forEach(p => L.push(`↩️ 抖音「${short(p.title)}」在「${p.table}」里已经有了，没重复登记${p.sphAdded ? '，视频号链接已补进那一行' : '（要覆盖就回复链接消息、@我 说「重写」）'}`));
   r.noAcct.forEach(p => L.push(`❓ 抖音「${short(p.title)}」：账号「${p.nick || '读不出'}」在矩阵号表和素人号表里都没有，没登记。是新账号的话先把账号加进表里再发一次（发到素人号回收群或抖音发布群，读不出的也会先登记、再由插件补账号）`));
   r.noCol.forEach(p => L.push(`⚠️ 「${p.table}」里找不到放抖音链接的列，没登记`));
   return L.join('\n');
