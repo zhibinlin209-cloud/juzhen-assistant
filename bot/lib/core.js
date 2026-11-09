@@ -63,8 +63,8 @@ function createCore({ cfg, api, log, store }) {
     const linkCol = (linkCands.find(f => /抖音/.test(f.name)) || linkCands.find(f => /作品|视频/.test(f.name)) || linkCands[0] || {}).name || '';
     const accCol = ['账号名称', '账号昵称', '账号'].find(c => meta.some(f => f.name === c)) || '';
     const links = new Set(), accts = new Set();
-    recs.forEach(r => { const f = r.fields || {}; const l = linkCol ? String(val(f[linkCol]) || '') : ''; const k = dyKey(l); if (k) links.add(k); const a = accCol ? String(val(f[accCol]) || '').trim() : ''; if (a) accts.add(a); });
-    vt[name] = { id: t.table_id, name, fields: meta.map(f => f.name), meta, linkCol, accCol, links, accts, rows, at: Date.now() };
+    const linkIds = new Map(); recs.forEach(r => { const f = r.fields || {}; const l = linkCol ? String(val(f[linkCol]) || '') : ''; const k = dyKey(l); if (k) { links.add(k); linkIds.set(k, r.record_id); } const a = accCol ? String(val(f[accCol]) || '').trim() : ''; if (a) accts.add(a); });
+    vt[name] = { id: t.table_id, name, fields: meta.map(f => f.name), meta, linkCol, accCol, links, linkIds, accts, rows, at: Date.now() };
     log(`[表] ${name}：${rows.length} 条可对，${accts.size} 个账号，链接列「${linkCol || '没找到'}」，账号列「${accCol || '没找到'}」`); return vt[name];
   }
   async function load(force) {
@@ -147,14 +147,14 @@ function createCore({ cfg, api, log, store }) {
     return { ok: true, account: acc || '' };
   }
   // ---------- 分享 → 新增行 ----------
-  async function handleText(text, senderName) {
-    const posts = P.parse(text); if (!posts.length) return null;
-    await load();
-    const out = { created: [], dups: [], noAcct: [] };
+  async function handleText(text, senderName, opt) {
+    opt = opt || {}; const posts = P.parse(text); if (!posts.length) return null;
+    await load(opt.rewrite);
+    const out = { created: [], dups: [], noAcct: [], updated: [] }; const upd = [];
     const rows = [];
     for (const p of posts) {
-      if (dupOf(p)) { out.dups.push(p); continue; }
-      if (p.xhs && api.fetchXhs) { const info = await api.fetchXhs(p.xhs); Object.assign(p, info || {}); if (info && info.id) p.noteId = info.id; if (dupOf(p)) { out.dups.push(p); continue; } }
+      let ex = dupOf(p); if (ex && !opt.rewrite) { out.dups.push(p); continue; }
+      if (p.xhs && api.fetchXhs) { const info = await api.fetchXhs(p.xhs); Object.assign(p, info || {}); if (info && info.id) p.noteId = info.id; ex = ex || dupOf(p); if (ex && !opt.rewrite) { out.dups.push(p); continue; } }
       let a = (p.uid && st.accts.find(x => x.uid === p.uid)) || (p.nick && st.accts.find(x => x.name === p.nick));
       p.account = a ? a.name : (p.nick || '');
       // 服务器读不到小红书作者时：按标题对派稿记录（派稿时就定了账号和发布人）
@@ -170,10 +170,15 @@ function createCore({ cfg, api, log, store }) {
       const c = P.optionFor(p.city, opts('笔记城市')), s = P.optionFor(p.store, opts('笔记门店')), ty = P.optionFor(p.type, opts('笔记类型'));
       if (c) f['笔记城市'] = c; if (s) f['笔记门店'] = s; if (ty) f['笔记类型'] = ty;
       if (p.xhs) f['小红书链接'] = { link: p.xhs, text: p.xhs }; if (p.dp) f['点评链接'] = { link: p.dp, text: p.dp }; if (p.ctrip) f['携程链接'] = p.ctrip; if (p.wx) f['微信贴图'] = { link: p.wx, text: p.wx };
+      if (ex) { // 重写：覆盖原来那一行（账号读不出时保留原账号；发布时间读不出时保留原日期）
+        if (!p.time) delete f['发布日期']; delete f['投流状态'];
+        upd.push({ record_id: ex.id, fields: f }); out.updated.push(Object.assign(p, { person, storeOpt: s, account: p.account || ex.account }));
+        if (!p.account && !ex.account) hot.xhs++; continue; }
       rows.push(f); out.created.push(Object.assign(p, { person, storeOpt: s }));
       if (!p.account) { out.noAcct.push(p); hot.xhs++; }
     }
     if (rows.length) { const app = await appToken(); await api.call('POST', `/bitable/v1/apps/${app}/tables/${st.table.id}/records/batch_create`, { records: rows.map(fields => ({ fields })) }); st.rows = null; }
+    if (upd.length) { const app = await appToken(); await api.call('POST', `/bitable/v1/apps/${app}/tables/${st.table.id}/records/batch_update`, { records: upd }); st.rows = null; log(`[登记] 重写 ${upd.length} 条`); }
     return out;
   }
 
@@ -385,18 +390,20 @@ function createCore({ cfg, api, log, store }) {
 
   // ---------- 抖音分享 → 先在矩阵号表找账号，找不到再去素人号表；找到就在那张表登记新作品 ----------
   const DY = require('./douyin');
-  async function handleDouyin(text, senderName, hint) {
+  async function handleDouyin(text, senderName, hint, opt) {
+    opt = opt || {};
     const posts = DY.parseDouyin(text); if (!posts.length) return null;
     const names = cfg.videoTables || ['最新-抖音矩阵号-数据', '抖音素人号-数据'];
     const Ts = []; for (const n of names) { const T = await loadT(n, true); if (T) Ts.push(T); }
-    const out = { created: [], dups: [], noAcct: [], noCol: [] }; const add = {};
+    const out = { created: [], dups: [], noAcct: [], noCol: [], updated: [] }; const add = {}; const upd = {};
     for (const p of posts) {
       const info = api.fetchDouyin ? await api.fetchDouyin(p.url) : {};
       if (info.title && (p.truncated || info.title.length > p.title.length)) p.title = info.title;
       p.nick = info.nick || p.nick; p.time = info.time || null; p.id = info.id || '';
       const keys = [dyKey(p.url), p.id ? 'i:' + p.id : ''].filter(Boolean);
       const dupT = Ts.find(T => keys.some(k => T.links.has(k)) || (P.norm(p.title).length >= 8 && T.rows.some(r => (!p.nick || !r.account || P.norm(r.account) === P.norm(p.nick)) && sim(P.norm(p.title), P.norm(r.title)) >= 0.95)));
-      if (dupT) { out.dups.push(Object.assign(p, { table: dupT.name })); continue; }
+      const exId = dupT && keys.map(k => dupT.linkIds.get(k)).find(Boolean);
+      if (dupT && !(opt.rewrite && exId)) { out.dups.push(Object.assign(p, { table: dupT.name })); continue; }
       let T = p.nick && Ts.find(T => [...T.accts].some(a => P.norm(a) === P.norm(p.nick)));
       if (!T) { // 账号读不出（电脑端复制的链接不带作者名）：按群定表先登记，账号和数据交给插件补
         const H = hint === '素人' ? Ts.find(x => /素人/.test(x.name)) : hint === '矩阵' ? Ts.find(x => /矩阵/.test(x.name)) : null;
@@ -408,10 +415,14 @@ function createCore({ cfg, api, log, store }) {
       if (acc && af && af.type === 1) f[T.accCol] = acc; else if (acc && af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc;
       const df = T.meta.find(x => x.name === '发布日期'); if (df && df.type === 5) f['发布日期'] = dayStart(p.time || Date.now());
       const pf = T.meta.find(x => x.name === '发布人员') || T.meta.find(x => x.name === '人员'); const person = senderName && pf && (pf.options || []).find(o => senderName.includes(o) || o.includes(senderName)); if (person) f['人员'] = pf.type === 4 ? [person] : person;
+      if (exId) { // 重写：覆盖原来那一行（同一张表；账号读不出时保留原账号；发布时间读不出时保留原日期）
+        const U = dupT; if (!p.time) delete f['发布日期']; if (U !== T) { Object.keys(f).forEach(k => { if (!U.meta.some(x => x.name === k)) delete f[k]; }); }
+        (upd[U.name] = upd[U.name] || { T: U, recs: [] }).recs.push({ record_id: exId, fields: f }); out.updated.push(Object.assign(p, { table: U.name, account: acc || '' })); if (!acc) hot.dy++; continue; }
       (add[T.name] = add[T.name] || { T, recs: [] }).recs.push({ fields: f }); out.created.push(Object.assign(p, { table: T.name, account: acc })); T.links.add(dyKey(p.url));
     }
     const app = await appToken();
     for (const { T, recs } of Object.values(add)) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/batch_create`, { records: recs }); vt[T.name] = null; }
+    for (const { T, recs } of Object.values(upd)) { await api.call('POST', `/bitable/v1/apps/${app}/tables/${T.id}/records/batch_update`, { records: recs }); vt[T.name] = null; log(`[抖音登记] 重写 ${recs.length} 条（${T.name}）`); }
     return out;
   }
 
@@ -540,8 +551,9 @@ function createCore({ cfg, api, log, store }) {
 function replyForText(r) {
   if (!r) return '';
   const L = [];
+  if (r.updated && r.updated.length) L.push(`♻️ 已重写 ${r.updated.length} 条（覆盖表里原来那一行）：` + r.updated.map(p => `\n· ${p.title.slice(0, 20)}｜${p.account || '账号待补，插件会自动补'}`).join(''));
   if (r.created.length) L.push(`✅ 已登记 ${r.created.length} 条：` + r.created.map(p => `\n· ${p.title.slice(0, 20)}｜${p.account ? p.account + (p.via ? '（按' + p.via + '认出）' : '') : '账号待补'}${p.storeOpt ? '｜' + p.storeOpt : ''}`).join(''));
-  if (r.dups.length) L.push(`↩️ ${r.dups.length} 条之前登记过，跳过`);
+  if (r.dups.length) L.push(`↩️ ${r.dups.length} 条之前登记过，跳过。要用这次的内容覆盖，回复这条链接消息、@我 说「重写」`);
   if (r.noAcct.length) L.push(`⏳ ${r.noAcct.length} 条暂时没认出是哪个号，插件会在 15 分钟内自动打开笔记补上「账号昵称」，不用手动填`);
   return L.join('\n');
 }
@@ -580,8 +592,9 @@ function replyForChannels(r) {
 function replyForDouyin(r) {
   const short = t => (t || '').length > 18 ? t.slice(0, 18) + '…' : (t || '（无标题）');
   const L = [];
+  (r.updated || []).forEach(p => L.push(`♻️ 抖音「${short(p.title)}」→ 已重写「${p.table}」里原来那一行（${p.account || '账号没读出，保留原账号/插件补'}）`));
   r.created.forEach(p => L.push(`✅ 抖音「${short(p.title)}」→ 已登记到「${p.table}」（${p.account || '账号待补，插件会在 15 分钟内自动补上'}）`));
-  r.dups.forEach(p => L.push(`↩️ 抖音「${short(p.title)}」在「${p.table}」里已经有了，没重复登记`));
+  r.dups.forEach(p => L.push(`↩️ 抖音「${short(p.title)}」在「${p.table}」里已经有了，没重复登记（要覆盖就回复链接消息、@我 说「重写」）`));
   r.noAcct.forEach(p => L.push(`❓ 抖音「${short(p.title)}」：账号「${p.nick || '读不出'}」在矩阵号表和素人号表里都没有，没登记。是新账号的话先把账号加进表里再发一次（发到素人号回收群或抖音发布群，读不出的也会先登记、再由插件补账号）`));
   r.noCol.forEach(p => L.push(`⚠️ 「${p.table}」里找不到放抖音链接的列，没登记`));
   return L.join('\n');

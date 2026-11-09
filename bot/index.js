@@ -310,7 +310,7 @@ async function setup() {
     const m = data.message || {}; if (!m.message_id || seen.has(m.message_id)) return; seen.add(m.message_id); if (seen.size > 5000) seen.clear();
     if (m.chat_type !== 'group') return;
     if (cfg.chats && cfg.chats.length && !cfg.chats.includes(m.chat_id) && !/发布群|派稿|存放群|稿件|回收/.test(await chatName(m.chat_id))) return;
-    const { text, images, media } = flatten(m.message_type, m.content);
+    let { text, images, media } = flatten(m.message_type, m.content);
     const sid = ((data.sender || {}).sender_id || {}).open_id || '';
     if (m.message_type === 'media' || m.message_type === 'file') {
       let c = {}; try { c = JSON.parse(m.content || '{}'); } catch (e) { }
@@ -429,10 +429,16 @@ async function setup() {
       try { const imgs = (async () => { const a = []; for (const k of images) a.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); return a; })(); const p = await draft.addMedia(sid, imgs); if (p && p.id) { clearTimeout(p.tm); p.tm = setTimeout(() => reply(m.message_id, `🖼 图片已归到「${p.code}」（素材共 ${p.n} 个）`), 4000); } } catch (e) { log('[收稿] 图片处理失败：' + e.message); }
       return;
     }
+    // @机器人 + 「重写」：用这条（或被回复的那条）消息里的链接，覆盖表里已有的那一行，不判重复
+    const rewrite = !!(text && /重写|重新登记|覆盖/.test(text) && (m.mentions || []).some(x => /禧聚|助手|机器人|AI/i.test(String(x.name || ''))));
+    let ltext = text;
+    if (rewrite && m.parent_id) { try { const pm = await call('GET', `/im/v1/messages/${m.parent_id}`); const it = (pm.items || [])[0]; if (it) { const f2 = flatten(it.msg_type, (it.body || {}).content); ltext = (f2.text || '') + '\n' + (text || ''); } } catch (e) { log('[重写] 读被回复的消息出错：' + e.message); } }
+    if (rewrite && !/xhslink|dpurl|ctrip\.com|xiaohongshu\.com|v\.douyin\.com|iesdouyin\.com|douyin\.com\/(video|note)/.test(ltext || '')) { await reply(m.message_id, '要重写哪条？请「回复」那条链接消息，再 @我 说「重写」；或者把链接和「@我 重写」发在同一条消息里。'); return; }
+    if (rewrite) text = ltext;
     try {
       if (text && /xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
-        const r = await core.handleText(text, who);
+        const r = await core.handleText(text, who, { rewrite });
         if (r) { log(`[登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForText(r)); }
       }
       if (text && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !/xhslink|xiaohongshu\.com|dpurl|v\.douyin\.com/.test(text)) {
@@ -441,7 +447,7 @@ async function setup() {
       }
       if (text && /v\.douyin\.com|iesdouyin\.com|douyin\.com\/(video|note)/.test(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
-        try { const gn2 = await chatName(m.chat_id); const r = await core.handleDouyin(text, who, /素人/.test(gn2) ? '素人' : /矩阵|视频稿件/.test(gn2) && /抖音|视频/.test(gn2) ? '矩阵' : ''); if (r) { log(`[抖音登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}，没找到账号 ${r.noAcct.length}`); await reply(m.message_id, replyForDouyin(r)); } } catch (e) { log('抖音登记出错：', e.message); await reply(m.message_id, '⚠️ 抖音链接没登记成功：' + e.message.slice(0, 60)); }
+        try { const gn2 = await chatName(m.chat_id); const r = await core.handleDouyin(text, who, /素人/.test(gn2) ? '素人' : /矩阵|视频稿件/.test(gn2) && /抖音|视频/.test(gn2) ? '矩阵' : '', { rewrite }); if (r) { log(`[抖音登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}，没找到账号 ${r.noAcct.length}`); await reply(m.message_id, replyForDouyin(r)); } } catch (e) { log('抖音登记出错：', e.message); await reply(m.message_id, '⚠️ 抖音链接没登记成功：' + e.message.slice(0, 60)); }
       }
       if (images.length) {
         if (!cfg.qwenKey) log('收到截图，但 config.json 没填通义千问 Key，跳过');
