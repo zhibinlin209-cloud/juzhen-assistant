@@ -4,6 +4,18 @@
  * 用飞书「长连接」收消息：不需要公网服务器，电脑或云服务器开着这个程序就行
  */
 'use strict';
+// Node 22.5~22.12 的内置 SQLite 要加 --experimental-sqlite 才能用：先试一下，能用就带上开关重启自己（子进程），不能用就照常跑（只走飞书）
+{ const [ma, mi] = process.versions.node.split('.').map(Number);
+  if (ma === 22 && mi >= 5 && mi < 13 && !process.execArgv.includes('--experimental-sqlite') && !process.env.XJ_SQLITE_CHILD) {
+    const cp = require('child_process'); let okFlag = false;
+    try { okFlag = cp.spawnSync(process.execPath, ['--experimental-sqlite', '--no-warnings', '-e', 'require("node:sqlite")'], { timeout: 15000 }).status === 0; } catch (e) { }
+    if (okFlag) {
+      const child = cp.spawn(process.execPath, ['--experimental-sqlite', '--no-warnings', ...process.execArgv, ...process.argv.slice(1)], { stdio: 'inherit', env: Object.assign({}, process.env, { XJ_SQLITE_CHILD: '1' }) });
+      ['SIGTERM', 'SIGINT', 'SIGHUP'].forEach(sg => process.on(sg, () => { try { child.kill(sg); } catch (e) { } }));
+      child.on('exit', (code, sig) => process.exit(code === null ? 1 : code));
+      return; // eslint-disable-line
+    }
+  } }
 const fs = require('fs'); const path = require('path'); const readline = require('readline');
 const { createCore, replyForText, replyForImage, replyForDaily, replyForDouyin, replyForChannels } = require('./lib/core');
 const { fetchDouyin } = require('./lib/douyin');
