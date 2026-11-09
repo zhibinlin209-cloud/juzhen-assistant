@@ -191,7 +191,7 @@
       try { const d = await srv('/lib/dy/pending?limit=5'); for (const it of d.items || []) {
         await nav(it.link); let st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { if (!(await waitUnblock(st.blocked))) break; await nav(it.link); }
         const rp = await msg({ type: 'rm:readPost', maxComments: 0 }, 45000); const pp = (rp && rp.post) || {};
-        if (pp.author || pp.likes !== undefined) { try { await srv('/lib/dy/fill', { table: it.table, rec: it.rec, author: pp.author || '', likes: pp.likes, comments: pp.comments, shares: pp.shares, collects: pp.collects }); A.n++; } catch (e) { } }
+        if (pp.author || pp.likes !== undefined) { try { await srv('/lib/dy/fill', { table: it.table, rec: it.rec, needAcc: !!it.needAcc, author: pp.author || '', likes: pp.likes, comments: pp.comments, shares: pp.shares, collects: pp.collects }); A.n++; } catch (e) { } }
         await sleep(rand(8000, 15000)); } } catch (e) { }
     } catch (e) { } finally { try { if (win && !S.busy) { await chrome.windows.remove(win.id); win = null; } } catch (e) { } A.busy = false; A.last = Date.now(); forceRender(); }
   }

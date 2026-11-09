@@ -136,7 +136,7 @@ function createCore({ cfg, api, log, store }) {
   async function dyFill(table, rec, info) {
     const T = await loadT(table, true); if (!T) return { ok: false, error: '没这张表' }; const f = {};
     const r = T.meta; const has = n => r.find(x => x.name === n);
-    if (info.author) { const acc = [...T.accts].find(a => P.norm(a) === P.norm(info.author)) || String(info.author).trim(); const af = has(T.accCol); if (af && af.type === 1) f[T.accCol] = acc; else if (af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc; f.__acc = acc; }
+    if (info.author && info.needAcc !== false) { const acc = [...T.accts].find(a => P.norm(a) === P.norm(info.author)) || String(info.author).trim(); const af = has(T.accCol); if (af && af.type === 1) f[T.accCol] = acc; else if (af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc; f.__acc = acc; }
     const put = (n, v) => { const c = has(n); if (!c || v === null || v === undefined || v === '') return; f[n] = c.type === 2 ? Number(v) : String(v); };
     put('点赞量', info.likes); put('评论量', info.comments); put('转发量', info.shares); put('收藏量', info.collects);
     const acc = f.__acc; delete f.__acc; if (!Object.keys(f).length) return { ok: false, error: '没读到可写的数据' };
