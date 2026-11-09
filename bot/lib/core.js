@@ -102,8 +102,8 @@ function createCore({ cfg, api, log, store }) {
   // 账号没认出来的近 30 天笔记：交给插件在办公室电脑的 Chrome 里打开读作者（服务器 IP 被小红书拦）
   const tried = {};
   async function noAcct(limit) {
-    await load(true); const since = Date.now() - 30 * 864e5;
-    return st.rows.filter(r => !r.account && /xiaohongshu|xhslink/.test(r.xhs) && (r.date || Date.now()) > since && (tried[r.id] || 0) < 3).slice(0, limit || 5).map(r => { tried[r.id] = (tried[r.id] || 0) + 1; return { rec: r.id, link: r.xhs, title: r.title }; });
+    await load(true); noAcct.calls = (noAcct.calls || 0) + 1; if (noAcct.calls % 4 === 1) log('[登记] 插件来取待补账号'); const since = Date.now() - 30 * 864e5;
+    return st.rows.filter(r => !r.account && /xiaohongshu|xhslink/.test(r.xhs) && (r.date || Date.now()) > since && (tried[r.id] || 0) < 3).sort((a, b) => (b.date || 0) - (a.date || 0) || (b.id > a.id ? 1 : -1)).slice(0, limit || 5).map(r => { tried[r.id] = (tried[r.id] || 0) + 1; return { rec: r.id, link: r.xhs, title: r.title }; });
   }
   async function fillAcct(rec, info) {
     await load(); const r = st.rows.find(x => x.id === rec); if (!r) return { ok: false, error: '没找到这一行' };
