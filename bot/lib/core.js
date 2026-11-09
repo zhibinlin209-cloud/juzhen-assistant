@@ -107,7 +107,7 @@ function createCore({ cfg, api, log, store }) {
   }
   async function fillAcct(rec, info) {
     await load(); const r = st.rows.find(x => x.id === rec); if (!r) return { ok: false, error: '没找到这一行' };
-    const nick = String(info.author || '').trim(); if (!nick) return { ok: false, error: '没读到作者' };
+    const nick = String(info.author || '').trim(); if (!nick) { log(`[登记] 插件没读到《${(r.title || '').slice(0, 16)}》的作者：${String(info.err || '').slice(0, 80)}`); return { ok: false, error: '没读到作者' }; }
     const a = (info.uid && st.accts.find(x => x.uid === info.uid)) || st.accts.find(x => x.name === nick);
     const f = { '账号昵称': a ? a.name : nick };
     if (a && a.home) f['主页链接'] = a.home; else if (info.uid) f['主页链接'] = { link: `https://www.xiaohongshu.com/user/profile/${info.uid}`, text: `https://www.xiaohongshu.com/user/profile/${info.uid}` };
@@ -134,6 +134,7 @@ function createCore({ cfg, api, log, store }) {
     return pick;
   }
   async function dyFill(table, rec, info) {
+    if (info.err) { log(`[抖音登记] 插件没读到 ${table} 一条：${String(info.err).slice(0, 80)}`); return { ok: false }; }
     const T = await loadT(table, true); if (!T) return { ok: false, error: '没这张表' }; const f = {};
     const r = T.meta; const has = n => r.find(x => x.name === n);
     if (info.author && info.needAcc !== false) { const acc = [...T.accts].find(a => P.norm(a) === P.norm(info.author)) || String(info.author).trim(); const af = has(T.accCol); if (af && af.type === 1) f[T.accCol] = acc; else if (af && af.type === 3 && af.options.includes(acc)) f[T.accCol] = acc; f.__acc = acc; }

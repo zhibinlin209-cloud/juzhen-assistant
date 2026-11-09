@@ -184,6 +184,7 @@
       const j = await srv('/lib/xhs/noacct?limit=5'); const items = j.items || [];
       for (const it of items) {
         const r = await readOne({ link: it.link }); if (r.stop) break; const nt = r.note || {};
+        if (!nt.author) { try { await srv('/lib/xhs/acct', { rec: it.rec, author: '', err: r.err || (r.note ? '页面里没有作者' : '没读到笔记') }); } catch (e) { } }
         if (nt.author) { try { const k = await srv('/lib/xhs/acct', { rec: it.rec, author: nt.author, uid: nt.uid || '', time: nt.time || null }); A.n++; A.log.unshift(`${new Date().toLocaleTimeString('zh-CN', { hour12: false })} 《${(it.title || '').slice(0, 14)}》→ ${k.account || nt.author}`); A.log = A.log.slice(0, 10); } catch (e) { } }
         await sleep(rand(8000, 15000));
       }
@@ -191,6 +192,7 @@
       try { const d = await srv('/lib/dy/pending?limit=5'); for (const it of d.items || []) {
         await nav(it.link); let st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { if (!(await waitUnblock(st.blocked))) break; await nav(it.link); }
         const rp = await msg({ type: 'rm:readPost', maxComments: 0 }, 45000); const pp = (rp && rp.post) || {};
+        if (!(pp.author || pp.likes !== undefined)) { try { await srv('/lib/dy/fill', { table: it.table, rec: it.rec, err: (rp && (rp.error || (rp.blocked ? '被拦：' + rp.blocked : ''))) || '没读到作品' }); } catch (e) { } }
         if (pp.author || pp.likes !== undefined) { try { await srv('/lib/dy/fill', { table: it.table, rec: it.rec, needAcc: !!it.needAcc, author: pp.author || '', likes: pp.likes, comments: pp.comments, shares: pp.shares, collects: pp.collects }); A.n++; } catch (e) { } }
         await sleep(rand(8000, 15000)); } } catch (e) { }
     } catch (e) { } finally { try { if (win && !S.busy) { await chrome.windows.remove(win.id); win = null; } } catch (e) { } A.busy = false; A.last = Date.now(); forceRender(); }
