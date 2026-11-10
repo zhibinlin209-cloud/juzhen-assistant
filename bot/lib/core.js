@@ -611,7 +611,29 @@ function createCore({ cfg, api, log, store }) {
     }
     return out;
   }
-  return { attachSph, hot: () => Object.assign({}, hot), noAcct, fillAcct, dyPending, dyFill, handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, dailyAppToken, load, loadT, _st: st, _match: match };
+  // ---------- 给本机 Codex 用：只读营销部表格（不碰私密经营表）+ 写「AI-投放候选」 ----------
+  async function mktTables() { return (await listTables()).map(t => t.name); }
+  async function mktRows(name, days) {
+    const app = await appToken(); const t = (await listTables()).find(x => x.name === name); if (!t) throw new Error('营销部表格里没有「' + name + '」');
+    const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
+    const fields = (fd.items || []).map(f => ({ name: f.field_name, type: f.type }));
+    const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt && recs.length < 20000);
+    const since = days ? Date.now() - days * DAY : 0; const flat = v => Array.isArray(v) && v.length && v[0] && v[0].file_token ? v.map(x => x.name || 'file').join('、') : val(v);
+    const rows = recs.map(r => { const f = r.fields || {}; const o = { _id: r.record_id }; for (const k of Object.keys(f)) o[k] = typeof f[k] === 'number' ? f[k] : flat(f[k]); return o; })
+      .filter(o => !since || typeof o['发布日期'] !== 'number' || o['发布日期'] >= since);
+    return { ok: true, table: name, fields, n: rows.length, rows };
+  }
+  const CAND = [['内容', 1], ['平台', 3], ['账号', 1], ['门店', 1], ['链接', 15], ['发布日期', 5], ['关键数据', 1], ['同账号倍数', 2], ['建议', 3], ['理由', 1], ['建议预算', 1], ['来源表', 1], ['来源记录', 1], ['生成方', 1], ['生成时间', 5], ['决定', 3]];
+  async function mktCandidates(list, by) {
+    const app = await appToken(); const name = 'AI-投放候选'; let t = (await listTables()).find(x => x.name === name);
+    if (!t) { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables`, { table: { name, default_view_name: '全部', fields: CAND.map(([field_name, type]) => ({ field_name, type })) } }); t = { table_id: d.table_id }; log('[投放候选] 新建表：' + name); }
+    const now = Date.now(); const recs = (Array.isArray(list) ? list : []).slice(0, 300).map(x => { const f = { 生成方: String(by || 'Codex').slice(0, 30), 生成时间: now };
+      for (const [k, ty] of CAND) { const v = x[k]; if (v === undefined || v === null || v === '' || k === '生成方' || k === '生成时间') continue; f[k] = ty === 2 ? Number(v) : ty === 5 ? (typeof v === 'number' ? v : Date.parse(v) || undefined) : ty === 15 ? { link: String(v), text: String(x['内容'] || v).slice(0, 60) } : String(v).slice(0, 2000); if (f[k] === undefined || (ty === 2 && !isFinite(f[k]))) delete f[k]; }
+      return { fields: f }; });
+    for (let i = 0; i < recs.length; i += 100) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/batch_create`, { records: recs.slice(i, i + 100) });
+    log(`[投放候选] ${by || 'Codex'} 写入 ${recs.length} 条`); return { ok: true, added: recs.length, table: name };
+  }
+  return { mktTables, mktRows, mktCandidates, attachSph, hot: () => Object.assign({}, hot), noAcct, fillAcct, dyPending, dyFill, handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, dailyAppToken, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案
