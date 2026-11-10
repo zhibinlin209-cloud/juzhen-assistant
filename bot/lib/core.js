@@ -620,7 +620,7 @@ function createCore({ cfg, api, log, store }) {
     const fields = (fd.items || []).map(f => ({ name: f.field_name, type: f.type })).filter(f => !MKT_DENY_F.test(f.name));
     const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt && recs.length < 20000);
     const since = days ? Date.now() - days * DAY : 0; const flat = v => Array.isArray(v) && v.length && v[0] && v[0].file_token ? v.map(x => x.name || 'file').join('、') : val(v);
-    const rows = recs.map(r => { const f = r.fields || {}; const o = { _id: r.record_id }; for (const k of Object.keys(f)) if (!MKT_DENY_F.test(k)) o[k] = typeof f[k] === 'number' ? f[k] : flat(f[k]); return o; })
+    const rows = recs.map(r => { const f = r.fields || {}; const o = { _id: r.record_id }; for (const k of Object.keys(f)) if (!MKT_DENY_F.test(k)) { o[k] = typeof f[k] === 'number' ? f[k] : flat(f[k]); if (Array.isArray(f[k]) && f[k].length && f[k][0] && f[k][0].file_token) (o._files = o._files || {})[k] = f[k].map((x, i) => ({ name: x.name || `${i + 1}.jpg`, type: x.type || '', url: x.url || x.tmp_url || '' })).filter(x => x.url); } return o; })
       .filter(o => !since || typeof o['发布日期'] !== 'number' || o['发布日期'] >= since);
     return { ok: true, table: name, fields, n: rows.length, rows };
   }
