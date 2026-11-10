@@ -5,7 +5,7 @@
 const http = require('http'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 
-function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, adsWeekly, lastXlsx, reingestLast, chatMsgs, rereadDaily, feedbackList, moveLibs, moveStatus, dbCheck, archivable, chats, core, tableMeta }) {
+function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, adsWeekly, lastXlsx, reingestLast, chatMsgs, onDyAuth, rereadDaily, feedbackList, moveLibs, moveStatus, dbCheck, archivable, chats, core, tableMeta }) {
   const key = crypto.createHash('sha256').update('xiju-cockpit:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (who, exp, kind) => { const body = `${kind}.${who}.${exp}`; return b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url'); };
@@ -152,6 +152,19 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
         if (p === '/lib/official/need' && official && official.need) return sendc(res, 200, JSON.stringify(official.need(String(u.searchParams.get('platform') || ''), String(u.searchParams.get('account') || ''))));
         if (p === '/lib/official' && req.method === 'POST' && official) { let b = ''; for await (const c of req) { b += c; if (b.length > 4e6) return sendc(res, 413, '{"ok":false,"error":"太大"}'); } try { return sendc(res, 200, JSON.stringify(await official.sync(JSON.parse(b || '{}')))); } catch (e) { log('[官方号] 同步失败：' + e.message); return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 120) })); } }
         return sendc(res, 404, '{}');
+      }
+      // 公开页：抖音开放平台「应用官网」介绍页 + 网页授权回调（用户扫码授权后跳回这里）
+      if (p === '/about') return send(res, 200, `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>禧聚内容数据助手</title><style>body{font:16px/1.75 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:720px;margin:0 auto;padding:32px 20px;color:#1f2329;background:#fff}h1{font-size:26px;margin:0 0 4px}h2{font-size:18px;margin:28px 0 6px}.sub{color:#646a73;margin:0 0 20px}ul{padding-left:20px}footer{margin-top:40px;padding-top:16px;border-top:1px solid #eee;color:#8f959e;font-size:13px}a{color:#3370ff}</style></head><body>
+<h1>禧聚内容数据助手</h1><p class="sub">YES也是大排档 · 粤迹·岭南家宴 内部内容运营工具</p>
+<p>禧聚内容数据助手是禧聚餐饮旗下门店（YES也是大排档、粤迹·岭南家宴）的内部运营工具，帮助运营同事统一查看品牌官方抖音账号与门店矩阵账号的作品数据，复盘哪些内容更受顾客欢迎，改进门店的内容创作。</p>
+<h2>主要功能</h2><ul><li>账号授权后，按日汇总已发布作品的播放、点赞、评论、分享等数据</li><li>把作品数据写入团队的飞书多维表格，生成每周内容复盘</li><li>按门店、内容类型对比表现，给出选题和拍摄建议</li></ul>
+<h2>使用对象</h2><p>仅供禧聚餐饮内部运营人员使用；只读取主动授权账号自己发布的作品数据，不读取粉丝个人信息，不发布、不修改任何内容。</p>
+<h2>授权与数据</h2><p>账号所有者在抖音授权页确认后才会读取数据，可随时在抖音「设置 → 账号与安全 → 授权管理」中取消授权。数据仅用于内部内容复盘，不对外提供。</p>
+<footer>© 禧聚餐饮 · <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">粤ICP备2026162066号-1</a></footer></body></html>`, 'text/html; charset=utf-8');
+      if (p === '/dy/callback') { // 抖音网页授权回调：先记下授权码，后续换取令牌
+        const code = String(u.searchParams.get('code') || ''), state = String(u.searchParams.get('state') || ''), scopes = String(u.searchParams.get('scopes') || '');
+        if (code && typeof onDyAuth === 'function') { try { await onDyAuth({ code, state, scopes }); } catch (e) { log('[抖音授权] 处理出错：' + e.message); } }
+        return send(res, 200, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>授权结果</title><div style="font:17px/1.7 -apple-system,'PingFang SC',sans-serif;padding:40px 24px;text-align:center">${code ? '✅ 授权成功，可以关掉这个页面了。<br><span style="color:#888;font-size:14px">机器人稍后会开始同步这个抖音号的作品数据</span>' : '⚠️ 没有收到授权，请回到抖音授权页重新点「同意授权」'}</div>`, 'text/html; charset=utf-8');
       }
       if (p === '/login') { const who = verify(u.searchParams.get('t'), 'L'); if (!who) return send(res, 403, '<meta charset="utf-8"><p style="font:16px sans-serif;padding:24px">登录链接无效或已过期。请在飞书里给机器人的「经营日报」群发「驾驶舱」，拿一个新链接。</p>', 'text/html; charset=utf-8'); log('[驾驶舱] 老板登录'); return send(res, 302, '', 'text/plain', { location: base, 'set-cookie': `xck=${sign(who, Date.now() + 30 * DAY, 'S')}; Path=/cockpit/; Max-Age=${30 * 86400}; HttpOnly; Secure; SameSite=Lax` }); }
       const who = verify(cookie(req), 'S');
