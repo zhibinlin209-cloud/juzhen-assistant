@@ -5,7 +5,7 @@
 const http = require('http'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 
-function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, adsWeekly, lastXlsx, reingestLast, chatMsgs, rereadDaily, feedbackList, dbCheck, archivable, chats, core, tableMeta }) {
+function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, adsWeekly, lastXlsx, reingestLast, chatMsgs, rereadDaily, feedbackList, moveLibs, moveStatus, dbCheck, archivable, chats, core, tableMeta }) {
   const key = crypto.createHash('sha256').update('xiju-cockpit:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (who, exp, kind) => { const body = `${kind}.${who}.${exp}`; return b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url'); };
@@ -129,6 +129,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
         if (p === '/lib/adsweekly' && req.method === 'POST' && adsWeekly) { try { return sendc(res, 200, JSON.stringify(await adsWeekly())); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         if (p === '/lib/lastxlsx' && lastXlsx) { try { return sendc(res, 200, JSON.stringify(req.method === 'POST' ? await reingestLast(String(u.searchParams.get('q') || '')) : await lastXlsx(String(u.searchParams.get('q') || '')))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         if (p === '/lib/chatmsgs' && chatMsgs) { try { return sendc(res, 200, JSON.stringify(await chatMsgs(String(u.searchParams.get('q') || ''), +u.searchParams.get('pages') || 4, String(u.searchParams.get('chat') || '')))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
+        if (p === '/lib/movebase' && moveLibs) { try { return sendc(res, 200, JSON.stringify(req.method === 'POST' ? await moveLibs() : moveStatus())); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         if (p === '/lib/feedback' && feedbackList) return sendc(res, 200, JSON.stringify(feedbackList()));
         if (p === '/lib/rereaddaily' && rereadDaily) { try { return sendc(res, 200, JSON.stringify(await rereadDaily() || { ok: false })); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         if (p === '/lib/chats' && chats) { try { return sendc(res, 200, JSON.stringify(await chats())); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }

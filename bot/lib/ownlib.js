@@ -20,11 +20,14 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
   const ingestKey = () => { try { return fs.readFileSync(KEYF, 'utf8').trim(); } catch (e) { return ''; } };
   const okKey = k => { const good = ingestKey(); if (!good || good.length < 20 || !k) return false; const a = Buffer.from(String(k)), b = Buffer.from(good); return a.length === b.length && crypto.timingSafeEqual(a, b); };
   const priv = () => { const m = String(cfg.dailyBaseUrl || '').match(/\/base\/([A-Za-z0-9]+)/); if (!m) throw new Error('NO_PRIVATE_BASE'); return m[1]; };
+  // 搬到营销部表格之后（data/libbase.json 记着哪张表搬了），这张表的读写都去营销部
+  const LBF = path.join(dataDir, 'libbase.json'); const movedTo = name => { try { return !!JSON.parse(fs.readFileSync(LBF, 'utf8'))[name]; } catch (e) { return false; } };
+  const appOf = async name => movedTo(name) ? await core.appToken() : priv();
   async function tables(app) { const all = []; let pt = ''; do { const d = await api.call('GET', `/bitable/v1/apps/${app}/tables`, null, Object.assign({ page_size: 100 }, pt ? { page_token: pt } : {})); all.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt); return all; }
   async function recs(app, tid) { const out = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${tid}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); out.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt); return out; }
   let tid = null;
   async function table() {
-    if (tid) return tid; const A = priv(); const t = (await tables(A)).find(x => x.name === NAME);
+    if (tid) return tid; const A = await appOf(NAME); const t = (await tables(A)).find(x => x.name === NAME);
     if (t) { const fd = await api.call('GET', `/bitable/v1/apps/${A}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const hv = new Set((fd.items || []).map(f => f.field_name)); for (const [field_name, type] of COLS) if (!hv.has(field_name)) await api.call('POST', `/bitable/v1/apps/${A}/tables/${t.table_id}/fields`, { field_name, type }); return (tid = t.table_id); }
     const d = await api.call('POST', `/bitable/v1/apps/${A}/tables`, { table: { name: NAME, default_view_name: '全部', fields: COLS.map(([field_name, type]) => ({ field_name, type })) } });
     log('[内容库] 新建表：' + NAME); return (tid = d.table_id);
@@ -79,7 +82,7 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
     const rec = String(b.rec || ''); if (!/^rec[A-Za-z0-9]+$/.test(rec)) throw new Error('缺少来源记录');
     const s = (await source()).find(x => x.rec === rec) || {};
     if (b.error) { const retry = !!b.retry; S.done[rec] = (retry ? 'retry:' : 'fail:') + String(b.error).slice(0, 60); saveS(); log(`[内容库] ${s.acc || ''} 读不到：${b.error}`); return { ok: true, skipped: true }; }
-    const n = b.note || {}; const A = priv(), T = await table();
+    const n = b.note || {}; const A = await appOf(NAME), T = await table();
     const images = (Array.isArray(n.images) ? n.images : []).filter(u => /^https?:\/\/[^/]*(xhscdn|xiaohongshu)\.(com|net)\//.test(u)).slice(0, 18);
     const got = []; for (const u of images) { try { got.push(await getImg(u)); } catch (e) { log('[内容库] 图片下载失败：' + e.message); } }
     const toks = []; for (let i = 0; i < got.length; i++) { try { const ext = /png/.test(got[i].ct) ? 'png' : /webp/.test(got[i].ct) ? 'webp' : 'jpg'; toks.push({ file_token: await upload(got[i].buf, `${n.id || rec}-${i + 1}.${ext}`, 'bitable_image', A) }); } catch (e) { log('[内容库] 图片上传失败：' + e.message); } }
@@ -105,7 +108,7 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
   async function backfill(max) {
     if (filling || !cfg.qwenKey || !download) return 0; filling = true; let n = 0;
     try {
-      const A = priv(), T = await table(); const all = await recs(A, T);
+      const A = await appOf(NAME), T = await table(); const all = await recs(A, T);
       for (const r of all) {
         if (n >= (max || 2000)) break; const f = r.fields || {}; if (f['封面分析'] || !Array.isArray(f['封面'])) continue;
         const atts = f['封面'].concat(Array.isArray(f['图片']) ? f['图片'] : []).slice(0, 2); const imgs = [];
@@ -122,7 +125,7 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
   const MCOLS = [['笔记ID', 1], ['链接', 15], ['关键词', 1], ['作者', 1], ['发布时间', 5], ['标题', 1], ['正文', 1], ['话题', 1], ['笔记形式', 1], ['图片数', 2], ['正文字数', 2], ['封面', 17], ['图片', 17], ['点赞', 2], ['收藏', 2], ['评论', 2], ['分享', 2], ['热门评论', 1], ['封面分析', 1], ['读取时间', 5]];
   let mtid = null; const MFILE = path.join(dataDir, 'market.json'); let M = { done: {} }; try { M = Object.assign(M, JSON.parse(fs.readFileSync(MFILE, 'utf8'))); } catch (e) { }
   async function mtable() {
-    if (mtid) return mtid; const A = priv(); const t = (await tables(A)).find(x => x.name === MNAME);
+    if (mtid) return mtid; const A = await appOf(MNAME); const t = (await tables(A)).find(x => x.name === MNAME);
     if (t) return (mtid = t.table_id);
     const d = await api.call('POST', `/bitable/v1/apps/${A}/tables`, { table: { name: MNAME, default_view_name: '全部', fields: MCOLS.map(([field_name, type]) => ({ field_name, type })) } }); log('[同类爆款] 新建表：' + MNAME); return (mtid = d.table_id);
   }
@@ -130,7 +133,7 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
   function market(b) { const p = busy.then(() => market1(b)); busy = p.catch(() => { }); return p; }
   async function market1(b) {
     const n = b.note || {}; const id = String(n.id || ''); if (!/^[0-9a-f]{24}$/.test(id)) throw new Error('缺少笔记ID'); if (M.done[id]) return { ok: true, dup: true };
-    const A = priv(), T = await mtable();
+    const A = await appOf(MNAME), T = await mtable();
     const images = (Array.isArray(n.images) ? n.images : []).filter(u => /^https?:\/\/[^/]*(xhscdn|xiaohongshu)\.(com|net)\//.test(u)).slice(0, 18);
     const got = []; for (const u of images.slice(0, 6)) { try { got.push(await getImg(u)); } catch (e) { } } // 别人的笔记只存前 6 张
     const toks = []; for (let i = 0; i < got.length; i++) { try { toks.push({ file_token: await upload(got[i].buf, `${id}-${i + 1}.jpg`, 'bitable_image', A) }); } catch (e) { } }
@@ -147,6 +150,7 @@ function createOwnLib({ cfg, api, core, upload, download, log, dataDir }) {
     return { ok: true, images: toks.length };
   }
   function stats() { const v = Object.values(S.done); return { ok: v.filter(x => /^ok/.test(x)).length, fail: v.filter(x => /^fail/.test(x)).length, retry: v.filter(x => /^retry/.test(x)).length }; }
-  return { okKey, todo, ingest, stats, table, backfill, market, marketSeen };
+  const reset = () => { tid = null; mtid = null; };
+  return { okKey, todo, ingest, stats, table, backfill, market, marketSeen, reset, NAME, MNAME };
 }
 module.exports = { createOwnLib };

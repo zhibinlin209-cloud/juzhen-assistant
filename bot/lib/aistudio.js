@@ -80,18 +80,23 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
     if (importing) return { busy: true }; importing = true; let added = 0;
     try {
       await ensure(); S.libDone = S.libDone || {};
-      const m = String(cfg.dailyBaseUrl || '').match(/\/base\/([A-Za-z0-9]+)/); if (!m) return { error: 'no private base' }; const P = m[1];
+      let mv = false; try { mv = !!JSON.parse(require('fs').readFileSync(path.join(dataDir, 'libbase.json'), 'utf8'))['自家内容库']; } catch (e) { }
+      const m = String(cfg.dailyBaseUrl || '').match(/\/base\/([A-Za-z0-9]+)/); if (!m && !mv) return { error: 'no private base' }; const P = mv ? await core.appToken() : m[1];
       const t = ((await api.call('GET', `/bitable/v1/apps/${P}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === '自家内容库'); if (!t) return { error: '没有自家内容库' };
+      // 一次性：把「按文件编号记的已搬图片」换成「笔记ID#序号」（搬到营销部表格后文件编号会变，靠这个不重复导入）
+      if (!S.key2Done && m) { try { const P0 = m[1]; const t0 = ((await api.call('GET', `/bitable/v1/apps/${P0}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === '自家内容库');
+        if (t0) { let p0 = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${P0}/tables/${t0.table_id}/records/search`, {}, Object.assign({ page_size: 200 }, p0 ? { page_token: p0 } : {})); (d.items || []).forEach(r => { const f = r.fields || {}; const id = val(f['笔记ID']); [].concat(Array.isArray(f['封面']) ? f['封面'].map(x => [x, '封面']) : [], Array.isArray(f['图片']) ? f['图片'].map(x => [x, '内页']) : []).forEach(([x, k], i) => { if (x && S.libDone[x.file_token]) S.libDone[id + '#' + i] = 1; }); }); p0 = d.has_more ? d.page_token : ''; } while (p0); }
+        S.key2Done = 1; save(); } catch (e) { log('[AI工作台] 已搬图片对照出错：' + e.message); } }
       const rows = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${P}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 200 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt);
       const batch = [];
       for (const r of rows) {
         if (added >= (n || 150)) break; const f = r.fields || {}; const imgs = [].concat(Array.isArray(f['封面']) ? f['封面'].map(x => [x, '封面']) : [], Array.isArray(f['图片']) ? f['图片'].map(x => [x, '内页']) : []);
         let cover = {}; try { cover = JSON.parse(val(f['封面分析']) || '{}'); } catch (e) { }
         for (let i = 0; i < imgs.length && added < (n || 150); i++) {
-          const [x, kind] = imgs[i]; if (!x || !x.file_token || S.libDone[x.file_token]) continue;
+          const [x, kind] = imgs[i]; const k2 = val(f['笔记ID']) + '#' + i; if (!x || !x.file_token || S.libDone[x.file_token] || S.libDone[k2]) continue;
           try { const tok = await upload(await download(x.url || x.tmp_url), x.name || 'img.jpg', 'bitable_image', S.app);
             batch.push({ 素材编号: `${val(f['门店']) || '未标'}-${val(f['笔记ID']).slice(-6)}-${i + 1}`, 图片: [{ file_token: tok }], 门店: val(f['门店']), 类型: kind === '封面' ? (cover.封面形式 ? '封面·' + cover.封面形式 : '封面') : '', 来源: '自家笔记 · ' + val(f['账号']), 来源笔记: val(f['标题']), 标签: kind === '封面' ? [cover.主体, cover.色调].filter(Boolean).join('、') : '', 使用次数: 0, 入库时间: Date.now() });
-            S.libDone[x.file_token] = 1; added++;
+            S.libDone[x.file_token] = 1; S.libDone[k2] = 1; added++;
           } catch (e) { }
           if (batch.length >= 50) { await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${S.libT}/records/batch_create`, { records: batch.splice(0).map(fields => ({ fields })) }); save(); }
         }
