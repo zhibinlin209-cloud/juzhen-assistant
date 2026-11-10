@@ -89,8 +89,14 @@
           else { const j = await srv('/lib/note', { rec: it.rec, link: it.link, note: r.note, comments: r.comments }); S.ok++; log(`✓ ${it.acc}《${(r.note.title || '').slice(0, 18)}》${r.note.images.length} 张图，入库 ${j.images ?? 0} 张`); }
         } catch (e) { S.fail++; log(`✗ 交给机器人失败：${e.message}`); if (/口令/.test(e.message)) break; }
         forceRender();
-        await sleep(rand(6000, 12000)); // 模仿正常浏览
-        if (S.i % 25 === 0 && S.i < S.n) { log('歇一会儿（1 分钟）'); await sleep(rand(50000, 75000)); }
+        await sleep(rand(15000, 30000)); // 放慢：模仿正常浏览
+        if (S.i % 20 === 0 && S.i < S.n && !S.stop) { // 防风控：每读 20 条关窗歇 1 小时左右（±10 分钟）再接着读
+          try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null;
+          const ms = (60 + (Math.random() * 20 - 10)) * 60e3; S.restUntil = Date.now() + ms;
+          log(`已读 ${S.i} 条，歇 ${Math.round(ms / 60e3)} 分钟防风控，${new Date(S.restUntil).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })} 自动接着读`); forceRender();
+          while (Date.now() < S.restUntil && !S.stop) await sleep(10000);
+          S.restUntil = 0; forceRender(); if (S.stop) break; log('歇好了，继续');
+        }
       }
       log(`本轮完成：成功 ${S.ok}，读不了 ${S.fail}`); toast(`入库完成：成功 ${S.ok} 条` + (S.fail ? `，${S.fail} 条读不了` : '')); S.bad = null;
     } catch (e) { log('出错：' + e.message); toast(e.message); }
@@ -333,11 +339,11 @@
       <div class="hint">${I ? (I.error ? `连接机器人失败：${h(I.error)}` : `飞书里共 <b>${I.total}</b> 条小红书笔记，已入库 <b>${I.done}</b> 条，还没读 <b>${I.left}</b> 条` + (I.unreadable ? `，<b style="color:#c52b1b">读不了 ${I.unreadable} 条</b> <button class="btn ghost sm" data-action="fs-own-bad">${S.bad ? '收起' : '看是哪些'}</button>` : '') + '。') : '正在读取进度…'}
         只按登记的链接读（不进主页、不用标题搜）；链接过期或笔记不可见的记为「读不了」。用的是这个浏览器里当前登录的小红书账号，建议用普通个人号。</div>
       ${S.bad ? `<div class="tbl-wrap"><table><thead><tr><th>账号</th><th>标题</th><th>原因</th></tr></thead><tbody>${S.bad.map(x => `<tr><td>${h(x.acc)}</td><td style="white-space:normal">${x.link ? `<a href="${h(x.link)}" target="_blank" rel="noopener">${h(x.title || '打开')}</a>` : h(x.title)}</td><td>${h(x.why)}</td></tr>`).join('') || '<tr><td colspan="3" class="hint">没有</td></tr>'}</tbody></table></div>` : ''}
-      <div class="row"><label class="f" style="flex:0 0 auto"><span>这次读</span><select data-own="batch">${[30, 100, 200, 300].map(n => `<option ${n === S.batch ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-        <span class="hint grow">约 10–15 秒一条，每 25 条歇 1 分钟；读过的、读不了的都不会重复读。</span>
+      <div class="row"><label class="f" style="flex:0 0 auto"><span>这次读</span><select data-own="batch">${[20, 60, 100, 200, 300].map(n => `<option ${n === S.batch ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        <span class="hint grow">防风控：每条间隔 15–30 秒，每读 20 条关窗歇 1 小时左右再自动接着读（每小时约 20 条），可以挂着慢慢跑；读过的、读不了的都不会重复读。<b>建议用手机热点、普通小号跑，别走办公室 Wi‑Fi。</b></span>
         ${S.busy ? '<button class="btn sm" data-action="fs-own-stop">停止</button>' : ''}
         <button class="btn primary" data-action="fs-own-run" ${S.busy || !has ? 'disabled' : ''}>${S.busy ? '读取中…' : '开始入库'}</button></div>
-      ${S.busy ? `<div class="hint"><b>${S.paused ? '⏸ 等你在小红书窗口里完成验证…' : `进行中 ${S.i}/${S.n}：${h(S.cur)}`}</b> · 成功 ${S.ok} · 失败 ${S.fail}</div>` : ''}
+      ${S.busy ? `<div class="hint"><b>${S.paused ? '⏸ 等你在小红书窗口里完成验证…' : S.restUntil ? `⏸ 歇一会，约 ${new Date(S.restUntil).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })} 接着读第 ${S.i + 1}/${S.n} 条` : `进行中 ${S.i}/${S.n}：${h(S.cur)}`}</b> · 成功 ${S.ok} · 读不了 ${S.fail}</div>` : ''}
       ${S.log.length ? `<pre class="small-pre">${h(S.log.slice(0, 12).join('\n'))}</pre>` : ''}
     </div>
     `;

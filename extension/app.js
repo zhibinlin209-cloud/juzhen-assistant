@@ -215,7 +215,7 @@ ${accs.map((a, i) => `A${i + 1}｜${a.name}｜平台：${C.PLATFORM_LABEL[a.plat
         <div class="brand"><h1>矩阵内容助手</h1><span class="sub">${h(I.get(industry()).name)} · ${window.Research ? "小红书 / 抖音 / 大众点评" : "小红书 / 抖音"}</span><span class="mode ${Store.mode === 'local' ? 'local' : ''}"><span class="dot"></span>${mode}</span></div>
         <nav class="tabs" role="tablist">${tabs.map(([k, l, n]) => `<button role="tab" data-action="tab" data-tab="${k}" aria-selected="${ui.tab === k}">${l}${n ? `<span class="n">${n}</span>` : ''}</button>`).join('')}</nav>
       </header>
-      <main id="main">${ui.banner ? `<div class="banner">${h(ui.banner)}</div>` : ''}${view()}</main>`;
+      <main id="main">${window.__rmNewVer ? `<div class="banner row"><span class="grow">插件已自动更新到 <b>${h(window.__rmNewVer)}</b>（现在用的是 ${h(chrome.runtime.getManifest().version)}），点右边按钮生效。正在跑的入库/调研会停下，重新打开面板后再点开始，会接着跑。</span><button class="btn primary sm" data-action="ext-reload">重新加载插件</button></div>` : ''}${ui.banner ? `<div class="banner">${h(ui.banner)}</div>` : ''}${view()}</main>`;
   }
   function view() {
     switch (ui.tab) {
@@ -683,6 +683,7 @@ ${accs.map((a, i) => `A${i + 1}｜${a.name}｜平台：${C.PLATFORM_LABEL[a.plat
     if (action.startsWith('lb-')) return window.Library && window.Library.act(action, el);
     if (action.startsWith('rs-') || action === 'go-settings') return window.Research && window.Research.act(action, el);
     switch (action) {
+      case 'ext-reload': try { chrome.runtime.reload(); } catch (e) { toast('请到 chrome://extensions 点插件的刷新按钮'); } break;
       case 'tab': ui.tab = el.dataset.tab; ui.confirm = null; render(); window.scrollTo(0, 0); break;
       case 'cancel': ui.confirm = null; render(); break;
       case 'ask': ui.confirm = el.dataset.v; render(); break;
@@ -922,6 +923,9 @@ ${accs.map((a, i) => `A${i + 1}｜${a.name}｜平台：${C.PLATFORM_LABEL[a.plat
   root.innerHTML = '<main><div class="empty"><b>正在加载…</b></div></main>';
   Promise.resolve(E.aiLoad ? E.aiLoad() : null).then(() => Store.init()).then(() => { if (Store.notice) ui.banner = Store.notice; render(); })
     .catch(err => { root.innerHTML = `<main><div class="empty"><b>加载失败</b>${h(err && err.message)}</div></main>`; });
+  // 自动更新：文件夹里的插件被更新脚本换成新版后，这里提示一键重新加载（每 10 分钟看一次本地 manifest）
+  async function checkVer() { try { const m = await fetch(chrome.runtime.getURL('manifest.json'), { cache: 'no-store' }).then(r => r.json()); const nv = m && m.version; const cur = chrome.runtime.getManifest().version; const was = window.__rmNewVer; window.__rmNewVer = nv && nv !== cur ? nv : ''; if (was !== window.__rmNewVer) render(); } catch (e) { } }
+  setTimeout(checkVer, 20e3); setInterval(checkVer, 10 * 60e3);
   window.__rmRender = render; window.__rmToast = toast; window.__rmCopy = copy; window.__rmIsEditing = isEditing;
   if (window.Research) window.Research.attach(root);
   if (window.Comments) window.Comments.attach(root);

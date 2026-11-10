@@ -97,6 +97,9 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
         if (req.method === 'OPTIONS') return send(res, 204, '', 'text/plain', cors);
         const sendc = (r, c, b, t, e) => send(r, c, b, t, Object.assign({}, cors, e || {}));
         if (!ownlib.okKey(req.headers['x-rm-key'])) return sendc(res, 403, JSON.stringify({ ok: false, error: '入库口令不对' }));
+        if (p === '/lib/ext/zip' && req.method === 'GET') { // 插件自动更新：代下 GitHub 上最新的代码包（电脑上的更新脚本来取）
+          try { const r = await fetch('https://codeload.github.com/zhibinlin209-cloud/juzhen-assistant/zip/refs/heads/main', { signal: AbortSignal.timeout(90000) }); if (!r.ok) throw new Error('GitHub HTTP ' + r.status); const buf = Buffer.from(await r.arrayBuffer());
+            res.writeHead(200, { 'content-type': 'application/zip', 'content-length': buf.length, 'cache-control': 'no-store' }); return res.end(buf); } catch (e) { return sendc(res, 502, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
         if (p === '/lib/unreadable' && req.method === 'GET') return sendc(res, 200, JSON.stringify(await ownlib.unreadable()));
         if (p === '/lib/todo' && req.method === 'GET') return sendc(res, 200, JSON.stringify(Object.assign({ ok: true }, await ownlib.todo(u.searchParams.get('limit')), { stats: ownlib.stats() })));
         if (p === '/lib/note' && req.method === 'POST') { let b = ''; for await (const c of req) { b += c; if (b.length > 600000) return sendc(res, 413, '{"ok":false,"error":"太大"}'); } try { return sendc(res, 200, JSON.stringify(await ownlib.ingest(JSON.parse(b || '{}')))); } catch (e) { log('[内容库] 入库失败：' + e.message); return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 120) })); } }
