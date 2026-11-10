@@ -207,7 +207,7 @@ ${accs.map((a, i) => `A${i + 1}｜${a.name}｜平台：${C.PLATFORM_LABEL[a.plat
     const tabs = [
       ...(window.Research ? [['research', '调研', window.Research.count()]] : []),
       ...(window.Library ? [['library', '爆款', window.Library.count()]] : []),
-      ...(window.Feishu ? [['feishu', '飞书']] : []), ['compose', '内容'], ...(window.Comments ? [['comments', '评论', window.Comments.pending()]] : []), ['templates', '模板'], ['accounts', '账号', S().accounts.length], ['data', '数据', S().records.length], ['settings', '设置']
+      ...(window.Feishu ? [['feishu', '飞书']] : []), ['templates', '模板'], ['settings', '设置'] // 内容 / 评论 / 账号 / 数据 已精简掉
     ];
     const mode = Store.mode === 'db' ? '团队共享' : Store.mode === 'ext' ? '本机保存' : '仅本浏览器';
     root.innerHTML = `
@@ -227,7 +227,8 @@ ${accs.map((a, i) => `A${i + 1}｜${a.name}｜平台：${C.PLATFORM_LABEL[a.plat
       case 'accounts': return viewAccounts();
       case 'data': return viewData();
       case 'settings': return viewSettings();
-      default: return viewCompose();
+      case 'compose': return viewCompose(); // 只在从调研/模板跳过来时用
+      default: return window.Library ? window.Library.view() : viewTemplates();
     }
   }
 

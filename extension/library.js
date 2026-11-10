@@ -385,7 +385,11 @@ ${batch.map((p, i) => `【${i + 1}】${pfName(p.platform)}｜${TYPE[p.type] ? TY
   function view() {
     if (!ST.d) return '<div class="empty">加载中…</div>';
     const j = ST.job; const n = Object.values(ST.d.posts).filter(p => p.rule === 'ok' && p.relevant !== false).length;
-    const tabs = [['lib', '爆款库', n], ['acct', '对标账号', ST.d.cfg.accounts.length || null], ['board', '被推荐榜', null], ...(ST.studio ? [['studio', '二创工作台', null]] : []), ['cfg', '采集设置', null]];
+    const tabs = [['lib', '爆款库', null], ['acct', '对标账号', ST.d.cfg.accounts.length || null], ['board', '被推荐榜', null], ...(ST.studio ? [['studio', '二创工作台', null]] : []), ['cfg', '采集设置', null]];
+    // 「爆款库」格子暂时换成「同类爆款调研」（结果存进营销部飞书「同类爆款库」）；其他格子仍是原来的爆款采集
+    const asRs = ST.view === 'lib' && window.OwnLib && window.OwnLib.researchView;
+    if (asRs) return `<nav class="tabs sub" role="tablist" style="margin-top:0">${tabs.map(([k, l, c]) => `<button role="tab" data-action="lb-view" data-v="${k}" aria-selected="${ST.view === k}">${l}${c ? ` <span class="n">${c}</span>` : ''}</button>`).join('')}</nav>
+    <div style="margin-top:4px">${window.OwnLib.researchView()}</div>`;
     return `<div class="section-h" style="margin-top:0"><h2>爆款库</h2><span class="hint">按内容类型 × 场景 × 品类收集小红书/抖音餐饮爆款，自动拆解成可学的卡片</span></div>
     <div class="row" style="margin-bottom:10px">
       ${j && j.running ? (j.paused ? `<button class="btn primary sm" data-action="lb-resume">继续</button>` : `<button class="btn sm" data-action="lb-pause">暂停</button>`) + `<button class="btn sm danger" data-action="lb-stop">停止</button>` : `<button class="btn primary" data-action="lb-run">立即更新</button>${ST.d.cfg.accounts.length ? '<button class="btn sm" data-action="lb-run-acct">只查对标账号</button>' : ''}`}

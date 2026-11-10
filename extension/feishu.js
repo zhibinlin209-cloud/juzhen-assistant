@@ -282,13 +282,10 @@ ${points(R).join('\n')}
         <label class="f"><span>多维表格链接</span><input type="text" data-fs="baseUrl" value="${h(c.baseUrl)}" placeholder="https://xxx.feishu.cn/wiki/… 或 /base/…"></label>
         <div class="row"><button class="btn primary sm" data-action="fs-connect" ${j && j.running ? 'disabled' : ''}>测试连接</button><span class="hint">应用要先发布，并在表格「⋯ → 更多 → 添加文档应用」里加进来</span></div>
       </div>` : ''}
-      ${ok ? `<div class="row"><button class="btn primary" data-action="fs-run" ${j && j.running ? 'disabled' : ''}>生成报表并写回飞书</button><button class="btn sm" data-action="fs-preview" ${j && j.running ? 'disabled' : ''}>只在这里预览</button><span class="hint">读全部内容台账（约几千行，1–2 分钟）</span></div>` : ''}
+      ${ok ? `<div class="row"><button class="btn primary" data-action="fs-run" ${j && j.running ? 'disabled' : ''}>生成报表并写回飞书</button><span class="hint">读全部内容台账（约几千行，1–2 分钟），结果写在飞书「AI-复投候选」等表里</span></div>` : ''}
       ${j ? `<div class="hint"><b>${h(j.phase)}</b></div><pre class="small-pre">${h(j.log.join('\n'))}</pre>` : ''}
     </div>
-    ${window.OwnLib ? window.OwnLib.view() : ''}
-    ${ok && window.PostSync ? window.PostSync.view() : ''}
-    ${ok && window.XhsShot ? window.XhsShot.view() : ''}
-    ${R ? report(R) : ''}`;
+    ${window.OwnLib ? window.OwnLib.view() : ''}`; // 发布登记 / 小红书截图 / 本期报表 已精简掉
   }
   function report(R) {
     const S = R.summary; const tabs = [['cand', `复投候选 ${R.cands.length}`], ['tpl', '模板与类型'], ['store', '门店健康'], ['acct', '账号']];

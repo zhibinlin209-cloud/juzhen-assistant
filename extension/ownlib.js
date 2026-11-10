@@ -142,7 +142,7 @@
       olog(`「${d.nick}」读到 ${d.items.length} 条作品，交给机器人…`);
       const j = await srv('/lib/official', { platform: 'douyin', account: d.nick, items: d.items });
       olog(`✓ 「${d.nick}」已同步：新增 ${j.added}，更新 ${j.updated}`); if (!auto) toast(`${d.nick} 同步完成`); lsSet('rm-of-douyin', d.nick);
-    } catch (e) { olog('✗ ' + e.message); if (!auto) toast(e.message); else { try { await srv('/lib/official', { platform: 'douyin', err: e.message }); } catch (er) { } } }
+    } catch (e) { olog('✗ ' + e.message); if (!auto) toast(e.message); else if (auto !== 'quiet') { try { await srv('/lib/official', { platform: 'douyin', err: e.message }); } catch (er) { } } }
     finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } O.busy = false; forceRender(); }
   }
 
@@ -172,7 +172,7 @@
       olog(`视频号「${d.nick}」读到 ${d.items.length} 条，交给机器人…`);
       const j = await srv('/lib/official', { platform: 'channels', account: d.nick, items: d.items });
       olog(`✓ 视频号「${d.nick}」已同步：新增 ${j.added}，更新 ${j.updated}`); if (!auto) toast(`视频号 ${d.nick} 同步完成`); lsSet('rm-of-channels', d.nick);
-    } catch (e) { olog('✗ ' + e.message); if (!auto) toast(e.message); else { try { await srv('/lib/official', { platform: 'channels', err: e.message }); } catch (er) { } } }
+    } catch (e) { olog('✗ ' + e.message); if (!auto) toast(e.message); else if (auto !== 'quiet') { try { await srv('/lib/official', { platform: 'channels', err: e.message }); } catch (er) { } } }
     finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } O.busy = false; forceRender(); }
   }
 
@@ -206,11 +206,11 @@
   const lsSet = (k, v) => { try { localStorage.setItem(k, String(v)); } catch (e) { } };
   async function autoOfficial() {
     for (const [plat, run] of [['douyin', syncDouyin], ['channels', syncChannels]]) {
-      if (O.busy || TG.busy) return; const nick = lsGet('rm-of-' + plat); if (!nick) continue;
-      if (Date.now() - (+lsGet('rm-of-try-' + plat) || 0) < 55 * 60e3) continue;
+      if (O.busy || TG.busy) return; const nick = lsGet('rm-of-' + plat); // 没同步成功过：一天只悄悄试一次，没登录也不报警
+      if (Date.now() - (+lsGet('rm-of-try-' + plat) || 0) < (nick ? 55 : 24 * 60) * 60e3) continue;
       let need; try { need = await srv(`/lib/official/need?platform=${plat}&account=${encodeURIComponent(nick)}`); } catch (e) { return; }
       if (!need.need) continue; lsSet('rm-of-try-' + plat, Date.now());
-      olog(`⏰ 每日自动同步${plat === 'douyin' ? '抖音' : '视频号'}「${nick}」…`); await run(true);
+      olog(`⏰ 每日自动同步${plat === 'douyin' ? '抖音' : '视频号'}「${nick || '当前登录的号'}」…`); await run(nick ? true : 'quiet');
     }
   }
   setTimeout(() => autoOfficial(), 6 * 60e3); setInterval(() => autoOfficial(), 5 * 60e3);
@@ -256,6 +256,10 @@
   // 关键词：门店商圈 → 城市攻略 → 品类 → 场景 → 爆款句式（前面带 * 的不限地区，门槛翻倍）
   const KW0 = '水东街美食\n水东街宵夜\n惠州水东街\n惠州老街美食\n惠州西湖附近美食\n华强北美食\n华强北宵夜\n华强北附近吃什么\n福田宵夜\n白石洲美食\n白石洲宵夜\n深圳湾附近美食\n南山宵夜\n前海美食\n前海宵夜\n前海附近吃什么\n宝安中心美食\n蛇口美食\n蛇口花园城美食\n南山粤菜\n深圳粤菜家宴\n江南西美食\n江南西宵夜\n海珠美食\n广州海珠宵夜\n珠海美食\n珠海宵夜\n香洲美食\n珠海本地人推荐\n千灯湖美食\n千灯湖宵夜\n南海美食\n佛山宵夜\n佛山创意产业园美食\n禅城美食\n禅城宵夜\n东城33小镇美食\n东莞东城美食\n东莞宵夜\n惠州美食攻略\n惠州本地人小店\n深圳美食攻略\n深圳本地人推荐\n广州美食攻略\n广州本地人推荐\n珠海美食攻略\n佛山美食攻略\n东莞美食攻略\n海鲜大排档\n粤式大排档\n广式大排档\n潮汕大排档\n生腌\n干炒牛河\n砂锅粥\n粤菜家宴\n粤菜馆推荐\n宵夜大排档\n深圳宵夜\n广州宵夜\n朋友聚餐推荐\n家庭聚餐粤菜\n请客吃饭粤菜\n凌晨还开的店\n一个人宵夜\n*本地人私藏大排档\n*大排档避雷\n*大排档必点\n*人均50宵夜\n*宵夜清单\n*本地人才知道的店';
   const R = { busy: false, stop: false, kw: KW0, per: 8, minLike: 200, days: 0, log: [], n: 0, ok: 0 }; // days=0：自动 30→60→90 天逐级放宽
+  // 防风控节奏：每轮最多 work 分钟或 maxKw 个词，歇 rest 分钟（±10 分钟随机）再接着跑；跑到第几个词记在本机，关了插件下次接着跑
+  const RS = (() => { try { return JSON.parse(localStorage.getItem('rm-rs-pace') || '{}'); } catch (e) { return {}; } })();
+  Object.assign(R, { work: RS.work || 60, rest: RS.rest || 60, maxKw: 20, pos: RS.pos || 0, total: 0, roundKw: 0, restUntil: 0, sig: RS.sig || '' });
+  const saveRS = () => { try { localStorage.setItem('rm-rs-pace', JSON.stringify({ work: R.work, rest: R.rest, pos: R.pos, sig: R.sig })); } catch (e) { } };
   const rlog = t => { R.log.unshift(new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '  ' + t); R.log = R.log.slice(0, 30); forceRender(); };
   const num0 = v => { const m = String(v ?? '').replace(/,/g, '').match(/([\d.]+)\s*(万|w)?/i); return m ? parseFloat(m[1]) * (m[2] ? 1e4 : 1) : 0; };
   async function research() {
@@ -264,9 +268,19 @@
     try {
       const seen = new Set((await srv('/lib/market-seen')).ids || []);
       const kws = R.kw.split(/\n+/).map(x => x.trim()).filter(Boolean); const since = Date.now() - R.days * 864e5;
-      rlog(`开始调研 ${kws.length} 个关键词，每个读 ${R.per} 篇` + (R.days ? `（近 ${R.days} 天、赞 ≥${R.minLike}）` : `（近 30 天优先，不够自动扩到 60、90 天）`));
-      for (const rawKw of kws) {
-        if (R.stop) break; const kw = rawKw.replace(/^\*/, '');
+      const sig = kws.join('|'); if (sig !== R.sig) { R.sig = sig; R.pos = 0; } if (R.pos >= kws.length) R.pos = 0; R.total = kws.length; saveRS();
+      rlog(`开始调研 ${kws.length} 个关键词` + (R.pos ? `，从第 ${R.pos + 1} 个接着跑` : '') + `，每个读 ${R.per} 篇` + (R.days ? `（近 ${R.days} 天、赞 ≥${R.minLike}）` : `（近 30 天优先，不够自动扩到 60、90 天）`) + `；每轮 ${R.work} 分钟或 ${R.maxKw} 个词，歇 ${R.rest} 分钟`);
+      let roundAt = Date.now(); R.roundKw = 0;
+      for (; R.pos < kws.length; R.pos++, saveRS()) {
+        if (R.stop) break; const rawKw = kws[R.pos]; const kw = rawKw.replace(/^\*/, '');
+        if (R.roundKw >= R.maxKw || Date.now() - roundAt > R.work * 60e3) { // 这一轮够了：关掉小红书窗口，歇一会
+          try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null;
+          const ms = (R.rest + (Math.random() * 20 - 10)) * 60e3; R.restUntil = Date.now() + ms;
+          rlog(`本轮跑了 ${R.roundKw} 个词，歇 ${Math.round(ms / 60e3)} 分钟（防风控），之后从「${kw}」接着跑`); forceRender();
+          while (Date.now() < R.restUntil && !R.stop) await sleep(10000);
+          R.restUntil = 0; forceRender(); if (R.stop) break; roundAt = Date.now(); R.roundKw = 0; rlog('歇好了，继续');
+        }
+        R.roundKw++;
         await nav(`https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(kw)}&source=web_search_result_notes`);
         let st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { if (!(await waitUnblock(st.blocked))) break; await nav(`https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(kw)}&source=web_search_result_notes`); }
         const res = await msg({ type: 'rm:collectList', limit: 90 }, 300000);
@@ -293,9 +307,9 @@
         }
         await sleep(rand(5000, 10000));
       }
-      rlog(`调研完成：入库 ${R.ok} 篇同类爆款`); toast(`同类爆款调研完成：${R.ok} 篇`);
+      if (R.pos >= R.total) { R.pos = 0; saveRS(); rlog(`调研完成：全部 ${R.total} 个词跑完，这次入库 ${R.ok} 篇同类爆款`); toast(`同类爆款调研完成：${R.ok} 篇`); } else rlog(`已停在第 ${R.pos + 1}/${R.total} 个词「${(kws[R.pos] || '').replace(/^\*/, '')}」，下次点「开始调研」接着跑；这次入库 ${R.ok} 篇`);
     } catch (e) { rlog('出错：' + e.message); toast(e.message); }
-    finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; R.busy = false; forceRender(); }
+    finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; R.busy = false; R.restUntil = 0; saveRS(); forceRender(); }
   }
 
   // ---------- 链接追踪：代发/投放的一批小红书链接，插件逐条读赞藏评写回飞书 ----------
@@ -343,45 +357,32 @@
       ${S.busy ? `<div class="hint"><b>${S.paused ? '⏸ 等你在小红书窗口里完成验证…' : `进行中 ${S.i}/${S.n}：${h(S.cur)}`}</b> · 成功 ${S.ok} · 失败 ${S.fail}</div>` : ''}
       ${S.log.length ? `<pre class="small-pre">${h(S.log.slice(0, 12).join('\n'))}</pre>` : ''}
     </div>
-    <div class="section-h"><h2>链接追踪</h2><span class="hint">代发、达人投放的一批小红书链接：逐条读标题、作者、发布时间、赞藏评，写回飞书私密表格里对应的表（重读可更新数字）</span></div>
-    <div class="panel stack"><div class="row">
-      <label class="f grow"><span>追踪表</span><select data-own="camp">${(T.names || []).map(n => `<option ${n === T.cur ? 'selected' : ''}>${h(n)}</option>`).join('') || '<option value="">（还没有，发表格给 Claude 登记）</option>'}</select></label>
-      ${T.busy ? '<button class="btn sm" data-action="fs-own-tstop">停止</button>' : ''}
-      <button class="btn primary sm" data-action="fs-own-tnew" ${T.busy || !has ? 'disabled' : ''}>${T.busy ? `读取中 ${T.i}/${T.n}…` : '读未读的'}</button>
-      <button class="btn sm" data-action="fs-own-tall" ${T.busy || !has ? 'disabled' : ''}>全部重读（更新数字）</button></div>
-      ${T.log.length ? `<pre class="small-pre">${h(T.log.slice(0, 8).join('\n'))}</pre>` : ''}
-    </div>
-    <div class="section-h"><h2>同类爆款调研</h2><span class="hint">在小红书搜和我们同类的关键词，读回近期高赞图文（标题、正文、前 6 张图、赞藏评、热门评论），存进「同类爆款库」，和自家内容对比</span></div>
+    `;
+  }
+  // 同类爆款调研面板：放在「爆款」页的「爆款库」格子里
+  function researchView() {
+    const has = CFG().key; const rest = R.restUntil && R.restUntil > Date.now();
+    return `    <div class="section-h"><h2>同类爆款调研</h2><span class="hint">在小红书搜和我们同类的关键词，读回近期高赞图文（标题、正文、前 6 张图、赞藏评、热门评论），存进「同类爆款库」，和自家内容对比</span></div>
     <div class="panel stack">
       <label class="f"><span>关键词（一行一个）</span><textarea data-own="kw" rows="4">${h(R.kw)}</textarea></label>
       <div class="row"><label class="f" style="flex:0 0 auto"><span>每词读</span><select data-own="per">${[5, 8, 12].map(n => `<option ${n === R.per ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
         <label class="f" style="flex:0 0 auto"><span>最低点赞</span><select data-own="minLike">${[100, 200, 300, 1000].map(n => `<option ${n === R.minLike ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
         <label class="f" style="flex:0 0 auto"><span>时间</span><select data-own="days">${[0, 30, 90, 180].map(n => `<option value="${n}" ${n === R.days ? 'selected' : ''}>${n ? '近 ' + n + ' 天' : '自动 30→60→90'}</option>`).join('')}</select></label>
-        <span class="hint grow">约 70 个词、2–3 小时；碰到验证码会停下等你处理，处理完自动接着跑；和自家入库不要同时跑。</span>
+        <label class="f" style="flex:0 0 auto"><span>每轮跑</span><select data-own="work">${[30, 45, 60].map(n => `<option value="${n}" ${n === R.work ? 'selected' : ''}>${n} 分钟</option>`).join('')}</select></label>
+        <label class="f" style="flex:0 0 auto"><span>然后歇</span><select data-own="rest">${[30, 60, 90, 120].map(n => `<option value="${n}" ${n === R.rest ? 'selected' : ''}>${n} 分钟</option>`).join('')}</select></label>
+        <span class="hint grow">防风控：每轮最多 ${R.work} 分钟或 ${R.maxKw} 个词（先到为准），歇 ${R.rest} 分钟左右再自动接着跑，直到词跑完；关掉插件下次从停下的词接着跑。碰到验证码会停下等你处理。和自家入库不要同时跑。</span>
         ${R.busy ? '<button class="btn sm" data-action="fs-own-rstop">停止</button>' : ''}
         <button class="btn primary" data-action="fs-own-rs" ${R.busy || S.busy || !has ? 'disabled' : ''}>${R.busy ? `调研中 ${R.ok}/${R.n}…` : '开始调研'}</button></div>
+      ${rest ? `<div class="hint"><b>⏸ 歇一会，约 ${new Date(R.restUntil).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })} 接着跑第 ${R.pos + 1}/${R.total} 个词</b></div>` : R.busy && R.total ? `<div class="hint"><b>第 ${R.pos + 1}/${R.total} 个词 · 本轮 ${R.roundKw}/${R.maxKw}</b></div>` : (!R.busy && R.pos > 0 && R.total ? `<div class="hint">上次跑到第 ${R.pos}/${R.total} 个词，点「开始调研」接着跑</div>` : '')}
       ${R.log.length ? `<pre class="small-pre">${h(R.log.slice(0, 10).join('\n'))}</pre>` : ''}
     </div>
-    <div class="section-h"><h2>推广通报表</h2><span class="hint">每天 8 点后自动在推广通后台生成「近 30 天、按门店按日」报表交给机器人入库（含 7/15/30 日归因），不用再手动导出发群。要求这个浏览器登录着 e.dianping.com</span></div>
-    <div class="panel stack">
-      <div class="row"><span class="hint grow">自动跑：插件开着就行，每 5 分钟问一次机器人，北京时间早上 8:00 后自动拉。掉线了机器人会私聊提醒你重新登录。</span>
-        <button class="btn primary" data-action="fs-own-tgt" ${TG.busy || !has ? 'disabled' : ''}>${TG.busy ? '拉取中…' : '立即拉取'}</button></div>
-      ${TG.log.length ? `<pre class="small-pre">${h(TG.log.slice(0, 6).join('\n'))}</pre>` : ''}
-    </div>
-    <div class="section-h"><h2>官方号数据</h2><span class="hint">读抖音蓝 V（YES 也是大排档、粤迹）的创作者后台和视频号助手：每条作品的播放、完播率、2 秒跳出、涨粉、主页访问，写进私密表格「官方号作品数据」</span></div>
-    <div class="panel stack">
-      <div class="row"><span class="hint grow">读的是这个浏览器里 creator.douyin.com / 视频号助手<b>当前登录</b>的账号。手动同步成功一次后，<b>每天早上 8 点后自动同步</b>当前登录的号；掉线了机器人会私聊提醒。</span>
-        <button class="btn primary" data-action="fs-own-dy" ${O.busy || !has ? 'disabled' : ''}>${O.busy ? '同步中…' : '同步抖音蓝 V'}</button>
-        <button class="btn primary" data-action="fs-own-sph" ${O.busy || !has ? 'disabled' : ''}>同步视频号</button></div>
-      ${O.log.length ? `<pre class="small-pre">${h(O.log.slice(0, 8).join('\n'))}</pre>` : ''}
-    </div>`;
+`;
   }
   async function act(action) { if (action === 'fs-own-tgt') autoTgt(true); if (action === 'fs-own-dy') syncDouyin(false); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
   function attach(root) {
     if (!S.info && CFG().key) refresh();
-    if (!T.names && CFG().key) campLoad();
-    root.addEventListener('change', e => { const t = e.target; const k = t.dataset && t.dataset.own; if (k === 'batch') S.batch = +t.value || 100; if (k === 'per' || k === 'minLike' || k === 'days') R[k] = +t.value; if (k === 'camp') T.cur = t.value; });
+    root.addEventListener('change', e => { const t = e.target; const k = t.dataset && t.dataset.own; if (k === 'batch') S.batch = +t.value || 100; if (k === 'per' || k === 'minLike' || k === 'days') R[k] = +t.value; if (k === 'work' || k === 'rest') { R[k] = +t.value; saveRS(); forceRender(); } if (k === 'camp') T.cur = t.value; });
     root.addEventListener('input', e => { const t = e.target; if (t.dataset && t.dataset.own === 'kw') R.kw = t.value; });
   }
-  window.OwnLib = { view, act, attach, _s: S };
+  window.OwnLib = { view, researchView, act, attach, _s: S };
 })();
