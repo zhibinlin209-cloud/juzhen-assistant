@@ -625,6 +625,22 @@ function createCore({ cfg, api, log, store }) {
     return { ok: true, table: name, fields, n: rows.length, rows };
   }
   const CAND = [['内容', 1], ['平台', 3], ['账号', 1], ['门店', 1], ['链接', 15], ['发布日期', 5], ['关键数据', 1], ['同账号倍数', 2], ['建议', 3], ['理由', 1], ['建议预算', 1], ['来源表', 1], ['来源记录', 1], ['生成方', 1], ['生成时间', 5], ['决定', 3]];
+  // Codex 只能写这两张表；字段不存在就按值自动建（数字→数字列，其余→文本列）；带 _id 的是更新；审批类字段不让写
+  const MKT_W = ['AI-投放候选', '投放实验记录']; const MKT_W_DENY = /^(决定|洛琳决定|审批人|追加金额|人工原因)$/;
+  async function mktWrite(name, list, by) {
+    if (!MKT_W.includes(name)) throw new Error('只能写：' + MKT_W.join('、'));
+    const app = await appToken(); let t = (await listTables()).find(x => x.name === name);
+    const rows = (Array.isArray(list) ? list : []).slice(0, 500); if (!rows.length) return { ok: true, added: 0, updated: 0 };
+    if (!t) { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables`, { table: { name, default_view_name: '全部', fields: [{ field_name: '笔记', type: 1 }] } }); t = { table_id: d.table_id }; log('[Codex写表] 新建表：' + name); }
+    const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const have = new Map((fd.items || []).map(f => [f.field_name, f.type]));
+    const keys = new Set(); rows.forEach(r => Object.keys(r).forEach(k => { if (k !== '_id' && !MKT_W_DENY.test(k)) keys.add(k); }));
+    for (const k of keys) if (!have.has(k)) { const isNum = rows.every(r => r[k] === undefined || r[k] === null || r[k] === '' || typeof r[k] === 'number'); await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, { field_name: k, type: isNum ? 2 : 1 }); have.set(k, isNum ? 2 : 1); }
+    const conv = r => { const f = {}; for (const k of keys) { const v = r[k]; if (v === undefined || v === null || v === '') continue; const ty = have.get(k); if (ty === 2) { const n = Number(v); if (isFinite(n)) f[k] = n; } else if (ty === 5) { const n = typeof v === 'number' ? v : Date.parse(v); if (isFinite(n)) f[k] = n; } else if (ty === 15) f[k] = { link: String(v), text: String(v).slice(0, 60) }; else if (ty === 3) f[k] = String(v); else f[k] = typeof v === 'object' ? JSON.stringify(v).slice(0, 5000) : String(v).slice(0, 5000); } f['写入方'] !== undefined || (have.has('写入方') ? 0 : 0); return f; };
+    const add = rows.filter(r => !r._id).map(r => ({ fields: conv(r) })), upd = rows.filter(r => r._id).map(r => ({ record_id: String(r._id), fields: conv(r) }));
+    for (let i = 0; i < add.length; i += 100) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/batch_create`, { records: add.slice(i, i + 100) });
+    for (let i = 0; i < upd.length; i += 100) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/batch_update`, { records: upd.slice(i, i + 100) });
+    log(`[Codex写表] ${by || 'Codex'} → ${name}：新增 ${add.length}，更新 ${upd.length}`); return { ok: true, added: add.length, updated: upd.length, table: name };
+  }
   async function mktCandidates(list, by) {
     const app = await appToken(); const name = 'AI-投放候选'; let t = (await listTables()).find(x => x.name === name);
     if (!t) { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables`, { table: { name, default_view_name: '全部', fields: CAND.map(([field_name, type]) => ({ field_name, type })) } }); t = { table_id: d.table_id }; log('[投放候选] 新建表：' + name); }
@@ -634,7 +650,7 @@ function createCore({ cfg, api, log, store }) {
     for (let i = 0; i < recs.length; i += 100) await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/batch_create`, { records: recs.slice(i, i + 100) });
     log(`[投放候选] ${by || 'Codex'} 写入 ${recs.length} 条`); return { ok: true, added: recs.length, table: name };
   }
-  return { mktTables, mktRows, mktCandidates, attachSph, hot: () => Object.assign({}, hot), noAcct, fillAcct, dyPending, dyFill, handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, dailyAppToken, load, loadT, _st: st, _match: match };
+  return { mktTables, mktRows, mktCandidates, mktWrite, attachSph, hot: () => Object.assign({}, hot), noAcct, fillAcct, dyPending, dyFill, handleText, handleImage, handleDaily, handleDouyin, handleChannelsLink, sphSurvey, sphImport, sphFormat, sphTitles, ensurePaigao, sphCleanTitles, appToken, dailyAppToken, load, loadT, _st: st, _match: match };
 }
 
 // 回复文案
