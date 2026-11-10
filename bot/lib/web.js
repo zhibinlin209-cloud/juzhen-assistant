@@ -5,7 +5,7 @@
 const http = require('http'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 
-function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, adsWeekly, lastXlsx, reingestLast, chatMsgs, onDyAuth, rereadDaily, feedbackList, moveLibs, moveStatus, dbCheck, archivable, chats, core, tableMeta }) {
+function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, adsWeekly, lastXlsx, reingestLast, chatMsgs, onDyAuth, exportTable, rereadDaily, feedbackList, moveLibs, moveStatus, dbCheck, archivable, chats, core, tableMeta }) {
   const key = crypto.createHash('sha256').update('xiju-cockpit:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (who, exp, kind) => { const body = `${kind}.${who}.${exp}`; return b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url'); };
@@ -100,6 +100,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
         if (p === '/lib/ext/zip' && req.method === 'GET') { // 插件自动更新：代下 GitHub 上最新的代码包（电脑上的更新脚本来取）
           try { const r = await fetch('https://codeload.github.com/zhibinlin209-cloud/juzhen-assistant/zip/refs/heads/main', { signal: AbortSignal.timeout(90000) }); if (!r.ok) throw new Error('GitHub HTTP ' + r.status); const buf = Buffer.from(await r.arrayBuffer());
             res.writeHead(200, { 'content-type': 'application/zip', 'content-length': buf.length, 'cache-control': 'no-store' }); return res.end(buf); } catch (e) { return sendc(res, 502, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
+        if (p === '/lib/mkt/export' && exportTable) { try { return sendc(res, 200, JSON.stringify(await exportTable(String(u.searchParams.get('name') || '')))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
         if (p === '/lib/mkt/tables' && core && core.mktTables) { try { return sendc(res, 200, JSON.stringify({ ok: true, tables: await core.mktTables() })); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
         if (p === '/lib/mkt/rows' && core && core.mktRows) { try { return sendc(res, 200, JSON.stringify(await core.mktRows(String(u.searchParams.get('name') || ''), +u.searchParams.get('days') || 0))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
         if (p === '/lib/mkt/candidates' && req.method === 'POST' && core && core.mktCandidates) { let b = ''; for await (const c of req) { b += c; if (b.length > 3e6) break; } try { const j = JSON.parse(b || '{}'); return sendc(res, 200, JSON.stringify(await core.mktCandidates(j.rows, j.by))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
