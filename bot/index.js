@@ -187,6 +187,7 @@ async function setup() {
     }
     throw new Error(last);
   }
+  const feat = require('./lib/features').createFeatures({ dataDir: DATA_DIR, log }); const on = k => feat.on(k);
   const feedback = require('./lib/feedback').createFeedback({ dataDir: DATA_DIR, chat, log, notify: async t => { if (!boss) throw new Error('还不知道老板是谁'); await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'open_id' }); } });
   const tgt = createTgt({ cfg, api: { call }, log, store });
   const core = createCore({ cfg, api: { call, fetchXhs, fetchDouyin, vision: cfg.qwenKey ? vision : null }, log, store });
@@ -232,7 +233,7 @@ async function setup() {
     if (date === 'now') return takeSnap();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('日期格式 YYYY-MM-DD'); return JSON.parse(fs.readFileSync(path.join(SNAP_DIR, date + '.json'), 'utf8'));
   }
-  { let snapDay = ''; setInterval(() => { const bj = new Date(Date.now() + 8 * 3600e3); const d = bj.toISOString().slice(0, 10); if (bj.getUTCHours() === 3 && bj.getUTCMinutes() >= 30 && snapDay !== d) { snapDay = d; takeSnap().catch(e => log('[快照] 出错：' + e.message)); } }, 5 * 60e3); }
+  { let snapDay = ''; setInterval(() => { const bj = new Date(Date.now() + 8 * 3600e3); const d = bj.toISOString().slice(0, 10); if (on('snapshot') && bj.getUTCHours() === 3 && bj.getUTCMinutes() >= 30 && snapDay !== d) { snapDay = d; takeSnap().catch(e => log('[快照] 出错：' + e.message)); } }, 5 * 60e3); }
   async function exportTable(name) {
     const r = await core.mktRows(name, 0); const { writeXlsx } = require('./lib/xlsxwrite');
     const cols = r.fields.map(f => f.name); const dt = new Set(r.fields.filter(f => f.type === 5).map(f => f.name));
@@ -270,7 +271,7 @@ async function setup() {
       const r = await official0.sync(b); if (r && r.ok) { ofs[plat + '|' + String(b.account || '').trim()] = bjToday(); saveOF(); } return r;
     },
     need(plat, acc) { const p = plat === 'channels' ? '视频号' : '抖音'; const bj = new Date(Date.now() + 8 * 3600e3);
-      return { ok: true, need: bj.getUTCHours() >= 8 && (!acc || ofs[p + '|' + acc] !== bjToday()) }; }
+      return { ok: true, need: on('officialAuto') && bj.getUTCHours() >= 8 && (!acc || ofs[p + '|' + acc] !== bjToday()) }; }
   });
   const histImport = HIST.createDailyImport({ cfg, api: { call }, core, log, store });
   const dbMigrate = createDbMigrate({ cfg, api: { call }, core, store, log });
@@ -282,10 +283,10 @@ async function setup() {
     campaign.moveToMarketing = async n => campaign.move(n, await core.appToken(), dl);
     campaign.remember = n => { if (!C.includes(n)) { C.push(n); fs.writeFileSync(CF, JSON.stringify(C)); } };
     // 每天 11 点把登记过的链接追踪表重读一遍，更新赞藏评
-    let lastDay = -1; setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 11 || lastDay === d) return; lastDay = d; for (const n of C) { try { await campaign.crawl(n); } catch (e) { log('[链接追踪] 每日重读失败：' + e.message); } } }, 10 * 60e3); }
+    let lastDay = -1; setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (!on('campaign') || b.getUTCHours() !== 11 || lastDay === d) return; lastDay = d; for (const n of C) { try { await campaign.crawl(n); } catch (e) { log('[链接追踪] 每日重读失败：' + e.message); } } }, 10 * 60e3); }
   const studio = createStudio({ cfg, api: { call }, core, upload, download: dl, log, dataDir: DATA_DIR, bossId: () => boss });
-  setInterval(() => studio.pushApproved().catch(() => { }), 5 * 60e3);
-  setInterval(() => studio.importLib(400).catch(e => log('[AI工作台] 素材导入出错：' + e.message)), 10 * 60e3); setTimeout(() => studio.importLib(200).catch(() => { }), 120e3); setInterval(() => studio.tagLib(300).catch(e => log('[AI工作台] 打标出错：' + e.message)), 10 * 60e3);
+  setInterval(() => on('studio') && studio.pushApproved().catch(() => { }), 5 * 60e3);
+  setInterval(() => on('studio') && studio.importLib(400).catch(e => log('[AI工作台] 素材导入出错：' + e.message)), 10 * 60e3); setTimeout(() => studio.importLib(200).catch(() => { }), 120e3); setInterval(() => studio.tagLib(300).catch(e => log('[AI工作台] 打标出错：' + e.message)), 10 * 60e3);
   const creator = createCreator({ cfg, api: { call }, core, deep: () => deep, brief: () => brief, studio: () => studio, log, dataDir: DATA_DIR }); // 后面才定义的模块用函数取，避免启动时还没初始化
   async function sendCreate(o, replyTo) {
     const r = await creator.run(o || {}); const text = `✍️ 创作 Agent 写了 ${r.list.length} 篇小红书稿（${r.model}），已放进「禧聚 AI 内容工作台」的「AI稿件」，状态「AI待审」：\n` + r.list.map(x => `· ${x.code} ${x.store}《${x.title}》`).join('\n') + `\n\nPR 审改、配真实照片后，把状态改成「通过」，机器人会自动推到营销部「派稿记录」（待发布），再按原流程派稿。` + (studio.info().url ? `\n工作台：${studio.info().url}` : '') + ``;
@@ -294,14 +295,14 @@ async function setup() {
   }
   // 每天 8:20 自动写一批（门店按素材图库里干净照片多少排），9 点前私聊老板；全在服务器跑，用 DeepSeek/通义
   { const CF3 = path.join(DATA_DIR, 'daily-create.json'); let ds = {}; try { ds = JSON.parse(fs.readFileSync(CF3, 'utf8')); } catch (e) { }
-    setInterval(async () => { if (cfg.dailyDrafts === 0) return; const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 8 || b.getUTCMinutes() < 20 || ds.day === d) return; ds.day = d; try { fs.writeFileSync(CF3, JSON.stringify(ds)); } catch (e) { }
+    setInterval(async () => { if (cfg.dailyDrafts === 0 || !on('drafts')) return; const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCHours() !== 8 || b.getUTCMinutes() < 20 || ds.day === d) return; ds.day = d; try { fs.writeFileSync(CF3, JSON.stringify(ds)); } catch (e) { }
       try { let stores = ''; try { const st = await studio.libStats(); stores = Object.entries(st.by || {}).filter(([k]) => k !== '未标').sort((a, b) => (b[1]['可用'] || 0) - (a[1]['可用'] || 0)).slice(0, cfg.dailyDrafts || 5).map(x => x[0]).join(','); } catch (e) { }
         await sendCreate({ n: cfg.dailyDrafts || 5, store: stores }); } catch (e) { log('[创作] 每日写稿失败：' + e.message); } }, 3 * 60e3);
     // 11/4 晚上补一批（重启打断了），只跑一次
     setTimeout(async () => { const b = new Date(Date.now() + 8 * 3600e3); if (b.toISOString().slice(0, 10) !== '2026-11-04' || b.getUTCHours() >= 23 || ds.eve) return; ds.eve = 1; try { fs.writeFileSync(CF3, JSON.stringify(ds)); } catch (e) { } try { await sendCreate({ n: 5, store: '江南西,玖洲道,千灯湖,前海,白石洲' }); } catch (e) { log('[创作] 晚间写稿失败：' + e.message); } }, 90e3); }
   // 每周一 10:40（内容分析 10:00 之后）自动写一批
   { const CF2 = path.join(DATA_DIR, 'create-state.json'); let cs = {}; try { cs = JSON.parse(fs.readFileSync(CF2, 'utf8')); } catch (e) { }
-    setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (b.getUTCDay() !== 1 || b.getUTCHours() !== 10 || b.getUTCMinutes() < 40 || cs.week === d) return; cs.week = d; try { fs.writeFileSync(CF2, JSON.stringify(cs)); } catch (e) { } try { await sendCreate({ n: cfg.weeklyDrafts || 8 }); } catch (e) { log('[创作] 每周写稿失败：' + e.message); } }, 5 * 60e3); }
+    setInterval(async () => { const b = new Date(Date.now() + 8 * 3600e3); const d = Math.floor((Date.now() + 8 * 3600e3) / 864e5); if (!on('creatorWeekly') || b.getUTCDay() !== 1 || b.getUTCHours() !== 10 || b.getUTCMinutes() < 40 || cs.week === d) return; cs.week = d; try { fs.writeFileSync(CF2, JSON.stringify(cs)); } catch (e) { } try { await sendCreate({ n: cfg.weeklyDrafts || 8 }); } catch (e) { log('[创作] 每周写稿失败：' + e.message); } }, 5 * 60e3); }
   const annual = createAnnual({ cfg, api: { call }, core, llm: cfg.qwenKey ? (p => chat(p, 3500)) : null, log, store });
   async function sendAnnual(replyTo) {
     const r = await annual.report(); await brief.saveKind('经营复盘', { text: r.text, by: r.by }, r.F); log('[经营复盘] 已生成（' + r.by + '）');
@@ -326,7 +327,7 @@ async function setup() {
       let why = '';
       if (b.getUTCDay() === 1 && b.getUTCHours() >= 10 && b.getUTCHours() < 12 && deepState.week !== day) why = 'week';
       else if (!deepState.first) { const t = await ownlib.todo(1); if (t.total && t.left <= 5 && t.done >= 300) { if (!deepState.ownDone) { deepState.ownDone = Date.now(); fs.writeFileSync(DEEP_F, JSON.stringify(deepState)); } let mk = 0; try { mk = fs.readdirSync(path.join(DATA_DIR, 'market')).length; } catch (e) { } if (mk >= 80 || Date.now() - deepState.ownDone > 4 * 3600e3) why = 'first'; } } // 等同类爆款调研也跑完（或自家读完 4 小时后）再出第一份
-      if (!why) return;
+      if (!why || !on('deep')) return;
       if (why === 'week') deepState.week = day; else deepState.first = Date.now();
       fs.writeFileSync(DEEP_F, JSON.stringify(deepState)); await sendDeep();
     } catch (e) { log('[深度分析] 自动出报告失败：' + e.message); }
@@ -417,7 +418,7 @@ async function setup() {
               (p.outliers.length ? `\n⚠️ 疑似录错没导入：${p.outliers.map(x => fmtD(x.ts) + ' 营业额 ' + x.f.总营业额).join('；')}` : '') + (p.badDate.length ? `\n⚠️ 日期认不出：${p.badDate.slice(0, 5).join('；')}` : '') + (w.diff.length ? `\n⚠️ 和表里已有数字不一致：${w.diff.slice(0, 5).join('；')}` : ''));
             return;
           }
-          const r = await tgt.ingest(buf); if (r) { await reply(m.message_id, replyForTgt(r));
+          const r = on('tgtFile') ? await tgt.ingest(buf) : null; if (r) { await reply(m.message_id, replyForTgt(r));
             if (r.rows) { tgtState.chat = m.chat_id; await afterTgt(r, t => reply(m.message_id, t)); } }
           else { const pr = await people.importSettle(buf); if (pr) { let n = 0; try { n = await people.linkAliases(await accounts.map(true)); } catch (e) { log('[人员] 补叫法出错 ' + e.message); } const ps = await people.list(true); await reply(m.message_id, `👥 人员账号对照已更新：${pr.rows} 人（新增 ${pr.added}、更新 ${pr.updated}），自动认出数据表里的叫法 ${n} 人\n` + ps.slice(0, 60).map(p => `· ${p['真实姓名']}（微信 ${p['微信名'] || '—'}）抖音 ${p['抖音账号'] || '—'} · 小红书 ${p['小红书账号'] || '—'}${p['数据表叫法'] ? ' · 表里叫 ' + p['数据表叫法'] : ''}`).join('\n') + '\n存在你的私密表格「人员账号对照」，可以直接改。'); try { await fillAccounts(); } catch (e) { } }
             else { // 没认出的表格：记下表头，回复一句，方便补规则
@@ -430,7 +431,7 @@ async function setup() {
     if ((data.sender || {}).sender_type === 'user' && m.chat_id === dailyChatNow()) rememberBoss(((data.sender || {}).sender_id || {}).open_id);
     if (text && /^\s*(简报|日报简报|今日简报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { sendBrief({ replyTo: m.message_id, manual: true }); return; }
     // 在发布群里发「派稿」→ 今天待发布的稿件卡片发到这个群，并 @ 对应的人（群里谁发都行；同一天已经派过的不重复派）
-    if (text && /^\s*(派稿|发稿|今日派稿)\s*$/.test(text) && m.chat_id !== dailyChatNow()) {
+    if (text && on('paigao') && /^\s*(派稿|发稿|今日派稿)\s*$/.test(text) && m.chat_id !== dailyChatNow()) {
       if ((data.sender || {}).sender_type !== 'user') return;
       try {
         try { await fillAccounts(); } catch (e) { log('[账号] 补账号出错 ' + e.message); }
@@ -465,11 +466,13 @@ async function setup() {
     if (text && /^\s*抖音密钥\s+\S{16,}\s*$/.test(text) && m.chat_id === dailyChatNow()) { // 老板自己录入抖音开放平台应用密钥（只存在服务器）
       const sec = text.trim().split(/\s+/)[1]; let a0 = {}; try { a0 = JSON.parse(fs.readFileSync(DYA_F, 'utf8')); } catch (e) { } a0.secret = sec; fs.writeFileSync(DYA_F, JSON.stringify(a0)); try { fs.chmodSync(DYA_F, 0o600); } catch (e) { }
       log('[抖音授权] 应用密钥已录入'); await reply(m.message_id, '✅ 抖音应用密钥已存好（只存在服务器上）。建议把这条消息撤回。'); return; }
+    if (text && /^\s*(功能开关|功能列表|机器人功能)\s*$/.test(text) && m.chat_id === dailyChatNow()) { await reply(m.message_id, feat.text()); return; }
+    if (text && /^\s*(关闭|开启|打开)\s*\S+/.test(text) && m.chat_id === dailyChatNow()) { const mm2 = text.trim().match(/^(关闭|开启|打开)\s*(.+)$/); const it = feat.set(mm2[2], mm2[1] !== '关闭'); await reply(m.message_id, it ? `${mm2[1] === '关闭' ? '⚪️ 已关闭' : '🟢 已开启'}：${it[1]}` : '没找到这个功能，发「功能开关」看编号'); return; }
     if (text && /^\s*(需求汇总|需求清单|反馈汇总)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, (await feedback.summary({ all: true, days: 7 })) || '最近 7 天群里没有人 @机器人 提需求。'); } catch (e) { await reply(m.message_id, '⚠️ 汇总出错：' + e.message.slice(0, 60)); } return; }
     if (text && /^\s*(重新识别日报|重读日报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { rereadDaily(m.message_id); return; }
     if (text && /^\s*驾驶舱\s*$/.test(text) && m.chat_id === dailyChatNow()) { const link = web.loginLink(); if (link && boss) { try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: `🖥 驾驶舱登录链接（7 天内有效，登录后 30 天免登录，别转发给别人）：\n${link}` }) }, { receive_id_type: 'open_id' }); await reply(m.message_id, '✅ 登录链接已私聊发给你'); } catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 60)); } } return; }
     // 门店营业日报（华付数科等机器人发的也收）
-    if (text && /营业日概况|当天总营业额/.test(text)) {
+    if (text && on('daily') && /营业日概况|当天总营业额/.test(text)) {
       if (typeof markDaily === 'function') markDaily(m.message_id, m.chat_id);
       try { const r = await core.handleDaily(text, (data.sender || {}).sender_type === 'app' ? '日报机器人' : '群消息'); if (r && r.length) { log(`[日报] ${r.map(x => x.store + ' ' + x.date).join('、')}`); if (cfg.replyDaily !== false) await reply(m.message_id, replyForDaily(r)); } else { log('[日报] 有一条没读懂（日期或门店读不出）'); await reply(m.message_id, '⚠️ 这条日报没读懂：日期或门店没读出来。格式应为「日期：2026-11-02」「门店：xxx店」，已通知管理员'); } } catch (e) { if (e.message === 'NO_PRIVATE_BASE') { log('收到营业日报，但还没配置私密表格（config.json 的 dailyBaseUrl），没有记录'); await reply(m.message_id, '⚠️ 还没设置营业日报的私密表格，这条先不记录（不会写进营销部共享表）'); } else log('处理日报出错：', e.message); }
       return;
@@ -487,7 +490,7 @@ async function setup() {
     const li = lastInstr.get(sid); const instr = li && Date.now() - li.at < 15 * 60e3 ? li.ins : null;
     const lv = lastVideo.get(sid); let vid = lv && Date.now() - lv.at < 15 * 60e3 ? lv : null;
     if (media && media.length) vid = { mid: m.message_id, key: media[0].key, name: media[0].name, at: Date.now(), inline: true }; // 视频和文字在同一条消息里
-    if (text && draft.isDraft(text, vid)) {
+    if (text && on('draft') && draft.isDraft(text, vid)) {
       const ph = draft.begin(sid);
       try { const who = await senderName(sid); let video = null; if (vid && !/(^|\n)\s*标题\s*[:：]/.test(text)) { if (!vid.inline) lastVideo.delete(sid); try { video = { buf: await fileBuf(vid.mid, vid.key), name: vid.name || '视频.mp4', named: !!vid.name }; } catch (e) { log('[收稿] 视频下载失败：' + e.message); } } const imgs = []; for (const k of images) { try { imgs.push({ buf: await imgBuf(m.message_id, k), name: k + '.jpg' }); } catch (e) { } } const gn = await chatName(m.chat_id); const hint = /类别\s*[:：]/.test(text) ? '' : /素人/.test(gn) ? '抖音素人号' : /视频|抖音/.test(gn) ? '抖音矩阵号' : /攻略|小红书/.test(gn) ? '小红书矩阵号' : ''; const d = await draft.save(hint ? text + `\n类别：${hint}` : text, who, sid, imgs, video, instr); if (instr) lastInstr.delete(sid); draftMsg.set(m.message_id, { id: d.id, code: d.code, type: d.type, kind: d.kind }); await reply(m.message_id, replyForDraft(d) + (imgs.length ? `\n已存 ${imgs.length} 张图` : '') + (video ? `\n已存视频 ${video.name}` : '')); } catch (e) { if (!ph.id) ph.ok(); log('[收稿] 出错：' + e.message); await reply(m.message_id, '⚠️ 稿件没存进去：' + e.message.replace(/\/bitable\S*/g, '').slice(-100)); }
       return;
@@ -505,39 +508,39 @@ async function setup() {
       return;
     }
     // @机器人 + 「重写」：用这条（或被回复的那条）消息里的链接，覆盖表里已有的那一行，不判重复
-    const rewrite = !!(text && /重写|重新登记|覆盖/.test(text) && (m.mentions || []).some(x => /禧聚|助手|机器人|AI/i.test(String(x.name || ''))));
+    const rewrite = !!(text && on('rewrite') && /重写|重新登记|覆盖/.test(text) && (m.mentions || []).some(x => /禧聚|助手|机器人|AI/i.test(String(x.name || ''))));
     let ltext = text;
     if (rewrite && m.parent_id) { try { const pm = await call('GET', `/im/v1/messages/${m.parent_id}`); const it = (pm.items || [])[0]; if (it) { const f2 = flatten(it.msg_type, (it.body || {}).content); ltext = (f2.text || '') + '\n' + (text || ''); } } catch (e) { log('[重写] 读被回复的消息出错：' + e.message); } }
     if (rewrite && !/xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(ltext || '') && !isDouyinLink(ltext)) { await reply(m.message_id, '要重写哪条？请「回复」那条链接消息，再 @我 说「重写」；或者把链接和「@我 重写」发在同一条消息里。'); return; }
     if (rewrite) text = ltext;
     // @机器人 说需求 / 问题 / 疑问（不带链接）→ 记下来，马上私聊转给老板
     { const atBot = (m.mentions || []).some(x => /禧聚|助手|机器人|AI/i.test(String(x.name || ''))); const fb = text ? text.replace(/@_user_\d+/g, '').trim() : '';
-      if (atBot && !rewrite && fb.length >= 2 && !/https?:\/\//.test(text)) {
+      if (atBot && on('feedback') && !rewrite && fb.length >= 2 && !/https?:\/\//.test(text)) {
         try { let parent = ''; if (m.parent_id) { try { const pm = await call('GET', `/im/v1/messages/${m.parent_id}`); const it = (pm.items || [])[0]; if (it) parent = flatten(it.msg_type, (it.body || {}).content).text || ''; } catch (e) { } }
           const r = await feedback.add({ text: fb, who: await senderName(sid).catch(() => ''), group: await chatName(m.chat_id), parent }); if (r) await reply(m.message_id, r);
         } catch (e) { log('[需求] 记录出错：' + e.message); }
         return; } }
     try {
-      if (text && /xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(text)) {
+      if (text && on('regXhs') && /xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
         const r = await core.handleText(text, who, { rewrite });
         if (r) { log(`[登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForText(r)); }
       }
       // 回复抖音链接的消息、只发视频号链接 → 补进那条抖音作品的同一行
-      if (text && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !isDouyinLink(text) && m.parent_id) {
+      if (text && on('regSph') && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !isDouyinLink(text) && m.parent_id) {
         try { const pm = await call('GET', `/im/v1/messages/${m.parent_id}`); const it = (pm.items || [])[0]; const pt = it ? (flatten(it.msg_type, (it.body || {}).content).text || '') : '';
           if (isDouyinLink(pt)) { const d = await core.attachSph(pt, text); if (d && d.length) { await reply(m.message_id, `✅ 视频号链接已补进「${d[0].table}」里那条抖音作品的同一行` + (d.length > 1 ? `（共 ${d.length} 条）` : '')); return; } }
         } catch (e) { log('[视频号] 补进抖音行出错：' + e.message); }
       }
-      if (text && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !/xhslink|xiaohongshu\.com|dpurl/.test(text) && !isDouyinLink(text)) {
+      if (text && on('regSph') && /weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text) && !/xhslink|xiaohongshu\.com|dpurl/.test(text) && !isDouyinLink(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
         try { const r = await core.handleChannelsLink(text, who); if (r) { log(`[登记] 视频号 ${who} 新增 ${r.created.length}，重复 ${r.dups.length}`); await reply(m.message_id, replyForChannels(r)); } } catch (e) { if (e.message === 'NO_SPH_TABLE') await reply(m.message_id, '⚠️ 营销部多维表格里还没有「视频号-数据」这张表，请先建一张空表（名字一字不差），机器人会自动补齐列'); else { log('视频号登记出错：', e.message); await reply(m.message_id, '⚠️ 视频号链接没登记成功：' + e.message.replace(/\/bitable\S*/g, '').slice(-120)); } }
       }
-      if (text && isDouyinLink(text)) {
+      if (text && on('regDouyin') && isDouyinLink(text)) {
         const who = await senderName(((data.sender || {}).sender_id || {}).open_id);
         try { const gn2 = await chatName(m.chat_id); const r = await core.handleDouyin(text, who, /素人/.test(gn2) ? '素人' : /矩阵|视频稿件/.test(gn2) && /抖音|视频/.test(gn2) ? '矩阵' : '', { rewrite }); if (r) { log(`[抖音登记] ${who} 新增 ${r.created.length}，重复 ${r.dups.length}，没找到账号 ${r.noAcct.length}`); await reply(m.message_id, replyForDouyin(r)); } } catch (e) { log('抖音登记出错：', e.message); await reply(m.message_id, '⚠️ 抖音链接没登记成功：' + e.message.slice(0, 60)); }
       }
-      if (images.length) {
+      if (images.length && on('screenshot')) {
         if (!cfg.qwenKey) log('收到截图，但 config.json 没填通义千问 Key，跳过');
         else {
           const lines = [];
@@ -634,7 +637,7 @@ async function setup() {
   // 推广通入库之后（群里的文件 / 插件自动拉的）：记最新日期；周一且是 30 天的报表 → 出周报，否则做日常投放分析
   async function afterTgt(r, say) {
     if (r.lastDay) tgtState.lastDay = Math.max(tgtState.lastDay || 0, r.lastDay); saveTS();
-    const wk = new Date(Date.now() + 8 * 3600e3).getUTCDay() === 1 && (r.days || 0) >= 20 && tgtState.weekly !== bjDay(Date.now());
+    const wk = on('adsWeekly') && new Date(Date.now() + 8 * 3600e3).getUTCDay() === 1 && (r.days || 0) >= 20 && tgtState.weekly !== bjDay(Date.now());
     if (wk) { if (say) await say('📅 收到近 30 天报表，正在出本周投放周报（按 30 日归因算每单成本），几分钟后私聊林总'); sendAdsWeekly({ weekly: true }); }
     else brief.ads().catch(e => log('[投放分析] 出错 ' + e.message));
   }
@@ -642,7 +645,7 @@ async function setup() {
   const fmtYmd = t => new Date(t + 8 * 3600e3).toISOString().slice(0, 10);
   function tgtNeed() {
     const bj = new Date(Date.now() + 8 * 3600e3), today = bjDay(Date.now());
-    const need = bj.getUTCHours() >= 8 && (tgtState.autoDay !== today || (tgtState.lastDay || 0) < today - 1) && Date.now() - (tgtState.autoTry || 0) > 55 * 60e3;
+    const need = on('tgtAuto') && bj.getUTCHours() >= 8 && (tgtState.autoDay !== today || (tgtState.lastDay || 0) < today - 1) && Date.now() - (tgtState.autoTry || 0) > 55 * 60e3;
     return { ok: true, need, begin: fmtYmd(Date.now() - 30 * 864e5), end: fmtYmd(Date.now() - 864e5) };
   }
   async function tgtAuto(j) {
@@ -673,7 +676,7 @@ async function setup() {
   // 投放数据群提醒：每天 9 点（前一天的推广通日报还没进来才提醒），每周一 9 点提醒导出近 30 天报表
   setInterval(async () => {
     const bj = new Date(Date.now() + 8 * 3600e3); const hh = bj.getUTCHours(), mm = bj.getUTCMinutes(), today = bjDay(Date.now());
-    if (!tgtState.chat || !(hh === 9 || hh === 10) || mm > 5 || tgtState.remind === today * 100 + hh) return; tgtState.remind = today * 100 + hh; saveTS();
+    if (!on('tgtRemind') || !tgtState.chat || !(hh === 9 || hh === 10) || mm > 5 || tgtState.remind === today * 100 + hh) return; tgtState.remind = today * 100 + hh; saveTS();
     if (hh === 10 && (tgtState.lastDay || 0) >= today - 1 && bj.getUTCDay() !== 1) return; // 10 点：日报已经到了就不再提醒
     if (hh === 10 && bj.getUTCDay() === 1 && (tgtState.lastDay || 0) >= today - 1 && tgtState.weekly === today) return;
     let who = tgtState.reporterId || ''; const name = cfg.tgtReporter || '刘泽荣';
@@ -687,7 +690,7 @@ async function setup() {
     } catch (e) { log('[推广通提醒] 发送失败：' + e.message); }
   }, 60e3);
   // 周一：收到 30 天报表就出周报；14:00 还没收到就用现有数据出
-  setInterval(() => { const bj = new Date(Date.now() + 8 * 3600e3); if (bj.getUTCDay() !== 1 || tgtState.weekly === bjDay(Date.now())) return; if (bj.getUTCHours() >= 14) sendAdsWeekly({ weekly: true }); }, 5 * 60e3);
+  setInterval(() => { const bj = new Date(Date.now() + 8 * 3600e3); if (!on('adsWeekly') || bj.getUTCDay() !== 1 || tgtState.weekly === bjDay(Date.now())) return; if (bj.getUTCHours() >= 14) sendAdsWeekly({ weekly: true }); }, 5 * 60e3);
   async function registerLinks(text, who) { // 领稿页提交的链接 → 和群里贴链接一样登记进数据表
     const out = [];
     if (/xhslink|dpurl|ctrip\.com|xiaohongshu\.com/.test(text)) { const r = await core.handleText(text, who); if (r) out.push(replyForText(r)); }
@@ -695,7 +698,7 @@ async function setup() {
     if (/weixin\.qq\.com\/sph\/|channels\.weixin\.qq\.com\//.test(text)) { try { const r = await core.handleChannelsLink(text, who); if (r) out.push(replyForChannels(r)); } catch (e) { out.push('⚠️ 视频号没登记上：' + e.message.slice(0, 60)); } }
     return out.filter(Boolean).join('\n');
   }
-  const web = createWeb({ cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last(), studioSetup: async () => { const r = await studio.ensure(); r.migrated = await studio.migrateOld(); return r; }, studioDedupe: () => studio.markDups(), tgtIngest: buf => tgt.ingest(buf), tgtAuto: j => tgtAuto(j), tgtNeed: () => tgtNeed(), tableMeta: async (name) => { const app = await core.appToken(); const t = ((await call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === name); if (!t) return { error: '没这张表' }; const fd = await call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const rs = await call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { sort: [{ field_name: '发布日期', desc: true }] }, { page_size: 8 }).catch(e => ({ items: [], err: e.message })); return { fields: (fd.items || []).map(f => ({ n: f.field_name, t: f.type, ui: f.ui_type, p: f.property ? JSON.stringify(f.property).slice(0, 4000) : '' })), rows: (rs.items || []).map(r => r.fields), err: rs.err }; }, core, chats: async () => { const d = await call('GET', '/im/v1/chats', null, { page_size: 100 }); return (d.items || []).map(c => ({ name: c.name, id: c.chat_id.slice(-6), 收稿默认: /素人/.test(c.name) ? '抖音素人号' : /视频|抖音/.test(c.name) ? '抖音矩阵号' : /攻略|小红书/.test(c.name) ? '小红书矩阵号' : '按内容判断', 派稿范围: /抖音/.test(c.name) && !/小红书/.test(c.name) ? (/矩阵/.test(c.name) ? '只派抖音矩阵号' : '只派抖音类') : /小红书/.test(c.name) && !/抖音/.test(c.name) ? '只派小红书类' : /素人/.test(c.name) ? '只派素人号' : '全部', 放行: !(cfg.chats && cfg.chats.length) || cfg.chats.includes(c.chat_id) || /发布群|派稿|存放群|稿件|回收/.test(c.name) })); }, rereadDaily: () => rereadDaily(null), exportTable: n => exportTable(n), mktSnap: d => mktSnap(d), onDyAuth: x => onDyAuth(x), feedbackList: () => feedback.list(), moveLibs: () => moveLibs(), moveStatus: () => mover.status(), chatMsgs: async (q, n, cn) => { const out = []; let pt = ''; let k = 0; let cid = dailyChat; if (cn) { const cl = await call('GET', '/im/v1/chats', null, { page_size: 100 }); const c = (cl.items || []).find(x => (x.name || '').includes(cn)); if (!c) return []; cid = c.chat_id; } do { const d = await call('GET', '/im/v1/messages', null, Object.assign({ container_id_type: 'chat', container_id: cid, sort_type: 'ByCreateTimeDesc', page_size: 50 }, pt ? { page_token: pt } : {})); for (const it of d.items || []) { const c = (it.body || {}).content || ''; if (!q || c.includes(q)) out.push({ t: new Date(+it.create_time + 8 * 3600e3).toISOString().slice(5, 16), type: it.msg_type, sender: (it.sender || {}).sender_type, c: c.slice(0, 1500) }); } pt = d.has_more ? d.page_token : ''; k++; } while (pt && k < (n || 4)); return out; }, lastXlsx: async (q) => { if (q) lastUnknownXlsx = await findXlsx(new RegExp(q)); else if (!lastUnknownXlsx) lastUnknownXlsx = await findXlsx(); if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); const rr = readXlsx(b); return { name: lastUnknownXlsx.name, rows: rr.length, head: rr.slice(0, 8) }; }, reingestLast: async (q) => { if (q) lastUnknownXlsx = await findXlsx(new RegExp(q)); else if (!lastUnknownXlsx) lastUnknownXlsx = await findXlsx(); if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); return tgt.ingest(b); }, adsWeekly: async () => { const r = await adsWeekly.report(); return r ? { title: r.title, by: r.by, doc: r.doc, docError: r.docError, text: r.text } : null; }, dbCheck: () => dbMigrate.check(), archivable: d => dbMigrate.archivable(d), studio: () => studio, rows: async (name, days) => { // 私密表格只读：经营日报 / 推广通，最近 N 天（钥匙保护）
+  const web = createWeb({ feat, cfg, brief, log, activity, bossId: () => boss, dispatch, download: dl, registerLinks, ownlib, official, exporter: () => deep.exportAll(), dailyCheck: () => histImport.check(), annualFacts: () => annual.facts(), drafts: { annual: () => annual.report(), deep: () => deep.report() }, campaign, creator: o => creator.run(o), creatorLast: () => creator.last(), studioSetup: async () => { const r = await studio.ensure(); r.migrated = await studio.migrateOld(); return r; }, studioDedupe: () => studio.markDups(), tgtIngest: buf => tgt.ingest(buf), tgtAuto: j => tgtAuto(j), tgtNeed: () => tgtNeed(), tableMeta: async (name) => { const app = await core.appToken(); const t = ((await call('GET', `/bitable/v1/apps/${app}/tables`, null, { page_size: 100 })).items || []).find(x => x.name === name); if (!t) return { error: '没这张表' }; const fd = await call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 }); const rs = await call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, { sort: [{ field_name: '发布日期', desc: true }] }, { page_size: 8 }).catch(e => ({ items: [], err: e.message })); return { fields: (fd.items || []).map(f => ({ n: f.field_name, t: f.type, ui: f.ui_type, p: f.property ? JSON.stringify(f.property).slice(0, 4000) : '' })), rows: (rs.items || []).map(r => r.fields), err: rs.err }; }, core, chats: async () => { const d = await call('GET', '/im/v1/chats', null, { page_size: 100 }); return (d.items || []).map(c => ({ name: c.name, id: c.chat_id.slice(-6), 收稿默认: /素人/.test(c.name) ? '抖音素人号' : /视频|抖音/.test(c.name) ? '抖音矩阵号' : /攻略|小红书/.test(c.name) ? '小红书矩阵号' : '按内容判断', 派稿范围: /抖音/.test(c.name) && !/小红书/.test(c.name) ? (/矩阵/.test(c.name) ? '只派抖音矩阵号' : '只派抖音类') : /小红书/.test(c.name) && !/抖音/.test(c.name) ? '只派小红书类' : /素人/.test(c.name) ? '只派素人号' : '全部', 放行: !(cfg.chats && cfg.chats.length) || cfg.chats.includes(c.chat_id) || /发布群|派稿|存放群|稿件|回收/.test(c.name) })); }, rereadDaily: () => rereadDaily(null), exportTable: n => exportTable(n), mktSnap: d => mktSnap(d), onDyAuth: x => onDyAuth(x), feedbackList: () => feedback.list(), moveLibs: () => moveLibs(), moveStatus: () => mover.status(), chatMsgs: async (q, n, cn) => { const out = []; let pt = ''; let k = 0; let cid = dailyChat; if (cn) { const cl = await call('GET', '/im/v1/chats', null, { page_size: 100 }); const c = (cl.items || []).find(x => (x.name || '').includes(cn)); if (!c) return []; cid = c.chat_id; } do { const d = await call('GET', '/im/v1/messages', null, Object.assign({ container_id_type: 'chat', container_id: cid, sort_type: 'ByCreateTimeDesc', page_size: 50 }, pt ? { page_token: pt } : {})); for (const it of d.items || []) { const c = (it.body || {}).content || ''; if (!q || c.includes(q)) out.push({ t: new Date(+it.create_time + 8 * 3600e3).toISOString().slice(5, 16), type: it.msg_type, sender: (it.sender || {}).sender_type, c: c.slice(0, 1500) }); } pt = d.has_more ? d.page_token : ''; k++; } while (pt && k < (n || 4)); return out; }, lastXlsx: async (q) => { if (q) lastUnknownXlsx = await findXlsx(new RegExp(q)); else if (!lastUnknownXlsx) lastUnknownXlsx = await findXlsx(); if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); const rr = readXlsx(b); return { name: lastUnknownXlsx.name, rows: rr.length, head: rr.slice(0, 8) }; }, reingestLast: async (q) => { if (q) lastUnknownXlsx = await findXlsx(new RegExp(q)); else if (!lastUnknownXlsx) lastUnknownXlsx = await findXlsx(); if (!lastUnknownXlsx) return null; const b = await fileBuf(lastUnknownXlsx.mid, lastUnknownXlsx.key); return tgt.ingest(b); }, adsWeekly: async () => { const r = await adsWeekly.report(); return r ? { title: r.title, by: r.by, doc: r.doc, docError: r.docError, text: r.text } : null; }, dbCheck: () => dbMigrate.check(), archivable: d => dbMigrate.archivable(d), studio: () => studio, rows: async (name, days) => { // 私密表格只读：经营日报 / 推广通，最近 N 天（钥匙保护）
     const ok = [cfg.dailyTable || '经营日报数据', '推广通数据']; if (!ok.includes(name)) throw new Error('只能读：' + ok.join('、'));
     // 开关开着且库可用：直接读本地库（不受飞书行数限制）
     if (store.ok && store.ready() && dbOn(cfg)) {
@@ -760,7 +763,7 @@ async function setup() {
   const PST = path.join(DATA_DIR, 'publish-state.json'); let pst = {}; try { pst = JSON.parse(fs.readFileSync(PST, 'utf8')); } catch (e) { }
   setInterval(async () => { // 20:00 群里 @ 还没发的人；21:30 群里发当天进度
     const bj = new Date(Date.now() + 8 * 3600e3), hh = bj.getUTCHours(), mm = bj.getUTCMinutes(), day = Math.floor((Date.now() + 8 * 3600e3) / 864e5);
-    const chats = PCHATS(); if (!chats.length) return; const doRemind = hh === 20 && pst.remind !== day, doSum = hh === 21 && mm >= 30 && pst.sum !== day; if (doRemind) pst.remind = day; if (doSum) pst.sum = day; if (doRemind || doSum) fs.writeFileSync(PST, JSON.stringify(pst));
+    const chats = PCHATS(); if (!chats.length) return; const doRemind = on('progress') && hh === 20 && pst.remind !== day, doSum = on('progress') && hh === 21 && mm >= 30 && pst.sum !== day; if (doRemind) pst.remind = day; if (doSum) pst.sum = day; if (doRemind || doSum) fs.writeFileSync(PST, JSON.stringify(pst));
     for (const chat of chats) try {
       if (doRemind) { const t = await progress(chat, true); if (t) await call('POST', '/im/v1/messages', { receive_id: chat, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'chat_id' }); }
       if (doSum) { const t = await progress(chat, false); if (!/还没有派过稿/.test(t)) await call('POST', '/im/v1/messages', { receive_id: chat, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'chat_id' }); }
@@ -787,7 +790,7 @@ async function setup() {
   setTimeout(async () => { const f = path.join(DATA_DIR, 'hits-first.json'); if (fs.existsSync(f)) return; try { fs.writeFileSync(f, String(Date.now())); await sendHits(); } catch (e) { log('[爆款公式] 首次生成出错：' + e.message); } }, 100e3);
   setTimeout(async () => { const f = path.join(DATA_DIR, 'settle-2026-10b.json'); if (fs.existsSync(f)) return; try { const t = await runSettle('2026-10'); fs.writeFileSync(f, JSON.stringify({ at: Date.now() })); log('[结算] 10 月试算完成'); } catch (e) { log('[结算] 10 月试算出错：' + e.message); } }, 80e3); // 一次性：用 10 月数据和腾讯文档对账
   setInterval(async () => { // 每月 1 号 10:30：算上个月结算草稿，私聊老板
-    const bj = new Date(Date.now() + 8 * 3600e3); if (bj.getUTCDate() !== 1 || bj.getUTCHours() !== 10 || bj.getUTCMinutes() < 30) return; const mon = lastMonth(); if (pst.settle === mon || !boss) return; pst.settle = mon; try { fs.writeFileSync(PST, JSON.stringify(pst)); } catch (e) { }
+    const bj = new Date(Date.now() + 8 * 3600e3); if (!on('settle') || bj.getUTCDate() !== 1 || bj.getUTCHours() !== 10 || bj.getUTCMinutes() < 30) return; const mon = lastMonth(); if (pst.settle === mon || !boss) return; pst.settle = mon; try { fs.writeFileSync(PST, JSON.stringify(pst)); } catch (e) { }
     try { const t = await runSettle(mon); await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'open_id' }); } catch (e) { log('[结算] 自动结算出错：' + e.message); }
   }, 60e3);
   async function sendAds(o) {
@@ -806,7 +809,7 @@ async function setup() {
   }, 60e3);
   setTimeout(async () => { try { if (!(await brief.latestAds())) await brief.ads(); } catch (e) { log('[投放分析] 首次生成出错 ' + e.message); } }, 70e3);
   setInterval(() => {
-    if (cfg.briefAuto === false) return;
+    if (cfg.briefAuto === false || !on('brief')) return;
     const bj = new Date(Date.now() + 8 * 3600e3); const hh = bj.getUTCHours(), mm = bj.getUTCMinutes();
     const [H, M] = String(cfg.briefTime || '09:00').split(':').map(Number);
     if ((hh > H || (hh === H && mm >= M)) && hh < H + 3 && briefState.last !== bjDay(Date.now())) sendBrief({});
