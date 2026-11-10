@@ -236,7 +236,7 @@
     } catch (e) { tglog('✗ ' + e.message); }
     finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } TG.busy = false; forceRender(); }
   }
-  setTimeout(() => autoTgt(), 3 * 60e3); setInterval(() => autoTgt(), 20 * 60e3);
+  setTimeout(() => autoTgt(), 3 * 60e3); setInterval(() => autoTgt(), 5 * 60e3); // 服务器按北京时间早上 8 点起放行
 
   // ---------- 同类爆款调研：在小红书搜同类关键词，读回近期高赞笔记 ----------
   // 关键词：门店商圈 → 城市攻略 → 品类 → 场景 → 爆款句式（前面带 * 的不限地区，门槛翻倍）
@@ -350,7 +350,7 @@
     </div>
     <div class="section-h"><h2>推广通报表</h2><span class="hint">每天 8 点后自动在推广通后台生成「近 30 天、按门店按日」报表交给机器人入库（含 7/15/30 日归因），不用再手动导出发群。要求这个浏览器登录着 e.dianping.com</span></div>
     <div class="panel stack">
-      <div class="row"><span class="hint grow">自动跑：插件开着就行，每 20 分钟问一次机器人今天拉过没有。掉线了机器人会私聊提醒你重新登录。</span>
+      <div class="row"><span class="hint grow">自动跑：插件开着就行，每 5 分钟问一次机器人，北京时间早上 8:00 后自动拉。掉线了机器人会私聊提醒你重新登录。</span>
         <button class="btn primary" data-action="fs-own-tgt" ${TG.busy || !has ? 'disabled' : ''}>${TG.busy ? '拉取中…' : '立即拉取'}</button></div>
       ${TG.log.length ? `<pre class="small-pre">${h(TG.log.slice(0, 6).join('\n'))}</pre>` : ''}
     </div>
