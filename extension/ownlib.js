@@ -78,39 +78,21 @@
       const t = await srv('/lib/todo?limit=' + S.batch); S.info = t; S.n = t.items.length;
       if (!S.n) { log('都读完了，没有新的笔记'); return; }
       log(`开始读取 ${S.n} 条（全部 ${t.total}，已读 ${t.done}）。后台窗口别关，可以最小化`);
-      // 旧笔记的分享链接会过期（打开显示「暂时无法浏览」）：改用标题去搜，在搜索结果里点开（不再走作者主页）
-      const fresh = {}; const homesDone = new Set();
-      const noteIdOf = async link => { const m0 = link.match(/(?:explore|item)\/([0-9a-f]{24})/); if (m0) return m0[1]; try { const r = await fetch(link, { credentials: 'include' }); const u = decodeURIComponent(r.url || ''); const m = u.match(/(?:explore|item)\/([0-9a-f]{24})/); return m ? m[1] : ''; } catch (e) { return ''; } };
-      async function loadHome(home) { if (!home || homesDone.has(home)) return; homesDone.add(home); await nav(home); let st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { if (!(await waitUnblock(st.blocked))) return; await nav(home); }
-        const res = await msg({ type: 'rm:collectProfile', limit: 120 }, 300000); ((res && res.list) || []).forEach(x => { if (x.id && x.url && /xsec_token=/.test(x.url)) fresh[x.id] = x.url; }); log(`主页「${(res && res.profile && res.profile.name) || ''}」拿到 ${Object.keys(fresh).length} 条笔记地址`); await sleep(rand(3000, 6000)); }
-      // 用标题搜：在搜索结果里找同一篇（笔记 ID 一样，或标题对得上且作者一样），拿到带新口令的地址
-      async function byTitle(it, nid) {
-        const q = String(it.title || '').replace(/[\u{1F000}-\u{1FFFF}\u2600-\u27BF#️⃣]/gu, ' ').replace(/\s+/g, ' ').trim().slice(0, 24); if (q.length < 4) return '';
-        const u = `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(q)}&source=web_search_result_notes`;
-        await nav(u); let st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { if (!(await waitUnblock(st.blocked))) return ''; await nav(u); }
-        const res = await msg({ type: 'rm:collectList', limit: 20 }, 120000); const list = (res && res.list) || [];
-        const norm = x => String(x || '').replace(/[\s\p{P}\p{S}]/gu, '');
-        const hit = list.find(x => nid && x.id === nid) || list.find(x => norm(x.title) && (norm(x.title).includes(norm(q).slice(0, 10)) || norm(q).includes(norm(x.title).slice(0, 10))) && (!it.acc || !x.author || norm(x.author) === norm(it.acc)));
-        log(hit ? `🔎 用标题搜到《${q.slice(0, 14)}》` : `🔎 标题没搜到《${q.slice(0, 14)}》`); await sleep(rand(2000, 4000));
-        return hit && hit.url ? hit.url : '';
-      }
+      // 只按登记的链接读，不走主页、不用标题去搜；读不了就记「读不了」，面板里列出来
       for (const it of t.items) {
         if (S.stop) break; S.i++; S.cur = it.acc; forceRender();
-        const nid = await noteIdOf(it.link);
-        let r = null;
-        // 链接以前读过、已过期：直接用标题搜，不再打开老链接
-        if (!it.expired) { r = await readOne(it); if (r.again) r = await readOne(it); }
-        if (!r || (r.err && r.retry)) { const f = await byTitle(it, nid); if (f) { r = await readOne(Object.assign({}, it, { link: f })); if (r.again) r = await readOne(Object.assign({}, it, { link: f })); } else if (it.title) r = { err: '链接过期，标题也没搜到', retry: false }; else if (!r) r = { err: '链接过期', retry: true }; }
+        let r = await readOne(it); if (r.again) r = await readOne(it);
+        if (r.err && r.retry) r = { err: '链接读不了（分享链接过期或笔记不可见）', retry: false };
         if (r.stop) { log('验证超时，先停下。处理好后再点开始'); break; }
         try {
-          if (r.err) { await srv('/lib/note', { rec: it.rec, link: it.link, error: r.err, retry: r.retry }); S.fail++; log(`✗ ${it.acc}：${r.err}`); }
+          if (r.err) { await srv('/lib/note', { rec: it.rec, link: it.link, error: r.err, retry: false }); S.fail++; log(`✗ 读不了 ${it.acc}《${String(it.title || '').slice(0, 16)}》：${r.err}`); }
           else { const j = await srv('/lib/note', { rec: it.rec, link: it.link, note: r.note, comments: r.comments }); S.ok++; log(`✓ ${it.acc}《${(r.note.title || '').slice(0, 18)}》${r.note.images.length} 张图，入库 ${j.images ?? 0} 张`); }
         } catch (e) { S.fail++; log(`✗ 交给机器人失败：${e.message}`); if (/口令/.test(e.message)) break; }
         forceRender();
         await sleep(rand(6000, 12000)); // 模仿正常浏览
         if (S.i % 25 === 0 && S.i < S.n) { log('歇一会儿（1 分钟）'); await sleep(rand(50000, 75000)); }
       }
-      log(`本轮完成：成功 ${S.ok}，失败 ${S.fail}`); toast(`入库完成：成功 ${S.ok} 条`);
+      log(`本轮完成：成功 ${S.ok}，读不了 ${S.fail}`); toast(`入库完成：成功 ${S.ok} 条` + (S.fail ? `，${S.fail} 条读不了` : '')); S.bad = null;
     } catch (e) { log('出错：' + e.message); toast(e.message); }
     finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; S.busy = false; S.cur = ''; S.paused = ''; refresh(); }
   }
@@ -329,7 +311,7 @@
       for (const it of items) {
         if (T.stop) break; T.i++; forceRender();
         const nid = await noteIdOf(it.link); const linkOld = /apptime=|xhslink/.test(it.link);
-        if (nid && !fresh[nid] && it.home && !homesDone.has(it.home)) { homesDone.add(it.home); await nav(it.home); const res = await msg({ type: 'rm:collectProfile', limit: 120 }, 300000); ((res && res.list) || []).forEach(x => { if (x.id && x.url && /xsec_token=/.test(x.url)) fresh[x.id] = x.url; }); await sleep(rand(3000, 6000)); }
+        if (false /* 不再进作者主页 */ && nid && !fresh[nid] && it.home && !homesDone.has(it.home)) { homesDone.add(it.home); await nav(it.home); const res = await msg({ type: 'rm:collectProfile', limit: 120 }, 300000); ((res && res.list) || []).forEach(x => { if (x.id && x.url && /xsec_token=/.test(x.url)) fresh[x.id] = x.url; }); await sleep(rand(3000, 6000)); }
         if (!(nid && fresh[nid]) && !it.home && T.tried && T.tried[it.rec]) { skipped++; continue; }
         T.tried = T.tried || {}; T.tried[it.rec] = 1;
         const r = await readOne({ link: nid && fresh[nid] ? fresh[nid] : it.link }); if (r.stop) break;
@@ -348,10 +330,11 @@
     return `<div class="section-h"><h2>自家内容入库</h2><span class="hint">把我们自己发过的小红书笔记一条条读进「自家内容库」（标题、正文、话题、全部图片、赞藏评、热门评论），机器人再用通义千问分析封面和图片，升级爆款公式</span></div>
     <div class="panel stack" id="fs-own">
       ${!has ? '<div class="hint" style="color:#c52b1b">这个插件版本没有入库口令，请换用机器人发来的最新插件文件。</div>' : ''}
-      <div class="hint">${I ? (I.error ? `连接机器人失败：${h(I.error)}` : `飞书里共 <b>${I.total}</b> 条小红书笔记，已入库 <b>${I.done}</b> 条，还剩 <b>${I.left}</b> 条。`) : '正在读取进度…'}
-        用的是这个浏览器里当前登录的小红书账号，建议用普通个人号。</div>
+      <div class="hint">${I ? (I.error ? `连接机器人失败：${h(I.error)}` : `飞书里共 <b>${I.total}</b> 条小红书笔记，已入库 <b>${I.done}</b> 条，还没读 <b>${I.left}</b> 条` + (I.unreadable ? `，<b style="color:#c52b1b">读不了 ${I.unreadable} 条</b> <button class="btn ghost sm" data-action="fs-own-bad">${S.bad ? '收起' : '看是哪些'}</button>` : '') + '。') : '正在读取进度…'}
+        只按登记的链接读（不进主页、不用标题搜）；链接过期或笔记不可见的记为「读不了」。用的是这个浏览器里当前登录的小红书账号，建议用普通个人号。</div>
+      ${S.bad ? `<div class="tbl-wrap"><table><thead><tr><th>账号</th><th>标题</th><th>原因</th></tr></thead><tbody>${S.bad.map(x => `<tr><td>${h(x.acc)}</td><td style="white-space:normal">${x.link ? `<a href="${h(x.link)}" target="_blank" rel="noopener">${h(x.title || '打开')}</a>` : h(x.title)}</td><td>${h(x.why)}</td></tr>`).join('') || '<tr><td colspan="3" class="hint">没有</td></tr>'}</tbody></table></div>` : ''}
       <div class="row"><label class="f" style="flex:0 0 auto"><span>这次读</span><select data-own="batch">${[30, 100, 200, 300].map(n => `<option ${n === S.batch ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
-        <span class="hint grow">约 10–15 秒一条，每 25 条歇 1 分钟；读过的不会重复。</span>
+        <span class="hint grow">约 10–15 秒一条，每 25 条歇 1 分钟；读过的、读不了的都不会重复读。</span>
         ${S.busy ? '<button class="btn sm" data-action="fs-own-stop">停止</button>' : ''}
         <button class="btn primary" data-action="fs-own-run" ${S.busy || !has ? 'disabled' : ''}>${S.busy ? '读取中…' : '开始入库'}</button></div>
       ${S.busy ? `<div class="hint"><b>${S.paused ? '⏸ 等你在小红书窗口里完成验证…' : `进行中 ${S.i}/${S.n}：${h(S.cur)}`}</b> · 成功 ${S.ok} · 失败 ${S.fail}</div>` : ''}
@@ -378,7 +361,7 @@
     </div>
 `;
   }
-  async function act(action) { if (action === 'fs-own-tgt') autoTgt(true); if (action === 'fs-own-dy') syncDouyin(false); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
+  async function act(action) { if (action === 'fs-own-tgt') autoTgt(true); if (action === 'fs-own-dy') syncDouyin(false); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-bad') { if (S.bad) { S.bad = null; forceRender(); } else { try { S.bad = (await srv('/lib/unreadable')).items || []; } catch (e) { toast(e.message); } forceRender(); } } if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
   function attach(root) {
     if (!S.info && CFG().key) refresh();
     root.addEventListener('change', e => { const t = e.target; const k = t.dataset && t.dataset.own; if (k === 'batch') S.batch = +t.value || 100; if (k === 'per' || k === 'minLike' || k === 'days') R[k] = +t.value; if (k === 'work' || k === 'rest') { R[k] = +t.value; saveRS(); forceRender(); } if (k === 'camp') T.cur = t.value; });
