@@ -201,6 +201,43 @@
   // 群里刚发的链接：每分钟问一次服务器，有待补的就马上读（1–2 分钟内补上）
   setInterval(async () => { if (A.busy) return; try { const h = await srv('/lib/hot'); if ((h.xhs || 0) + (h.dy || 0) > 0) autoAcct(); } catch (e) { } }, 60e3);
 
+  // ---------- 推广通报表：每天自动在推广通后台生成「近 30 天、按门店按日」报表，交给机器人入库（不用再手动导出发群） ----------
+  const TG = { busy: false, log: [] };
+  const tglog = t => { TG.log.unshift(new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '  ' + t); TG.log = TG.log.slice(0, 12); forceRender(); };
+  async function autoTgt(force) {
+    if (TG.busy) return; let need; try { need = await srv('/lib/tgt/need'); } catch (e) { if (force) tglog('✗ ' + e.message); return; }
+    if (!need.need && !force) return; TG.busy = true; forceRender(); let bt = null;
+    try {
+      tglog(`打开推广通后台，生成 ${need.begin} ~ ${need.end} 的门店报表…`);
+      bt = await bgTab('https://midas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-data-promo-report/html/main.html', 'midas.dianping.com');
+      await sleep(2500); const tb = await chrome.tabs.get(bt.tab).catch(() => ({}));
+      if (!/^https:\/\/midas\.dianping\.com\//.test(tb.url || '')) { const er = '没登录推广通后台（页面跳到了登录页）：请在这个浏览器打开 e.dianping.com 登录'; tglog('✗ ' + er); try { await srv('/lib/tgt/ingest', { err: er }); } catch (e) { } return; }
+      const [r] = await chrome.scripting.executeScript({ target: { tabId: bt.tab }, world: 'MAIN', args: [need.begin, need.end], func: async (begin, end) => {
+        if (location.host !== 'midas.dianping.com') return { error: '没登录推广通后台（请在这个浏览器打开 e.dianping.com 登录）' };
+        const xhr = (m, u, b) => new Promise((res, rej) => { const x = new XMLHttpRequest(); x.open(m, u); x.withCredentials = true; if (b) x.setRequestHeader('content-type', 'application/x-www-form-urlencoded'); x.onload = () => { try { res(JSON.parse(x.responseText)); } catch (e) { rej(new Error('返回的不是数据（可能没登录）：HTTP ' + x.status)); } }; x.onerror = () => rej(new Error('网络错误')); x.send(b || null); });
+        const M = 'dd_1_charge,dd_1_imp,dd_1_click,dd_1_cpc,dd_1_viewPhoto,dd_1_viewReview,dd_1_viewTg,dd_1_viewAddress,dd_1_callCnt,dd_1_viewDish,dd_1_addFavor,dd_1_share,dd_1_orderPromo,dd_1_orderTg,dd_1_sh_cnt,dd_1_pv,dd_1_100001,dd_1_100002,dd_1_cash,dd_1_payOrderCnt7day,dd_1_payOrderCnt15day,dd_1_payOrderCnt30day,dd_1_tgOrderCnt7day,dd_1_tgOrderCnt15day,dd_1_tgOrderCnt30day';
+        const body = 'beginDate=' + begin + '&endDate=' + end + '&dateType=-1&groupBy=shop&metricFilters=' + encodeURIComponent(JSON.stringify([{ productValue: 'cpcShop', metrics: M }]));
+        let s; try { s = await xhr('POST', '/addata/report/data/v1/ddDataCenter/download/task/submit', body); } catch (e) { return { error: e.message }; }
+        if (s.code !== 200 || !s.data) return { error: (/登录|login|401/i.test(JSON.stringify(s)) ? '没登录推广通后台：' : '提交报表任务失败：') + JSON.stringify(s).slice(0, 120) };
+        for (let i = 0; i < 36; i++) {
+          await new Promise(r => setTimeout(r, 5000));
+          let l; try { l = await xhr('GET', '/addata/report/data/v1/ddDataCenter/download/task/list?beginDate=&endDate=&pageNum=1&pageSize=10'); } catch (e) { continue; }
+          const t = ((l.data || {}).data || []).find(x => x.id && String(x.id.value) === String(s.data)); if (!t) continue;
+          let u = []; try { u = JSON.parse((t.downloadUrl || {}).value || '[]'); } catch (e) { }
+          if (u[0]) return { url: u[0] }; if (/失败/.test((t.taskStatus || {}).value || '')) return { error: '推广通报表生成失败：' + t.taskStatus.value };
+        }
+        return { error: '等了 3 分钟报表还没生成，下个小时再试' };
+      } });
+      const d = (r && r.result) || { error: '页面没响应' };
+      if (d.error) { tglog('✗ ' + d.error); try { await srv('/lib/tgt/ingest', { err: d.error }); } catch (e) { } return; }
+      tglog('报表已生成，交给机器人入库…');
+      const j = await srv('/lib/tgt/ingest', { url: d.url, begin: need.begin, end: need.end });
+      tglog(`✓ 已入库 ${j.rows || 0} 行（新增 ${j.added || 0}、更新 ${j.updated || 0}），最新一天 ${j.last || '—'}`); if (force) toast('推广通报表已入库');
+    } catch (e) { tglog('✗ ' + e.message); }
+    finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } TG.busy = false; forceRender(); }
+  }
+  setTimeout(() => autoTgt(), 3 * 60e3); setInterval(() => autoTgt(), 20 * 60e3);
+
   // ---------- 同类爆款调研：在小红书搜同类关键词，读回近期高赞笔记 ----------
   // 关键词：门店商圈 → 城市攻略 → 品类 → 场景 → 爆款句式（前面带 * 的不限地区，门槛翻倍）
   const KW0 = '水东街美食\n水东街宵夜\n惠州水东街\n惠州老街美食\n惠州西湖附近美食\n华强北美食\n华强北宵夜\n华强北附近吃什么\n福田宵夜\n白石洲美食\n白石洲宵夜\n深圳湾附近美食\n南山宵夜\n前海美食\n前海宵夜\n前海附近吃什么\n宝安中心美食\n蛇口美食\n蛇口花园城美食\n南山粤菜\n深圳粤菜家宴\n江南西美食\n江南西宵夜\n海珠美食\n广州海珠宵夜\n珠海美食\n珠海宵夜\n香洲美食\n珠海本地人推荐\n千灯湖美食\n千灯湖宵夜\n南海美食\n佛山宵夜\n佛山创意产业园美食\n禅城美食\n禅城宵夜\n东城33小镇美食\n东莞东城美食\n东莞宵夜\n惠州美食攻略\n惠州本地人小店\n深圳美食攻略\n深圳本地人推荐\n广州美食攻略\n广州本地人推荐\n珠海美食攻略\n佛山美食攻略\n东莞美食攻略\n海鲜大排档\n粤式大排档\n广式大排档\n潮汕大排档\n生腌\n干炒牛河\n砂锅粥\n粤菜家宴\n粤菜馆推荐\n宵夜大排档\n深圳宵夜\n广州宵夜\n朋友聚餐推荐\n家庭聚餐粤菜\n请客吃饭粤菜\n凌晨还开的店\n一个人宵夜\n*本地人私藏大排档\n*大排档避雷\n*大排档必点\n*人均50宵夜\n*宵夜清单\n*本地人才知道的店';
@@ -311,6 +348,12 @@
         <button class="btn primary" data-action="fs-own-rs" ${R.busy || S.busy || !has ? 'disabled' : ''}>${R.busy ? `调研中 ${R.ok}/${R.n}…` : '开始调研'}</button></div>
       ${R.log.length ? `<pre class="small-pre">${h(R.log.slice(0, 10).join('\n'))}</pre>` : ''}
     </div>
+    <div class="section-h"><h2>推广通报表</h2><span class="hint">每天 8 点后自动在推广通后台生成「近 30 天、按门店按日」报表交给机器人入库（含 7/15/30 日归因），不用再手动导出发群。要求这个浏览器登录着 e.dianping.com</span></div>
+    <div class="panel stack">
+      <div class="row"><span class="hint grow">自动跑：插件开着就行，每 20 分钟问一次机器人今天拉过没有。掉线了机器人会私聊提醒你重新登录。</span>
+        <button class="btn primary" data-action="fs-own-tgt" ${TG.busy || !has ? 'disabled' : ''}>${TG.busy ? '拉取中…' : '立即拉取'}</button></div>
+      ${TG.log.length ? `<pre class="small-pre">${h(TG.log.slice(0, 6).join('\n'))}</pre>` : ''}
+    </div>
     <div class="section-h"><h2>官方号数据</h2><span class="hint">读抖音蓝 V（YES 也是大排档、粤迹）的创作者后台和视频号助手：每条作品的播放、完播率、2 秒跳出、涨粉、主页访问，写进私密表格「官方号作品数据」</span></div>
     <div class="panel stack">
       <div class="row"><span class="hint grow">读的是这个浏览器里 creator.douyin.com <b>当前登录</b>的账号。两个蓝 V：同步完一个，在创作者中心右上角头像「切换账号」换另一个，再点一次。约 1 分钟。</span>
@@ -319,7 +362,7 @@
       ${O.log.length ? `<pre class="small-pre">${h(O.log.slice(0, 8).join('\n'))}</pre>` : ''}
     </div>`;
   }
-  async function act(action) { if (action === 'fs-own-dy') syncDouyin(); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
+  async function act(action) { if (action === 'fs-own-tgt') autoTgt(true); if (action === 'fs-own-dy') syncDouyin(); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
   function attach(root) {
     if (!S.info && CFG().key) refresh();
     if (!T.names && CFG().key) campLoad();
