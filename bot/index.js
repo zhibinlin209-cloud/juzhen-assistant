@@ -198,7 +198,23 @@ async function setup() {
   const settle = createSettle({ cfg, api: { call }, core, people, log });
   const ownlib = createOwnLib({ cfg, api: { call }, core, upload, download: dl, log, dataDir: DATA_DIR });
   setTimeout(() => ownlib.backfill().catch(() => { }), 90e3); setInterval(() => ownlib.backfill(200).catch(() => { }), 30 * 60e3);
-  const official = createOfficial({ cfg, api: { call }, log });
+  const official0 = createOfficial({ cfg, api: { call }, log });
+  // 官方号每天自动同步（插件早上 8 点后来问）：按「平台|账号」记今天同步过没有；没登录时私聊提醒一次
+  const OF_FILE = path.join(DATA_DIR, 'official-state.json'); let ofs = {}; try { ofs = JSON.parse(fs.readFileSync(OF_FILE, 'utf8')); } catch (e) { }
+  const saveOF = () => { try { fs.writeFileSync(OF_FILE, JSON.stringify(ofs)); } catch (e) { } };
+  const bjToday = () => Math.floor((Date.now() + 8 * 3600e3) / 864e5);
+  const official = Object.assign({}, official0, {
+    async sync(b) {
+      const plat = b.platform === 'channels' ? '视频号' : '抖音';
+      if (b.err) { log(`[官方号·插件] ${plat}没同步：${String(b.err).slice(0, 100)}`); const k = 'warn|' + plat;
+        if (/登录/.test(b.err) && ofs[k] !== bjToday()) { ofs[k] = bjToday(); saveOF(); const site = plat === '抖音' ? 'creator.douyin.com（抖音创作者中心，扫码登录蓝 V）' : 'channels.weixin.qq.com（视频号助手，微信扫码）';
+          try { if (boss) await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: `⚠️ 插件今天没法自动同步${plat}官方号数据：${plat === '抖音' ? '创作者中心' : '视频号助手'}掉线了。请在装了「餐饮矩阵助手」的 Chrome 打开 ${site}，登录后插件会自己补上。` }) }, { receive_id_type: 'open_id' }); } catch (e) { } }
+        return { ok: false }; }
+      const r = await official0.sync(b); if (r && r.ok) { ofs[plat + '|' + String(b.account || '').trim()] = bjToday(); saveOF(); } return r;
+    },
+    need(plat, acc) { const p = plat === 'channels' ? '视频号' : '抖音'; const bj = new Date(Date.now() + 8 * 3600e3);
+      return { ok: true, need: bj.getUTCHours() >= 8 && (!acc || ofs[p + '|' + acc] !== bjToday()) }; }
+  });
   const histImport = HIST.createDailyImport({ cfg, api: { call }, core, log, store });
   const dbMigrate = createDbMigrate({ cfg, api: { call }, core, store, log });
   const campaign = createCampaign({ cfg, api: { call }, upload, log });

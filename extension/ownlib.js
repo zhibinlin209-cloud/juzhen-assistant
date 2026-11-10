@@ -122,7 +122,7 @@
     const tabs = await chrome.tabs.query({ url: `https://${host}/*` }); if (tabs.length) return { tab: tabs[0].id, own: false };
     const w = await chrome.windows.create({ url, focused: false, width: 1200, height: 860, type: 'normal' }); const t = w.tabs[0].id; await waitLoad(t, 30000); await sleep(4000); return { tab: t, own: true, win: w.id };
   }
-  async function syncDouyin() {
+  async function syncDouyin(auto) {
     if (O.busy) return; O.busy = true; forceRender(); let bt = null;
     try {
       bt = await bgTab('https://creator.douyin.com/creator-micro/content/manage', 'creator.douyin.com');
@@ -141,12 +141,12 @@
       const d = r && r.result; if (!d || d.error) throw new Error((d && d.error) || '读取失败');
       olog(`「${d.nick}」读到 ${d.items.length} 条作品，交给机器人…`);
       const j = await srv('/lib/official', { platform: 'douyin', account: d.nick, items: d.items });
-      olog(`✓ 「${d.nick}」已同步：新增 ${j.added}，更新 ${j.updated}`); toast(`${d.nick} 同步完成`);
-    } catch (e) { olog('✗ ' + e.message); toast(e.message); }
+      olog(`✓ 「${d.nick}」已同步：新增 ${j.added}，更新 ${j.updated}`); if (!auto) toast(`${d.nick} 同步完成`); lsSet('rm-of-douyin', d.nick);
+    } catch (e) { olog('✗ ' + e.message); if (!auto) toast(e.message); else { try { await srv('/lib/official', { platform: 'douyin', err: e.message }); } catch (er) { } } }
     finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } O.busy = false; forceRender(); }
   }
 
-  async function syncChannels() {
+  async function syncChannels(auto) {
     if (O.busy) return; O.busy = true; forceRender(); let bt = null;
     try {
       bt = await bgTab('https://channels.weixin.qq.com/platform/post/list', 'channels.weixin.qq.com');
@@ -171,8 +171,8 @@
       const d = r && r.result; if (!d || d.error) throw new Error((d && d.error) || '读取失败');
       olog(`视频号「${d.nick}」读到 ${d.items.length} 条，交给机器人…`);
       const j = await srv('/lib/official', { platform: 'channels', account: d.nick, items: d.items });
-      olog(`✓ 视频号「${d.nick}」已同步：新增 ${j.added}，更新 ${j.updated}`); toast(`视频号 ${d.nick} 同步完成`);
-    } catch (e) { olog('✗ ' + e.message); toast(e.message); }
+      olog(`✓ 视频号「${d.nick}」已同步：新增 ${j.added}，更新 ${j.updated}`); if (!auto) toast(`视频号 ${d.nick} 同步完成`); lsSet('rm-of-channels', d.nick);
+    } catch (e) { olog('✗ ' + e.message); if (!auto) toast(e.message); else { try { await srv('/lib/official', { platform: 'channels', err: e.message }); } catch (er) { } } }
     finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } O.busy = false; forceRender(); }
   }
 
@@ -200,6 +200,20 @@
   setTimeout(() => autoAcct(), 60e3); setInterval(() => autoAcct(), 15 * 60e3);
   // 群里刚发的链接：每分钟问一次服务器，有待补的就马上读（1–2 分钟内补上）
   setInterval(async () => { if (A.busy) return; try { const h = await srv('/lib/hot'); if ((h.xhs || 0) + (h.dy || 0) > 0) autoAcct(); } catch (e) { } }, 60e3);
+
+  // ---------- 官方号每天自动同步：手动同步成功过一次的平台（记住账号），之后每天北京时间早上 8 点后自动同步这个浏览器当前登录的号 ----------
+  const lsGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, String(v)); } catch (e) { } };
+  async function autoOfficial() {
+    for (const [plat, run] of [['douyin', syncDouyin], ['channels', syncChannels]]) {
+      if (O.busy || TG.busy) return; const nick = lsGet('rm-of-' + plat); if (!nick) continue;
+      if (Date.now() - (+lsGet('rm-of-try-' + plat) || 0) < 55 * 60e3) continue;
+      let need; try { need = await srv(`/lib/official/need?platform=${plat}&account=${encodeURIComponent(nick)}`); } catch (e) { return; }
+      if (!need.need) continue; lsSet('rm-of-try-' + plat, Date.now());
+      olog(`⏰ 每日自动同步${plat === 'douyin' ? '抖音' : '视频号'}「${nick}」…`); await run(true);
+    }
+  }
+  setTimeout(() => autoOfficial(), 6 * 60e3); setInterval(() => autoOfficial(), 5 * 60e3);
 
   // ---------- 推广通报表：每天自动在推广通后台生成「近 30 天、按门店按日」报表，交给机器人入库（不用再手动导出发群） ----------
   const TG = { busy: false, log: [] };
@@ -356,13 +370,13 @@
     </div>
     <div class="section-h"><h2>官方号数据</h2><span class="hint">读抖音蓝 V（YES 也是大排档、粤迹）的创作者后台和视频号助手：每条作品的播放、完播率、2 秒跳出、涨粉、主页访问，写进私密表格「官方号作品数据」</span></div>
     <div class="panel stack">
-      <div class="row"><span class="hint grow">读的是这个浏览器里 creator.douyin.com <b>当前登录</b>的账号。两个蓝 V：同步完一个，在创作者中心右上角头像「切换账号」换另一个，再点一次。约 1 分钟。</span>
+      <div class="row"><span class="hint grow">读的是这个浏览器里 creator.douyin.com / 视频号助手<b>当前登录</b>的账号。手动同步成功一次后，<b>每天早上 8 点后自动同步</b>当前登录的号；掉线了机器人会私聊提醒。</span>
         <button class="btn primary" data-action="fs-own-dy" ${O.busy || !has ? 'disabled' : ''}>${O.busy ? '同步中…' : '同步抖音蓝 V'}</button>
         <button class="btn primary" data-action="fs-own-sph" ${O.busy || !has ? 'disabled' : ''}>同步视频号</button></div>
       ${O.log.length ? `<pre class="small-pre">${h(O.log.slice(0, 8).join('\n'))}</pre>` : ''}
     </div>`;
   }
-  async function act(action) { if (action === 'fs-own-tgt') autoTgt(true); if (action === 'fs-own-dy') syncDouyin(); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
+  async function act(action) { if (action === 'fs-own-tgt') autoTgt(true); if (action === 'fs-own-dy') syncDouyin(false); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
   function attach(root) {
     if (!S.info && CFG().key) refresh();
     if (!T.names && CFG().key) campLoad();

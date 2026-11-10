@@ -144,6 +144,7 @@ function createWeb({ cfg, brief, log, activity, bossId, port, dispatch, download
         // 可归档统计：库里已有 + 核对一致 + 日期早于 N 天（默认 120）的飞书行，只统计不删除
         if (p === '/lib/archivable' && req.method === 'GET' && archivable) { try { return sendc(res, 200, JSON.stringify(await archivable(+u.searchParams.get('days') || 120))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         if (p === '/lib/export' && req.method === 'GET' && exporter) return sendc(res, 200, JSON.stringify(await exporter()));
+        if (p === '/lib/official/need' && official && official.need) return sendc(res, 200, JSON.stringify(official.need(String(u.searchParams.get('platform') || ''), String(u.searchParams.get('account') || ''))));
         if (p === '/lib/official' && req.method === 'POST' && official) { let b = ''; for await (const c of req) { b += c; if (b.length > 4e6) return sendc(res, 413, '{"ok":false,"error":"太大"}'); } try { return sendc(res, 200, JSON.stringify(await official.sync(JSON.parse(b || '{}')))); } catch (e) { log('[官方号] 同步失败：' + e.message); return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 120) })); } }
         return sendc(res, 404, '{}');
       }
