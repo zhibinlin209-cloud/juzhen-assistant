@@ -612,14 +612,15 @@ function createCore({ cfg, api, log, store }) {
     return out;
   }
   // ---------- 给本机 Codex 用：只读营销部表格（不碰私密经营表）+ 写「AI-投放候选」 ----------
-  async function mktTables() { return (await listTables()).map(t => t.name); }
+  const MKT_DENY_T = /登录|密码|账号信息|结算|工资|银行|身份证/; const MKT_DENY_F = /密码|口令|手机|电话|银行|卡号|身份证|证件|微信号|验证码|token|secret/i;
+  async function mktTables() { return (await listTables()).map(t => t.name).filter(n => !MKT_DENY_T.test(n)); }
   async function mktRows(name, days) {
-    const app = await appToken(); const t = (await listTables()).find(x => x.name === name); if (!t) throw new Error('营销部表格里没有「' + name + '」');
+    if (MKT_DENY_T.test(name)) throw new Error('这张表含账号密码等敏感信息，不对外提供'); const app = await appToken(); const t = (await listTables()).find(x => x.name === name); if (!t) throw new Error('营销部表格里没有「' + name + '」');
     const fd = await api.call('GET', `/bitable/v1/apps/${app}/tables/${t.table_id}/fields`, null, { page_size: 200 });
-    const fields = (fd.items || []).map(f => ({ name: f.field_name, type: f.type }));
+    const fields = (fd.items || []).map(f => ({ name: f.field_name, type: f.type })).filter(f => !MKT_DENY_F.test(f.name));
     const recs = []; let pt = ''; do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.table_id}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); recs.push(...(d.items || [])); pt = d.has_more ? d.page_token : ''; } while (pt && recs.length < 20000);
     const since = days ? Date.now() - days * DAY : 0; const flat = v => Array.isArray(v) && v.length && v[0] && v[0].file_token ? v.map(x => x.name || 'file').join('、') : val(v);
-    const rows = recs.map(r => { const f = r.fields || {}; const o = { _id: r.record_id }; for (const k of Object.keys(f)) o[k] = typeof f[k] === 'number' ? f[k] : flat(f[k]); return o; })
+    const rows = recs.map(r => { const f = r.fields || {}; const o = { _id: r.record_id }; for (const k of Object.keys(f)) if (!MKT_DENY_F.test(k)) o[k] = typeof f[k] === 'number' ? f[k] : flat(f[k]); return o; })
       .filter(o => !since || typeof o['发布日期'] !== 'number' || o['发布日期'] >= since);
     return { ok: true, table: name, fields, n: rows.length, rows };
   }
