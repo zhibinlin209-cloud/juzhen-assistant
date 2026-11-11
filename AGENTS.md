@@ -2,7 +2,7 @@
 
 > 这份文件每天晚上 12 点由 Claude 自动更新一次（看当天的代码改动补进来）。
 > 接手的人：先从头读完这份文件，再动代码。有冲突以代码为准，并顺手改正这份文件。
-> 最后更新：2026-11-10
+> 最后更新：2026-11-12
 
 ## 0. 老板和工作方式
 
@@ -74,7 +74,7 @@
 
 ## 5. 主要接口（都在 `/cockpit/lib/...`，要 `x-rm-key`）
 
-- 给 Codex 的营销数据：`mkt/tables`、`mkt/rows?name=&days=`（行里带 `_files` 图片链接）、`mkt/file?u=`、`mkt/snap?date=`、`mkt/candidates`（写 AI-投放候选）、`mkt/write`（只能写「AI-投放候选」「投放实验记录」，不能写 决定/审批人/追加金额/人工原因 这类审批字段）、`mkt/export?name=`（导 Excel 私聊老板）。私密表、敏感字段（密码、手机、银行、身份证、营收等）被服务器拦截。
+- 给 Codex 的营销数据：`mkt/tables`、`mkt/rows?name=&days=`（行里带 `_files` 图片链接）、`mkt/file?u=`、`mkt/snap?date=`、`mkt/candidates`（写 AI-投放候选）、`mkt/write`（只能写「AI-投放候选」「投放实验记录」，不能写 决定/审批人/追加金额/人工原因 这类审批字段）、`mkt/export?name=`（导 Excel 私聊老板）。私密表、敏感字段（密码、手机、银行、身份证、营收等）被服务器拦截。老板登录驾驶舱后，同一浏览器里 GET `mkt/tables`、`mkt/rows`、`mkt/file`、`mkt/snap` 不带钥匙也能只读（其他接口仍要钥匙）。
 - 插件用：`tgt/need`、`tgt/ingest`、`official/need`、`official`、`dy/pending`、`dy/fill`、`xhs/noacct`、`xhs/acct`、`note`、`unreadable`、`ext/zip`。
 - 其他：`feedback`、`chatmsgs`、`chats`、`rereaddaily`、`movebase`、`camp/*`、`studio/*`、`dbcheck`、`log`。
 - 公开（不要钥匙）：`/about`、`/dy/callback`。
@@ -124,3 +124,4 @@
 
 - 2026-11-10：建立本文件；新增功能开关（features.js）。
 - 2026-11-11：驾驶舱登录可只读营销表；插件 2.21.1 修复同类爆款调研与自动补账号抢窗口；新增小红书复盘（7.1 节）。
+- 2026-11-12：自动核对 11-11 的代码改动，第 5 节补上驾驶舱登录只读营销表的说明。
