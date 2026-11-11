@@ -21,6 +21,9 @@
 
   // ---------- 后台窗口 ----------
   let win = null;
+  // 几个读取任务共用一个后台窗口：开始前等「自动补账号」读完，避免两个任务抢同一个窗口（会跳到自家笔记）
+  const busyA = () => typeof A !== 'undefined' && A.busy;
+  async function waitA(log) { if (!busyA()) return true; log && log('等后台「自动补账号」读完这一轮再开始…'); for (let i = 0; i < 60 && busyA(); i++) await sleep(3000); return !busyA(); }
   function waitLoad(tabId, ms) { return new Promise(res => { const t0 = Date.now(); (function poll() { chrome.tabs.get(tabId, tab => { if (chrome.runtime.lastError || !tab) return res(false); if (tab.status === 'complete' || Date.now() - t0 > (ms || 25000)) return res(true); setTimeout(poll, 500); }); })(); }); }
   async function nav(url) {
     if (win) { try { await chrome.tabs.get(win.tab); } catch (e) { win = null; } }
@@ -73,7 +76,7 @@
   }
 
   async function run() {
-    if (S.busy) return; S.busy = true; S.stop = false; S.ok = 0; S.fail = 0; S.i = 0; forceRender();
+    if (S.busy) return; if ((typeof R !== 'undefined' && R.busy) || (typeof T !== 'undefined' && T.busy)) return toast('先等其他读取任务跑完'); if (!(await waitA())) return toast('后台自动补账号还在跑，稍后再点'); if (S.busy) return; S.busy = true; S.stop = false; S.ok = 0; S.fail = 0; S.i = 0; forceRender();
     try {
       const t = await srv('/lib/todo?limit=' + S.batch); S.info = t; S.n = t.items.length;
       if (!S.n) { log('都读完了，没有新的笔记'); return; }
@@ -183,7 +186,7 @@
         if (!(pp.author || pp.likes !== undefined)) { try { await srv('/lib/dy/fill', { table: it.table, rec: it.rec, err: (rp && (rp.error || (rp.blocked ? '被拦：' + rp.blocked : ''))) || '没读到作品' }); } catch (e) { } }
         if (pp.author || pp.likes !== undefined) { try { await srv('/lib/dy/fill', { table: it.table, rec: it.rec, needAcc: !!it.needAcc, author: pp.author || '', likes: pp.likes, comments: pp.comments, shares: pp.shares, collects: pp.collects, title: pp.title || '', desc: String(pp.desc || '').slice(0, 1500), poi: pp.poi || '', tags: pp.tags || [] }); A.n++; } catch (e) { } }
         await sleep(rand(8000, 15000)); } } catch (e) { }
-    } catch (e) { } finally { try { if (win && !S.busy) { await chrome.windows.remove(win.id); win = null; } } catch (e) { } A.busy = false; A.last = Date.now(); forceRender(); }
+    } catch (e) { } finally { try { if (win && !S.busy && !(typeof R !== 'undefined' && R.busy) && !(typeof T !== 'undefined' && T.busy)) { await chrome.windows.remove(win.id); win = null; } } catch (e) { } A.busy = false; A.last = Date.now(); forceRender(); }
   }
   setTimeout(() => autoAcct(), 60e3); setInterval(() => autoAcct(), 15 * 60e3);
   // 群里刚发的链接：每分钟问一次服务器，有待补的就马上读（1–2 分钟内补上）
@@ -252,6 +255,9 @@
   const num0 = v => { const m = String(v ?? '').replace(/,/g, '').match(/([\d.]+)\s*(万|w)?/i); return m ? parseFloat(m[1]) * (m[2] ? 1e4 : 1) : 0; };
   async function research() {
     if (R.busy || S.busy) return toast(S.busy ? '先等自家内容入库这一轮跑完' : '正在调研');
+    if (typeof T !== 'undefined' && T.busy) return toast('先等链接追踪这一轮跑完');
+    R.busy = true; forceRender(); if (!(await waitA(rlog))) { R.busy = false; forceRender(); return toast('后台自动补账号还在跑，稍后再点'); }
+    try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null;
     R.busy = true; R.stop = false; R.ok = 0; R.n = 0; forceRender();
     try {
       const seen = new Set((await srv('/lib/market-seen')).ids || []);
@@ -306,6 +312,7 @@
   async function campLoad() { try { T.names = (await srv('/lib/camp/list')).names || []; if (!T.cur) T.cur = T.names[T.names.length - 1] || ''; } catch (e) { T.names = []; } forceRender(); }
   async function campRun(all) {
     if (T.busy || S.busy || R.busy) return toast('先等其他读取任务跑完'); if (!T.cur) return toast('还没有链接追踪表');
+    if (!(await waitA())) return toast('后台自动补账号还在跑，稍后再点'); if (T.busy || S.busy || R.busy) return;
     T.busy = true; T.stop = false; T.i = 0; forceRender();
     try {
       const items = (await srv('/lib/camp/pending?name=' + encodeURIComponent(T.cur) + (all ? '&all=1' : ''))).items || []; T.n = items.length;
