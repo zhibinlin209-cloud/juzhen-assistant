@@ -96,7 +96,8 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
         const cors = { 'access-control-allow-origin': req.headers.origin && /^https:\/\/(creator\.douyin\.com|channels\.weixin\.qq\.com)$/.test(req.headers.origin) ? req.headers.origin : 'null', 'access-control-allow-headers': 'content-type, x-rm-key', 'access-control-allow-methods': 'GET, POST' };
         if (req.method === 'OPTIONS') return send(res, 204, '', 'text/plain', cors);
         const sendc = (r, c, b, t, e) => send(r, c, b, t, Object.assign({}, cors, e || {}));
-        if (!ownlib.okKey(req.headers['x-rm-key'])) return sendc(res, 403, JSON.stringify({ ok: false, error: '入库口令不对' }));
+        const bossRead = req.method === 'GET' && /^\/lib\/mkt\/(tables|rows|file|snap)$/.test(p) && verify(cookie(req), 'S'); // 老板登录驾驶舱后，在同一浏览器里可只读营销表（不用口令）
+        if (!bossRead && !ownlib.okKey(req.headers['x-rm-key'])) return sendc(res, 403, JSON.stringify({ ok: false, error: '入库口令不对' }));
         if (p === '/lib/ext/zip' && req.method === 'GET') { // 插件自动更新：代下 GitHub 上最新的代码包（电脑上的更新脚本来取）
           try { const r = await fetch('https://codeload.github.com/zhibinlin209-cloud/juzhen-assistant/zip/refs/heads/main', { signal: AbortSignal.timeout(90000) }); if (!r.ok) throw new Error('GitHub HTTP ' + r.status); const buf = Buffer.from(await r.arrayBuffer());
             res.writeHead(200, { 'content-type': 'application/zip', 'content-length': buf.length, 'cache-control': 'no-store' }); return res.end(buf); } catch (e) { return sendc(res, 502, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
