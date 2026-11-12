@@ -54,16 +54,19 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
     if (c) b.c = c; clearTimeout(b.timer); b.timer = setTimeout(() => flush(sid), 6000);
   }
 
+  let iq = Promise.resolve(); // 一张一张存，避免一次几十张时撞上飞书频率限制
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  async function retry(fn) { let e0; for (let i = 0; i < 4; i++) { try { return await fn(); } catch (e) { e0 = e; if (!/99991400|1254290|1254291|frequency|too many|limit|ECONNRESET|timeout|socket|fetch failed|HTTP 5/i.test(e.message)) throw e; await sleep(1500 * (i + 1)); } } throw e0; }
   async function ingest(buf, name, sid, who, c) {
     const h = crypto.createHash('sha1').update(buf).digest('hex');
     if (st.hash[h]) return { dup: true };
     const store = c && c.hit ? c.store : '', d = day(); const pre = store || '素材'; const k = pre + d; st.seq[k] = (st.seq[k] || 0) + 1;
     const code = `${pre}-${d}-${String(st.seq[k]).padStart(2, '0')}`;
     const ext = /png/i.test(name) ? 'png' : /webp/i.test(name) ? 'webp' : 'jpg';
-    const tok = await upload(buf, `${code}.${ext}`, 'bitable_image', APP);
+    const tok = await retry(() => upload(buf, `${code}.${ext}`, 'bitable_image', APP));
     const f = { 素材编号: code, 图片: [{ file_token: tok }], 拍摄人: who || '', 拍摄日期: Date.now(), 用途: '待定', 使用状态: '未使用' };
     if (store) f.门店 = store; if (c && c.dish) f.菜品 = c.dish; if (c && !c.hit && c.raw) f.备注 = '说明原文：' + c.raw;
-    const r = await api.call('POST', `/bitable/v1/apps/${APP}/tables/${T}/records`, { fields: f });
+    const r = await retry(() => api.call('POST', `/bitable/v1/apps/${APP}/tables/${T}/records`, { fields: f }));
     const rec = (r.record || {}).record_id; st.hash[h] = rec || 1; save();
     log(`[素材库] ${who} ${code}${c ? '' : '（无说明，交给 AI 识别）'}`);
     if (rec) aiTag(rec, buf, c);
@@ -111,8 +114,8 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
     let c = c0; if (!c) { const p = cap.get(sid); if (p && Date.now() - p.at < 2 * 60e3) c = p.c; }
     for (const x of files) {
       try {
-        const buf = await x.get(); if (!buf || !buf.length) throw new Error('没下载到原图');
-        const r = await ingest(buf, x.name, sid, who, c);
+        const buf = await retry(() => x.get()); if (!buf || !buf.length) throw new Error('没下载到原图');
+        const r = await (iq = iq.catch(() => { }).then(() => ingest(buf, x.name, sid, who, c)));
         if (r.dup) { note(sid, m.message_id, 'dup', 1); continue; }
         note(sid, m.message_id, 'ok', r.code, c);
         if (!c) { const l = bare.get(sid) || []; l.push({ rec: r.rec, code: r.code, at: Date.now() }); bare.set(sid, l); }
