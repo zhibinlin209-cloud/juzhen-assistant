@@ -98,7 +98,9 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
   }
 
   // 返回 true = 这条消息已处理（素材群里的消息都不再走别的逻辑）
-  async function onMsg({ m, text, images, sid }) {
+  async function onMsg({ m, text, images, sid, quiet }) {
+    if (m.chat_id && st.chat !== m.chat_id) { st.chat = m.chat_id; save(); }
+    if (!quiet && /^\s*补漏\s*$/.test(text || '') && !(images || []).length) { reply(m.message_id, '⏳ 开始回头检查今天群里的图，没存进去的补上…'); resync(m.chat_id).then(r => reply(m.message_id, `✅ 补漏完成：检查 ${r.seen} 张，补存 ${r.added} 张` + (r.fail ? `，${r.fail} 张仍失败（会在下次补漏时再试）` : ''))).catch(e => reply(m.message_id, '⚠️ 补漏出错：' + e.message)); return true; }
     const who = await senderName(sid).catch(() => '');
     const files = [];
     try {
@@ -116,10 +118,10 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
       try {
         const buf = await retry(() => x.get()); if (!buf || !buf.length) throw new Error('没下载到原图');
         const r = await (iq = iq.catch(() => { }).then(() => ingest(buf, x.name, sid, who, c)));
-        if (r.dup) { note(sid, m.message_id, 'dup', 1); continue; }
-        note(sid, m.message_id, 'ok', r.code, c);
+        if (r.dup) { if (quiet) quiet.dup++; else note(sid, m.message_id, 'dup', 1); continue; }
+        if (quiet) { quiet.added++; } else note(sid, m.message_id, 'ok', r.code, c);
         if (!c) { const l = bare.get(sid) || []; l.push({ rec: r.rec, code: r.code, at: Date.now() }); bare.set(sid, l); }
-      } catch (e) { log('[素材库] 入库出错：' + e.message); note(sid, m.message_id, 'fail', /91403|403|Forbidden|permission/i.test(e.message) ? '机器人还没有「小红书内容工坊」表格的编辑权限' : e.message.slice(0, 80)); }
+      } catch (e) { log('[素材库] 入库出错：' + e.message); if (quiet) { quiet.fail++; continue; } note(sid, m.message_id, 'fail', /91403|403|Forbidden|permission/i.test(e.message) ? '机器人还没有「小红书内容工坊」表格的编辑权限' : e.message.slice(0, 80)); }
     }
     return true;
   }
@@ -138,10 +140,31 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
     } while (pt);
     return n;
   }
+  // 补漏：翻素材群从 since（默认今天 0 点）起的消息，没存进表的图重新存（按图片内容去重，存过的自动跳过）
+  async function resync(chatId, since) {
+    chatId = chatId || st.chat; if (!chatId) throw new Error('还不知道素材群是哪个，先在群里发一张图');
+    const t0 = since || (Math.floor((Date.now() + 8 * 3600e3) / 864e5) * 864e5 - 8 * 3600e3);
+    const r = { seen: 0, added: 0, dup: 0, fail: 0 }; let pt = '';
+    do {
+      const d = await api.call('GET', '/im/v1/messages', null, Object.assign({ container_id_type: 'chat', container_id: chatId, start_time: String(Math.floor(t0 / 1000)), sort_type: 'ByCreateTimeAsc', page_size: 50 }, pt ? { page_token: pt } : {}));
+      for (const it of d.items || []) {
+        if ((it.sender || {}).sender_type !== 'user') continue; let c = {}; try { c = JSON.parse((it.body || {}).content || '{}'); } catch (e) { }
+        let images = [], text = '';
+        if (it.msg_type === 'image') images = [c.image_key];
+        else if (it.msg_type === 'post') { const b = c.content ? c : (c.zh_cn || c.en_us || Object.values(c)[0] || {}); const fl = (b.content || []).flat(); images = fl.filter(x => x.tag === 'img').map(x => x.image_key); text = fl.filter(x => x.tag === 'text').map(x => x.text).join(' '); }
+        else if (it.msg_type !== 'file') continue;
+        const n0 = r.added + r.dup + r.fail;
+        await onMsg({ m: { message_id: it.message_id, message_type: it.msg_type, content: (it.body || {}).content, chat_id: chatId }, text, images: images.filter(Boolean), sid: (it.sender || {}).id || '', quiet: r });
+        r.seen += r.added + r.dup + r.fail - n0;
+      }
+      pt = d.has_more ? d.page_token : '';
+    } while (pt);
+    log(`[素材库] 补漏：检查 ${r.seen} 张，补存 ${r.added} 张，已有 ${r.dup} 张，失败 ${r.fail} 张`); return r;
+  }
   async function check() { // 自检：能不能读到表和字段
     const d = await api.call('GET', `/bitable/v1/apps/${APP}/tables/${T}/fields`, null, { page_size: 100 });
     return (d.items || []).map(f => f.field_name + ':' + f.type);
   }
-  return { onMsg, check, backfillAI, parseCaption, aiStat: () => aiN };
+  return { onMsg, check, backfillAI, resync, parseCaption, aiStat: () => aiN };
 }
 module.exports = { createRawLib, parseCaption };

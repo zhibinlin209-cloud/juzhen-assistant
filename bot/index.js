@@ -246,7 +246,7 @@ async function setup() {
   }
   const rawlib = require('./lib/rawlib').createRawLib({ api: { call }, upload, imgBuf, fileBuf, toJpg, reply, senderName, log, dataDir: DATA_DIR, cfg, vision: cfg.qwenKey ? vision : null });
   setTimeout(() => rawlib.check().then(f => log('[素材库] 原图素材库可访问，字段：' + f.join('、'))).catch(e => log('[素材库] 还读不到「小红书内容工坊」：' + e.message)), 40e3);
-  setInterval(() => on('rawUpload') && rawlib.backfillAI(dl, 100).then(n => n && log(`[素材库] 补识别 ${n} 张`)).catch(e => log('[素材库] 补识别出错：' + e.message)), 30 * 60e3); setTimeout(() => on('rawUpload') && rawlib.backfillAI(dl, 100).then(n => n && log(`[素材库] 补识别 ${n} 张`)).catch(() => { }), 90e3);
+  setInterval(() => on('rawUpload') && rawlib.backfillAI(dl, 100).then(n => n && log(`[素材库] 补识别 ${n} 张`)).catch(e => log('[素材库] 补识别出错：' + e.message)), 30 * 60e3); setTimeout(() => on('rawUpload') && rawlib.resync().catch(e => log('[素材库] 补漏：' + e.message)), 60e3); setTimeout(() => on('rawUpload') && rawlib.backfillAI(dl, 100).then(n => n && log(`[素材库] 补识别 ${n} 张`)).catch(() => { }), 90e3);
   const mover = require('./lib/movebase').createMover({ api: { call }, upload, dl, log, dataDir: DATA_DIR });
   async function moveLibs() {
     const m = String(cfg.dailyBaseUrl || '').match(/\/base\/([A-Za-z0-9]+)/); if (!m) throw new Error('NO_PRIVATE_BASE'); const from = m[1], to = await core.appToken();
