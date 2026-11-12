@@ -1,7 +1,7 @@
 /* 素材上传群 → 「小红书内容工坊」多维表格的「原图素材库」
  * 同事在群名带「素材上传」的群里发菜品照片（图片、原图文件、图文混排都认），配一句「门店 菜品」（如「白石洲 奶油虾」）
  * · 说明可以和图一起发（图文混排），也可以 2 分钟内先发或后发一句文字，同一个人的算一组
- * · 没写说明也收：门店=其他，@ 他补一句；10 分钟内补的说明会自动回填到这几张图上
+ * · 说明不是必须的：通义千问看图自动填 菜品 / 用途 / 画面干净度（AI 初判）；门店出品都一样，不写就留空；写了店名或菜名就以写的为准
  * · 按图片内容（SHA1）去重，重复的跳过并提示；写入失败在群里报错，不静默丢图
  * 由功能开关「素材群收图」（rawUpload）控制
  */
@@ -20,7 +20,14 @@ function parseCaption(raw) {
   return { store: store || '其他', dish: dish.slice(0, 60), raw: t.slice(0, 200), hit: !!store };
 }
 
-function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, log, dataDir, cfg }) {
+const AI_PROMPT = `这是粤式海鲜大排档「YES也是大排档」的一张素材照片，准备用作小红书笔记配图。只按看到的内容判断，只输出一行 JSON，不要别的文字：
+{"菜品":"画面主角的菜名，尽量具体，如 奶油虾、蒜蓉生蚝、鱿鱼须、干炒牛河、椒盐皮皮虾、炒花甲、炒蟹、海胆炒饭、反沙凤梨、炒米粉、鸡翅、粥；多道菜摆满桌写「满桌」；没有菜写「环境」「门头」「人物」或「其他」","用途":"封面候选|内页|环境门头|人物动作|待定","画面干净度":"干净无字|少字|有字","说明":"20 字内描述画面"}
+规则：用途——菜品特写清晰、有食欲、构图适合竖版封面才写「封面候选」；店招、门口、店内环境写「环境门头」；以人和动作为主（夹菜、干杯、剥虾）写「人物动作」；其余菜品图写「内页」；看不清写「待定」。画面干净度——没有任何文字水印写「干净无字」；有小块文字或价签写「少字」；大段文字或拼图写「有字」。`;
+async function small(buf) { // 大图先缩到长边 1600，再给通义看（只用于识别，入库的仍是原图）
+  try { if (buf.length < 1.5e6) return { b: buf, t: 'image/jpeg' }; const C = require('@napi-rs/canvas'); const im = await C.loadImage(buf); const k = Math.min(1, 1600 / Math.max(im.width, im.height)); const cv = C.createCanvas(Math.round(im.width * k), Math.round(im.height * k)); cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height); return { b: cv.toBuffer('image/jpeg', 85), t: 'image/jpeg' }; } catch (e) { return { b: buf, t: 'image/jpeg' }; }
+}
+
+function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, log, dataDir, cfg, vision }) {
   const APP = (cfg && cfg.rawApp) || 'KYhJb5OvqaJnlYsdNEUc9kOMnmg';
   const T = (cfg && cfg.rawTable) || 'tblKTzFWP26rj7e0';
   const F = path.join(dataDir, 'rawlib.json');
@@ -36,11 +43,9 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
   function flush(sid) {
     const b = batch.get(sid); if (!b) return; batch.delete(sid);
     const L = [];
-    if (b.ok.length) L.push(`✅ 已入库 ${b.ok.length} 张` + (b.c ? `（${b.c.store}${b.c.dish ? ' · ' + b.c.dish : ''}）` : '') + `：${b.ok.slice(0, 5).join('、')}${b.ok.length > 5 ? ' 等' : ''}`);
+    if (b.ok.length) L.push(`✅ 已入库 ${b.ok.length} 张` + (b.c && b.c.hit ? `（${b.c.store}${b.c.dish ? ' · ' + b.c.dish : ''}）` : '') + (vision ? '，菜品和用途由 AI 自动识别，稍后填进表里' : ''));
     if (b.dup) L.push(`♻️ 重复 ${b.dup} 张，已跳过`);
     if (b.fail.length) L.push(`⚠️ ${b.fail.length} 张没存进去：${b.fail[0]}。请稍后重发，或告诉管理员`);
-    if (b.noCap) L.push(`${at(sid)}已收图，请补一句：门店+菜名（如「白石洲 奶油虾」），否则这张图用不上`);
-    else if (b.c && !b.c.hit && b.ok.length) L.push(`门店没认出来，先记成「其他」，原话放在备注里；下次写上店名（如 白石洲、华强北、水东街）`);
     if (L.length) reply(b.mid, L.join('\n'));
   }
   function note(sid, mid, k, v, c) {
@@ -52,23 +57,40 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
   async function ingest(buf, name, sid, who, c) {
     const h = crypto.createHash('sha1').update(buf).digest('hex');
     if (st.hash[h]) return { dup: true };
-    const store = c ? c.store : '其他', d = day(); const k = store + d; st.seq[k] = (st.seq[k] || 0) + 1;
-    const code = `${store}-${d}-${String(st.seq[k]).padStart(2, '0')}`;
+    const store = c && c.hit ? c.store : '', d = day(); const pre = store || '素材'; const k = pre + d; st.seq[k] = (st.seq[k] || 0) + 1;
+    const code = `${pre}-${d}-${String(st.seq[k]).padStart(2, '0')}`;
     const ext = /png/i.test(name) ? 'png' : /webp/i.test(name) ? 'webp' : 'jpg';
     const tok = await upload(buf, `${code}.${ext}`, 'bitable_image', APP);
-    const f = { 素材编号: code, 图片: [{ file_token: tok }], 门店: store, 拍摄人: who || '', 拍摄日期: Date.now(), 用途: '待定', 使用状态: '未使用' };
-    if (c && c.dish) f.菜品 = c.dish; if (c && !c.hit) f.备注 = '说明原文：' + c.raw;
+    const f = { 素材编号: code, 图片: [{ file_token: tok }], 拍摄人: who || '', 拍摄日期: Date.now(), 用途: '待定', 使用状态: '未使用' };
+    if (store) f.门店 = store; if (c && c.dish) f.菜品 = c.dish; if (c && !c.hit && c.raw) f.备注 = '说明原文：' + c.raw;
     const r = await api.call('POST', `/bitable/v1/apps/${APP}/tables/${T}/records`, { fields: f });
     const rec = (r.record || {}).record_id; st.hash[h] = rec || 1; save();
-    log(`[素材库] ${who} ${code}${c ? '' : '（待补说明）'}`);
+    log(`[素材库] ${who} ${code}${c ? '' : '（无说明，交给 AI 识别）'}`);
+    if (rec) aiTag(rec, buf, c);
     return { code, rec };
+  }
+  // 通义看图：菜品 / 用途 / 画面干净度（AI 初判，排队一张张来，不阻塞收图）
+  let q = Promise.resolve(); const aiN = { ok: 0, fail: 0 };
+  function aiTag(rec, buf, c) {
+    if (!vision) return;
+    q = q.then(async () => {
+      try {
+        const s = await small(buf); const out = await vision(AI_PROMPT, `data:${s.t};base64,` + s.b.toString('base64'));
+        const m = String(out || '').match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : null; if (!j) throw new Error('没看出结果');
+        const f = {}; const use = ['封面候选', '内页', '环境门头', '人物动作', '待定'].find(x => String(j['用途'] || '').includes(x)); if (use) f.用途 = use;
+        const cl = ['干净无字', '少字', '有字'].find(x => String(j['画面干净度'] || '') === x) || ['干净无字', '少字', '有字'].find(x => String(j['画面干净度'] || '').includes(x)); if (cl) f.画面干净度 = cl;
+        if (!(c && c.dish) && j['菜品']) f.菜品 = String(j['菜品']).slice(0, 30);
+        f.备注 = ((c && !c.hit && c.raw) ? '说明原文：' + c.raw + '；' : '') + 'AI 初判：' + String(j['说明'] || '').slice(0, 40);
+        await api.call('PUT', `/bitable/v1/apps/${APP}/tables/${T}/records/${rec}`, { fields: f }); aiN.ok++;
+      } catch (e) { aiN.fail++; log('[素材库] AI 识别出错：' + e.message); }
+    });
   }
 
   // 补说明：把这个人 10 分钟内没说明的图回填上
   async function backfill(sid, mid, c) {
     const list = (bare.get(sid) || []).filter(x => Date.now() - x.at < 10 * 60e3 && x.rec); if (!list.length) return false; bare.delete(sid);
-    let n = 0; for (const x of list) { try { const f = { 门店: c.store }; if (x.code && c.store !== '其他') f.素材编号 = x.code.replace(/^其他-/, c.store + '-'); if (c.dish) f.菜品 = c.dish; if (!c.hit) f.备注 = '说明原文：' + c.raw; await api.call('PUT', `/bitable/v1/apps/${APP}/tables/${T}/records/${x.rec}`, { fields: f }); n++; } catch (e) { log('[素材库] 回填说明出错：' + e.message); } }
-    if (n) reply(mid, `✅ 已把说明补到刚才的 ${n} 张图上（${c.store}${c.dish ? ' · ' + c.dish : ''}）`);
+    let n = 0; for (const x of list) { try { if (!c.hit && !c.dish) continue; const f = {}; if (c.hit) f.门店 = c.store; if (x.code && c.hit) f.素材编号 = x.code.replace(/^素材-/, c.store + '-'); if (c.dish) f.菜品 = c.dish; if (!c.hit) f.备注 = '说明原文：' + c.raw; await api.call('PUT', `/bitable/v1/apps/${APP}/tables/${T}/records/${x.rec}`, { fields: f }); n++; } catch (e) { log('[素材库] 回填说明出错：' + e.message); } }
+    if (n) reply(mid, `✅ 已把「${c.raw}」补到刚才的 ${n} 张图上`);
     return true;
   }
 
@@ -93,7 +115,7 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
         const r = await ingest(buf, x.name, sid, who, c);
         if (r.dup) { note(sid, m.message_id, 'dup', 1); continue; }
         note(sid, m.message_id, 'ok', r.code, c);
-        if (!c) { const l = bare.get(sid) || []; l.push({ rec: r.rec, code: r.code, at: Date.now() }); bare.set(sid, l); note(sid, m.message_id, 'noCap', 1); }
+        if (!c) { const l = bare.get(sid) || []; l.push({ rec: r.rec, code: r.code, at: Date.now() }); bare.set(sid, l); }
       } catch (e) { log('[素材库] 入库出错：' + e.message); note(sid, m.message_id, 'fail', /91403|403|Forbidden|permission/i.test(e.message) ? '机器人还没有「小红书内容工坊」表格的编辑权限' : e.message.slice(0, 80)); }
     }
     return true;
@@ -103,6 +125,6 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
     const d = await api.call('GET', `/bitable/v1/apps/${APP}/tables/${T}/fields`, null, { page_size: 100 });
     return (d.items || []).map(f => f.field_name + ':' + f.type);
   }
-  return { onMsg, check, parseCaption };
+  return { onMsg, check, parseCaption, aiStat: () => aiN };
 }
 module.exports = { createRawLib, parseCaption };

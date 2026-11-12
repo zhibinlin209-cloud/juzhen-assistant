@@ -244,7 +244,7 @@ async function setup() {
     await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'file', content: JSON.stringify({ file_key: key }) }, { receive_id_type: 'open_id' });
     log(`[导出] ${name} ${r.n} 行 → 已私聊发给老板`); return { ok: true, rows: r.n, cols: cols.length, file: fname, bytes: buf.length };
   }
-  const rawlib = require('./lib/rawlib').createRawLib({ api: { call }, upload, imgBuf, fileBuf, toJpg, reply, senderName, log, dataDir: DATA_DIR, cfg });
+  const rawlib = require('./lib/rawlib').createRawLib({ api: { call }, upload, imgBuf, fileBuf, toJpg, reply, senderName, log, dataDir: DATA_DIR, cfg, vision: cfg.qwenKey ? vision : null });
   setTimeout(() => rawlib.check().then(f => log('[素材库] 原图素材库可访问，字段：' + f.join('、'))).catch(e => log('[素材库] 还读不到「小红书内容工坊」：' + e.message)), 40e3);
   const mover = require('./lib/movebase').createMover({ api: { call }, upload, dl, log, dataDir: DATA_DIR });
   async function moveLibs() {

@@ -40,7 +40,7 @@
 - `campaign.js` 投放/代发链接追踪；`settle.js` 月度结算；`people.js` 人员账号对照。
 - `feedback.js` 群里 @机器人 提的需求，马上私聊转给老板。
 - `features.js` 功能开关（见第 4 节）。
-- `rawlib.js` 素材上传群收图：群名带「素材上传」的群，发图配「门店 菜品」→ 写入「小红书内容工坊」多维表格（KYhJb5OvqaJnlYsdNEUc9kOMnmg）的「原图素材库」（tblKTzFWP26rj7e0）；SHA1 去重，没说明的 @ 补，10 分钟内补的说明自动回填。需要机器人被加为该表格的文档应用（可编辑）。
+- `rawlib.js` 素材上传群收图：群名带「素材上传」的群，直接发图（说明可选）→ 写入「小红书内容工坊」多维表格（KYhJb5OvqaJnlYsdNEUc9kOMnmg）的「原图素材库」（tblKTzFWP26rj7e0）；SHA1 去重；通义看图自动填 菜品/用途/画面干净度（AI 初判，封面最终人工复验）；门店出品一样，不写店名就留空；写了说明以说明为准。需要机器人被加为该表格的文档应用（可编辑）。
 - `movebase.js` 跨多维表格搬表（含附件，可断点续搬）。
 - `web.js` 驾驶舱和全部 `/lib/*` 接口。
 - `xlsx.js` / `xlsxwrite.js` 极简 xlsx 读写。
