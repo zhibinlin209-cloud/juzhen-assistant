@@ -31,7 +31,7 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
   const APP = (cfg && cfg.rawApp) || 'KYhJb5OvqaJnlYsdNEUc9kOMnmg';
   const T = (cfg && cfg.rawTable) || 'tblKTzFWP26rj7e0';
   const F = path.join(dataDir, 'rawlib.json');
-  let st = { hash: {}, seq: {} }; try { st = Object.assign(st, JSON.parse(fs.readFileSync(F, 'utf8'))); } catch (e) { }
+  let st = { hash: {}, seq: {}, aiFail: {} }; try { st = Object.assign(st, JSON.parse(fs.readFileSync(F, 'utf8'))); } catch (e) { }
   const save = () => { try { fs.writeFileSync(F, JSON.stringify(st)); } catch (e) { } };
   const cap = new Map();      // sid → { c: 解析后的说明, at }
   const bare = new Map();     // sid → [{ rec, at }] 没说明的图，等补
@@ -82,7 +82,7 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
         if (!(c && c.dish) && j['菜品']) f.菜品 = String(j['菜品']).slice(0, 30);
         f.备注 = ((c && !c.hit && c.raw) ? '说明原文：' + c.raw + '；' : '') + 'AI 初判：' + String(j['说明'] || '').slice(0, 40);
         await api.call('PUT', `/bitable/v1/apps/${APP}/tables/${T}/records/${rec}`, { fields: f }); aiN.ok++;
-      } catch (e) { aiN.fail++; log('[素材库] AI 识别出错：' + e.message); }
+      } catch (e) { aiN.fail++; st.aiFail = st.aiFail || {}; st.aiFail[rec] = (st.aiFail[rec] || 0) + 1; save(); log('[素材库] AI 识别出错：' + e.message); }
     });
   }
 
@@ -121,10 +121,24 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
     return true;
   }
 
+  // 补识别：表里还没有「AI 初判」的图（含表单上传的、改版前收的），逐张补上；每次最多 max 张
+  async function backfillAI(dl, max) {
+    if (!vision || !dl) return 0; let pt = '', n = 0;
+    do {
+      const d = await api.call('POST', `/bitable/v1/apps/${APP}/tables/${T}/records/search`, {}, Object.assign({ page_size: 200 }, pt ? { page_token: pt } : {}));
+      for (const r of d.items || []) {
+        if (n >= (max || 200)) return n; const f = r.fields || {}; if (/AI 初判/.test(JSON.stringify(f['备注'] || '')) || ((st.aiFail || {})[r.record_id] || 0) >= 2) continue;
+        const a = (Array.isArray(f['图片']) ? f['图片'] : [])[0]; if (!a) continue;
+        try { const buf = await dl(a.url || `https://open.feishu.cn/open-apis/drive/v1/medias/${a.file_token}/download`); const dish = String((Array.isArray(f['菜品']) ? f['菜品'].map(x => x.text || '').join('') : f['菜品']) || ''); aiTag(r.record_id, buf, dish ? { dish, hit: true } : null); n++; await q; } catch (e) { log('[素材库] 补识别下载出错：' + e.message); }
+      }
+      pt = d.has_more ? d.page_token : '';
+    } while (pt);
+    return n;
+  }
   async function check() { // 自检：能不能读到表和字段
     const d = await api.call('GET', `/bitable/v1/apps/${APP}/tables/${T}/fields`, null, { page_size: 100 });
     return (d.items || []).map(f => f.field_name + ':' + f.type);
   }
-  return { onMsg, check, parseCaption, aiStat: () => aiN };
+  return { onMsg, check, backfillAI, parseCaption, aiStat: () => aiN };
 }
 module.exports = { createRawLib, parseCaption };
