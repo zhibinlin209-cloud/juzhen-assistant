@@ -142,7 +142,9 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
   }
   // 补漏：翻素材群从 since（默认今天 0 点）起的消息，没存进表的图重新存（按图片内容去重，存过的自动跳过）
   async function resync(chatId, since) {
-    chatId = chatId || st.chat; if (!chatId) throw new Error('还不知道素材群是哪个，先在群里发一张图');
+    chatId = chatId || st.chat;
+    if (!chatId) { let pt2 = ''; do { const d = await api.call('GET', '/im/v1/chats', null, Object.assign({ page_size: 100 }, pt2 ? { page_token: pt2 } : {})); const g = (d.items || []).find(x => /素材上传/.test(x.name || '')); if (g) { chatId = g.chat_id; st.chat = chatId; save(); break; } pt2 = d.has_more ? d.page_token : ''; } while (pt2); }
+    if (!chatId) throw new Error('机器人不在任何名字带「素材上传」的群里');
     const t0 = since || (Math.floor((Date.now() + 8 * 3600e3) / 864e5) * 864e5 - 8 * 3600e3);
     const r = { seen: 0, added: 0, dup: 0, fail: 0 }; let pt = '';
     do {
