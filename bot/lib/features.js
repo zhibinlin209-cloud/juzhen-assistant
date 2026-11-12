@@ -28,6 +28,7 @@ const LIST = [
   ['campaign', '链接追踪重读', '每天 11:00 重读链接追踪表，更新赞藏评', '定时'],
   ['studio', 'AI 工作台素材', '素材图库导入、打标签、推送审核通过的稿件', '定时'],
   ['snapshot', '每日数据快照', '每天 03:30 存一份笔记数据快照（投放实验用）', '定时'],
+  ['rawUpload', '素材群收图', '「素材上传群」发菜品图（配一句「门店 菜品」）→ 存进「小红书内容工坊 · 原图素材库」', '群消息'],
 ];
 function createFeatures({ dataDir, log }) {
   const F = path.join(dataDir, 'features.json'); let off = {}; try { off = JSON.parse(fs.readFileSync(F, 'utf8')); } catch (e) { }

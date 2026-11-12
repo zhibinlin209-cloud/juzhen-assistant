@@ -40,6 +40,7 @@
 - `campaign.js` 投放/代发链接追踪；`settle.js` 月度结算；`people.js` 人员账号对照。
 - `feedback.js` 群里 @机器人 提的需求，马上私聊转给老板。
 - `features.js` 功能开关（见第 4 节）。
+- `rawlib.js` 素材上传群收图：群名带「素材上传」的群，发图配「门店 菜品」→ 写入「小红书内容工坊」多维表格（KYhJb5OvqaJnlYsdNEUc9kOMnmg）的「原图素材库」（tblKTzFWP26rj7e0）；SHA1 去重，没说明的 @ 补，10 分钟内补的说明自动回填。需要机器人被加为该表格的文档应用（可编辑）。
 - `movebase.js` 跨多维表格搬表（含附件，可断点续搬）。
 - `web.js` 驾驶舱和全部 `/lib/*` 接口。
 - `xlsx.js` / `xlsxwrite.js` 极简 xlsx 读写。
@@ -65,6 +66,8 @@
 老板在「经营日报」群发「功能开关」查看，「关闭 编号」「开启 编号/名称」切换（16 字以内的短句才认），存 `data/features.json`，即时生效。清单定义在 `bot/lib/features.js`，代码里用 `on('key')` 判断。**新增功能时要把它加进清单并加上 `on()` 判断，同时更新本节。**
 
 群消息：1 登记小红书/点评/携程(regXhs) 2 登记抖音(regDouyin) 3 登记视频号(regSph) 4 @机器人重写(rewrite) 5 数据截图识别(screenshot) 6 收稿(draft) 7 派稿(paigao) 8 @机器人提需求(feedback) 9 经营日报入库(daily) 10 推广通报表入库(tgtFile)
+
+群消息（后加）：25 素材群收图(rawUpload)
 
 定时：11 每日简报 09:00(brief) 12 推广通提醒 9/10 点 @刘泽荣(tgtRemind) 13 推广通插件自动拉取 8 点后(tgtAuto) 14 投放周报 周一(adsWeekly) 15 官方号同步 8 点后(officialAuto) 16 插件自动补账号/数据(pluginFill) 17 每日 AI 写稿 08:20(drafts) 18 周一 AI 写稿 10:40(creatorWeekly) 19 周一深度分析(deep) 20 发布进度提醒 20:00/21:30(progress) 21 月度结算草稿 1 号 10:30(settle) 22 链接追踪重读 11:00(campaign) 23 AI 工作台素材(studio) 24 每日数据快照 03:30(snapshot)
 

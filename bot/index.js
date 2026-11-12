@@ -244,6 +244,8 @@ async function setup() {
     await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'file', content: JSON.stringify({ file_key: key }) }, { receive_id_type: 'open_id' });
     log(`[导出] ${name} ${r.n} 行 → 已私聊发给老板`); return { ok: true, rows: r.n, cols: cols.length, file: fname, bytes: buf.length };
   }
+  const rawlib = require('./lib/rawlib').createRawLib({ api: { call }, upload, imgBuf, fileBuf, toJpg, reply, senderName, log, dataDir: DATA_DIR, cfg });
+  setTimeout(() => rawlib.check().then(f => log('[素材库] 原图素材库可访问，字段：' + f.join('、'))).catch(e => log('[素材库] 还读不到「小红书内容工坊」：' + e.message)), 40e3);
   const mover = require('./lib/movebase').createMover({ api: { call }, upload, dl, log, dataDir: DATA_DIR });
   async function moveLibs() {
     const m = String(cfg.dailyBaseUrl || '').match(/\/base\/([A-Za-z0-9]+)/); if (!m) throw new Error('NO_PRIVATE_BASE'); const from = m[1], to = await core.appToken();
@@ -384,9 +386,10 @@ async function setup() {
   async function onMessage(data) {
     const m = data.message || {}; if (!m.message_id || seen.has(m.message_id)) return; seen.add(m.message_id); if (seen.size > 5000) seen.clear();
     if (m.chat_type !== 'group') return;
-    if (cfg.chats && cfg.chats.length && !cfg.chats.includes(m.chat_id) && !/发布群|派稿|存放群|稿件|回收/.test(await chatName(m.chat_id))) return;
+    if (cfg.chats && cfg.chats.length && !cfg.chats.includes(m.chat_id) && !/发布群|派稿|存放群|稿件|回收|素材上传/.test(await chatName(m.chat_id))) return;
     let { text, images, media } = flatten(m.message_type, m.content);
     const sid = ((data.sender || {}).sender_id || {}).open_id || '';
+    if (/素材上传/.test(await chatName(m.chat_id))) { if (on('rawUpload') && (data.sender || {}).sender_type === 'user') { try { await rawlib.onMsg({ m, text, images, sid }); } catch (e) { log('[素材库] 出错：' + e.message); } } return; } // 素材上传群：只收图进「原图素材库」，不走登记/截图识别
     if (m.message_type === 'media' || m.message_type === 'file') {
       let c = {}; try { c = JSON.parse(m.content || '{}'); } catch (e) { }
       log(`[消息] ${m.message_type} ${c.file_name || '(无文件名)'}${c.duration ? ' 时长' + c.duration + 'ms' : ''}${draft.active(sid) ? ' · 收稿中' : ''}`);
