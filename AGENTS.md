@@ -53,6 +53,12 @@
 4. 插件：改 `extension/`，升 `manifest.json` 版本号。老板电脑装了「XijuPluginAutoUpdate」计划任务（`extension/update.ps1`），每 30 分钟从 `/cockpit/lib/ext/zip` 拉新版覆盖（不覆盖 `ingest-key.js`），插件里会提示重新加载。
 5. 上线后验证：在老板电脑浏览器打开 `https://work.yesyueji.com/cockpit/about` 能打开就说明服务在跑；功能是否生效看群里的实际回复。
 
+## 2.1 驾驶舱登录（2026-11-13 起）
+- 账号密码登录：密码只存加盐哈希（scrypt）在服务器 data/cockpit-pass.json；登录后 7 天有效（Cookie 名 xck2，旧的链接登录全部失效）。
+- 第一次设置 / 忘记密码：经营日报群发「驾驶舱」或「重设驾驶舱密码」→ 机器人私聊老板一个设置链接（30 分钟、只能用一次）。
+- 同一 IP 15 分钟内输错 5 次锁定 15 分钟。简报里只附驾驶舱网址，不再附可直接登录的链接。
+- 公开页面只有 /about、/dy/callback 和领稿页 /t/（每条稿件单独签名链接）。
+
 ## 3. 密钥和数据放在哪（**值都不写在这里，也不能写进仓库**）
 
 - 服务器数据目录 `/opt/xiju-bot/data/`：`config.json`（飞书机器人 App ID/Secret、通义/DeepSeek key、老板 open_id、群 ID 等）、`dy-app.json`（抖音开放平台密钥）、`dy-tokens.json`、`features.json`（功能开关）、各种状态 json、`xiju.db`、`snap/`（每日数据快照）。

@@ -43,9 +43,23 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
     }
     return send(res, 404, '{}');
   }
-  function loginLink() { const b = bossId(); return b ? `${base}login?t=${sign(b, Date.now() + 7 * DAY, 'L')}` : ''; }
+  // 账号密码登录（2026-11-13 起）：密码只存加盐哈希在服务器 data/cockpit-pass.json；第一次 / 忘记密码 用私聊给老板的「设置密码链接」（30 分钟有效、只能用一次）
+  const PASS_F = path.join(process.env.BOT_DATA_DIR || path.join(__dirname, '..'), 'cockpit-pass.json');
+  let PASS = null; try { PASS = JSON.parse(fs.readFileSync(PASS_F, 'utf8')); } catch (e) { }
+  const hashPw = (pw, salt) => crypto.scryptSync(String(pw), salt, 32).toString('hex');
+  const usedSetup = new Set(); const fails = new Map();
+  function setupLink(min) { const b = bossId(); return b ? `${base}login?s=${sign(b, Date.now() + (min || 30) * 60e3, 'P')}` : ''; }
+  function loginLink() { return base; } // 简报里只附网址，不再附带能直接登录的链接
+  const hasPass = () => !!PASS;
+  const esc = x => String(x || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const shell = (title, body) => `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><style>body{margin:0;background:#f5f5f4;font:16px/1.6 -apple-system,'PingFang SC','Microsoft YaHei',sans-serif;color:#1c1917}main{max-width:360px;margin:12vh auto;padding:28px 24px;background:#fff;border-radius:14px;box-shadow:0 1px 3px #0001}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;color:#57534e;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d6d3d1;border-radius:8px;font-size:16px}button{margin-top:18px;width:100%;padding:11px;border:0;border-radius:8px;background:#b91c1c;color:#fff;font-size:16px}.m{color:#b91c1c;font-size:14px;margin-top:10px}.h{color:#78716c;font-size:13px;margin-top:14px}</style></head><body><main>${body}</main></body></html>`;
+  const loginPage = msg => shell('禧聚驾驶舱 · 登录', `<h1>禧聚经营驾驶舱</h1><form method="post" action="${base}login"><label>账号</label><input name="user" autocomplete="username" required><label>密码</label><input name="pass" type="password" autocomplete="current-password" required><button>登录</button></form>${msg ? `<div class="m">${esc(msg)}</div>` : ''}<div class="h">${PASS ? '忘记密码：在飞书「经营日报」群发「重设驾驶舱密码」，机器人会私聊老板一个重设链接。' : '还没有设置密码：在飞书「经营日报」群发「驾驶舱」，机器人会私聊老板一个设置链接。'}</div>`);
+  const setPage = (tok, msg) => shell('设置驾驶舱密码', `<h1>设置驾驶舱账号密码</h1><form method="post" action="${base}setpass"><input type="hidden" name="s" value="${esc(tok)}"><label>账号（自己起一个，如 linzong）</label><input name="user" autocomplete="username" required minlength="2" maxlength="30" value="${esc(PASS && PASS.user)}"><label>密码（至少 8 位，建议字母+数字）</label><input name="pass" type="password" autocomplete="new-password" required minlength="8"><label>再输一次密码</label><input name="pass2" type="password" autocomplete="new-password" required minlength="8"><button>保存并登录</button></form>${msg ? `<div class="m">${esc(msg)}</div>` : ''}<div class="h">设置后，旧的登录链接全部失效，所有人都要用账号密码重新登录。</div>`);
+  const sessCookie = who => `xck2=${sign(who, Date.now() + 7 * DAY, 'S')}; Path=/cockpit/; Max-Age=${7 * 86400}; HttpOnly; Secure; SameSite=Lax`;
+  async function form(req) { let b = ''; for await (const c of req) { b += c; if (b.length > 8192) break; } return Object.fromEntries(new URLSearchParams(b)); }
+  const ipOf = req => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
 
-  const cookie = req => { const m = String(req.headers.cookie || '').match(/(?:^|;\s*)xck=([^;]+)/); return m ? m[1] : ''; };
+  const cookie = req => { const m = String(req.headers.cookie || '').match(/(?:^|;\s*)xck2=([^;]+)/); return m ? m[1] : ''; };
   const send = (res, code, body, type, extra) => { res.writeHead(code, Object.assign({ 'content-type': type || 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer' }, extra || {})); res.end(body); };
   const page = p => { try { return fs.readFileSync(path.join(__dirname, '..', 'cockpit', p)); } catch (e) { return null; } };
 
@@ -176,9 +190,34 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
         if (code && typeof onDyAuth === 'function') { try { await onDyAuth({ code, state, scopes }); } catch (e) { log('[抖音授权] 处理出错：' + e.message); } }
         return send(res, 200, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>授权结果</title><div style="font:17px/1.7 -apple-system,'PingFang SC',sans-serif;padding:40px 24px;text-align:center">${code ? '✅ 授权成功，可以关掉这个页面了。<br><span style="color:#888;font-size:14px">机器人稍后会开始同步这个抖音号的作品数据</span>' : '⚠️ 没有收到授权，请回到抖音授权页重新点「同意授权」'}</div>`, 'text/html; charset=utf-8');
       }
-      if (p === '/login') { const who = verify(u.searchParams.get('t'), 'L'); if (!who) return send(res, 403, '<meta charset="utf-8"><p style="font:16px sans-serif;padding:24px">登录链接无效或已过期。请在飞书里给机器人的「经营日报」群发「驾驶舱」，拿一个新链接。</p>', 'text/html; charset=utf-8'); log('[驾驶舱] 老板登录'); return send(res, 302, '', 'text/plain', { location: base, 'set-cookie': `xck=${sign(who, Date.now() + 30 * DAY, 'S')}; Path=/cockpit/; Max-Age=${30 * 86400}; HttpOnly; Secure; SameSite=Lax` }); }
+      if (p === '/logout') return send(res, 302, '', 'text/plain', { location: base + 'login', 'set-cookie': 'xck2=; Path=/cockpit/; Max-Age=0; HttpOnly; Secure; SameSite=Lax' });
+      if (p === '/login' && req.method === 'GET') {
+        const st = u.searchParams.get('s'); const H = 'text/html; charset=utf-8';
+        if (st) { if (!verify(st, 'P') || usedSetup.has(st)) return send(res, 403, shell('链接失效', '<h1>设置链接已失效</h1><p>链接 30 分钟内有效、只能用一次。请在飞书「经营日报」群发「重设驾驶舱密码」拿新链接。</p>'), H); return send(res, 200, setPage(st, ''), H); }
+        return send(res, 200, loginPage(u.searchParams.get('t') ? '旧的登录链接已停用，请用账号密码登录。' : ''), H);
+      }
+      if (p === '/login' && req.method === 'POST') {
+        const H = 'text/html; charset=utf-8', ip = ipOf(req), now = Date.now(); const f = (fails.get(ip) || []).filter(t => now - t < 15 * 60e3); fails.set(ip, f);
+        if (f.length >= 5) { log(`[驾驶舱] 登录失败次数过多，暂时锁定 ${ip}`); return send(res, 429, loginPage('输错太多次，请 15 分钟后再试。'), H); }
+        const b = await form(req);
+        if (!PASS) return send(res, 200, loginPage('还没有设置密码。'), H);
+        const ok = String(b.user || '').trim() === PASS.user && crypto.timingSafeEqual(Buffer.from(hashPw(b.pass || '', PASS.salt), 'hex'), Buffer.from(PASS.hash, 'hex'));
+        if (!ok) { f.push(now); log(`[驾驶舱] 登录失败（${ip}，第 ${f.length} 次）`); return send(res, 401, loginPage('账号或密码不对。'), H); }
+        fails.delete(ip); log(`[驾驶舱] 账号密码登录成功（${ip}）`); return send(res, 302, '', 'text/plain', { location: base, 'set-cookie': sessCookie(bossId() || 'boss') });
+      }
+      if (p === '/setpass' && req.method === 'POST') {
+        const H = 'text/html; charset=utf-8'; const b = await form(req); const who = verify(b.s, 'P');
+        if (!who || usedSetup.has(b.s)) return send(res, 403, shell('链接失效', '<h1>设置链接已失效</h1><p>请在飞书「经营日报」群发「重设驾驶舱密码」拿新链接。</p>'), H);
+        const user = String(b.user || '').trim(), pass = String(b.pass || '');
+        if (user.length < 2 || user.length > 30) return send(res, 200, setPage(b.s, '账号 2–30 个字。'), H);
+        if (pass.length < 8) return send(res, 200, setPage(b.s, '密码至少 8 位。'), H);
+        if (pass !== b.pass2) return send(res, 200, setPage(b.s, '两次输入的密码不一样。'), H);
+        const salt = crypto.randomBytes(16).toString('hex'); PASS = { user, salt, hash: hashPw(pass, salt), at: Date.now() };
+        try { fs.writeFileSync(PASS_F, JSON.stringify(PASS), { mode: 0o600 }); } catch (e) { log('[驾驶舱] 保存密码失败：' + e.message); return send(res, 500, setPage(b.s, '保存失败，请稍后再试。'), H); }
+        usedSetup.add(b.s); log('[驾驶舱] 已设置账号密码'); return send(res, 302, '', 'text/plain', { location: base, 'set-cookie': sessCookie(who) });
+      }
       const who = verify(cookie(req), 'S');
-      if (p === '/' || p === '/index.html') { const h = page('index.html'); if (!h) return send(res, 503, '驾驶舱页面还在更新，请 5 分钟后再刷新', 'text/plain; charset=utf-8'); if (!who) return send(res, 401, '<meta charset="utf-8"><meta name="viewport" content="width=device-width"><p style="font:16px sans-serif;padding:24px;line-height:1.7">这是禧聚的经营驾驶舱，需要登录。<br>请在飞书「经营日报」群里发「<b>驾驶舱</b>」，机器人会私聊你一个登录链接。</p>', 'text/html; charset=utf-8'); return send(res, 200, '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="robots" content="noindex"><style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}</style></head><body>' + h + '</body></html>', 'text/html; charset=utf-8'); }
+      if (p === '/' || p === '/index.html') { const h = page('index.html'); if (!h) return send(res, 503, '驾驶舱页面还在更新，请 5 分钟后再刷新', 'text/plain; charset=utf-8'); if (!who) return send(res, 302, '', 'text/plain', { location: base + 'login' }); return send(res, 200, '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><meta name="robots" content="noindex"><style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}</style></head><body>' + h + '</body></html>', 'text/html; charset=utf-8'); }
       if (!who) return send(res, 401, JSON.stringify({ error: '需要登录' }));
       if (p === '/api/state' && req.method === 'GET') return send(res, 200, JSON.stringify(await state()));
       if (p === '/api/todo' && req.method === 'POST') { let b = ''; for await (const c of req) { b += c; if (b.length > 4096) break; } const j = JSON.parse(b || '{}'); await brief.setTodo(String(j.id || ''), String(j.status || '')); cache = null; log(`[驾驶舱] 待办 ${j.id} → ${j.status}`); return send(res, 200, '{"ok":true}'); }
@@ -187,7 +226,7 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
   });
   server.on('error', e => log('[驾驶舱] 网页服务启动失败：' + e.message));
   server.listen(port || cfg.cockpitPort || 18900, '127.0.0.1', () => log(`[驾驶舱] 网页服务已就绪（本机 ${port || cfg.cockpitPort || 18900} 端口）`));
-  return { loginLink, taskLink, state, server };
+  return { loginLink, setupLink, hasPass, taskLink, state, server };
 }
 
 module.exports = { createWeb };
