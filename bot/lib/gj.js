@@ -20,7 +20,7 @@ function createGj({ dataDir, log }) {
   let st = {}; try { st = JSON.parse(fs.readFileSync(ST_F, 'utf8')); } catch (e) { }
   const save = () => { try { fs.writeFileSync(ST_F, JSON.stringify(st)); } catch (e) { } };
   const fileOf = d => path.join(DIR, d + '.json');
-  const has = d => { try { const j = JSON.parse(fs.readFileSync(fileOf(d), 'utf8')); return (j.index || []).length > 0 || (j.channel || []).length > 0; } catch (e) { return false; } };
+  const has = d => { try { const j = JSON.parse(fs.readFileSync(fileOf(d), 'utf8')); return (j.index || []).length > 0 && (j.channel || []).length > 0; } catch (e) { return false; } };
   const rawOf = d => { try { return JSON.parse(fs.readFileSync(fileOf(d), 'utf8')); } catch (e) { return null; } };
 
   // 要查哪几天：昨天 → 上周同日 → 去年同日（364 天前，同星期几）→ 近 35 天漏掉的 → 去年同期的近 35 天；每次最多 6 天
