@@ -387,7 +387,7 @@ async function setup() {
   async function onMessage(data) {
     const m = data.message || {}; if (!m.message_id || seen.has(m.message_id)) return; seen.add(m.message_id); if (seen.size > 5000) seen.clear();
     if (m.chat_type !== 'group') return;
-    if (cfg.chats && cfg.chats.length && !cfg.chats.includes(m.chat_id) && !/发布群|派稿|存放群|稿件|回收|素材上传/.test(await chatName(m.chat_id))) return;
+    if (cfg.chats && cfg.chats.length && !cfg.chats.includes(m.chat_id) && !/发布群|派稿|存放群|稿件|回收|素材上传|运营/.test(await chatName(m.chat_id))) return;
     let { text, images, media } = flatten(m.message_type, m.content);
     const sid = ((data.sender || {}).sender_id || {}).open_id || '';
     if (/素材上传/.test(await chatName(m.chat_id))) { if (on('rawUpload') && (data.sender || {}).sender_type === 'user') { try { await rawlib.onMsg({ m, text, images, sid }); } catch (e) { log('[素材库] 出错：' + e.message); } } return; } // 素材上传群：只收图进「原图素材库」，不走登记/截图识别
@@ -474,6 +474,7 @@ async function setup() {
     if (text && text.trim().length <= 16 && /^\s*(关闭|开启|打开)\s*\S+/.test(text) && m.chat_id === dailyChatNow()) { const mm2 = text.trim().match(/^(关闭|开启|打开)\s*(.+)$/); const it = feat.set(mm2[2], mm2[1] !== '关闭'); await reply(m.message_id, it ? `${mm2[1] === '关闭' ? '⚪️ 已关闭' : '🟢 已开启'}：${it[1]}` : '没找到这个功能，发「功能开关」看编号'); return; }
     if (text && /^\s*(需求汇总|需求清单|反馈汇总)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, (await feedback.summary({ all: true, days: 7 })) || '最近 7 天群里没有人 @机器人 提需求。'); } catch (e) { await reply(m.message_id, '⚠️ 汇总出错：' + e.message.slice(0, 60)); } return; }
     if (text && /^\s*(重新识别日报|重读日报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { rereadDaily(m.message_id); return; }
+    { const t1 = text ? text.replace(/@_user_\d+/g, '').trim() : ''; if (boss && sid === boss && /^(运营日报发这个群|运营日报发到这个群|运营日报不发群)$/.test(t1)) { if (/不发/.test(t1)) { opsSt.chatId = ''; saveOps(); await reply(m.message_id, '✅ 运营日报不再发到群里，只私聊。'); } else { opsSt.chatId = m.chat_id; saveOps(); await reply(m.message_id, '✅ 以后每天 8 点的运营日报（周一周报、1 号月报）会发到这个群。群里所有人都能看到全部门店营业额，请确认群成员。'); } return; } }
     // 运营日报接收人自己 @机器人 发「运营驾驶舱」：私聊他本人一个设置账号密码的链接（要先被林总加进接收人名单）
     { const t0 = text ? text.replace(/@_user_\d+/g, '').trim() : ''; const atBot = (m.mentions || []).some(x => /禧聚|助手|机器人|AI/i.test(String(x.name || '')));
       if (m.chat_id === dailyChatNow() && atBot && /^(运营驾驶舱|驾驶舱账号|设置驾驶舱密码|重设运营驾驶舱密码)/.test(t0) && sid === boss) { await reply(m.message_id, '林总不用 @我，直接发「运营驾驶舱 名字」就会私聊那个人设置链接；名单里的同事自己 @我 发「运营驾驶舱」也可以。'); return; }
@@ -481,7 +482,7 @@ async function setup() {
         const me = opsPeople().find(x => x.openId === sid); const url = (cfg.cockpitUrl || 'https://work.yesyueji.com/cockpit/').replace(/\/?$/, '/');
         if (!me) { await reply(m.message_id, '你还不在运营驾驶舱名单里，请林总在群里发「运营副总 你的飞书名字」把你加进来，再 @我 发一次「运营驾驶舱」。'); return; }
         try { await dm(sid, `🔐 运营驾驶舱：点这个链接设置你自己的账号和密码（30 分钟内有效、只能用一次，别转发）：\n${web.opsSetupLink(30)}\n\n以后登录网址：${url}\n忘了密码就在经营日报群 @我 再发一次「运营驾驶舱」。`); await reply(m.message_id, '✅ 设置链接已私聊发给你，30 分钟内有效。'); log(`[运营驾驶舱] ${me.name} 自己要了设置链接`); }
-        catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 80)); }
+        catch (e) { if (/230013|availability/i.test(e.message) && boss) { try { await dm(boss, `🔐 ${me.name} 在群里要运营驾驶舱设置链接，机器人私聊不到对方，请你转发（30 分钟内有效、只能用一次）：\n${web.opsSetupLink(30)}\n登录网址：${url}`); await reply(m.message_id, '机器人没法私聊你（飞书限制），设置链接已私聊发给林总，请林总转给你。'); } catch (e2) { await reply(m.message_id, '⚠️ 发送失败：' + e2.message.slice(0, 80)); } } else await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 80)); }
         return; } }
     // 运营副总相关（只认老板在经营日报群发）：运营副总 名字 / 运营驾驶舱 / 删除运营驾驶舱账号 / 运营日报 运营周报 运营月报（预览，只私聊老板）
     if (text && m.chat_id === dailyChatNow() && /^\s*(运营副总\s*\S+|删除运营日报接收人\s*\S+|运营日报接收人|运营驾驶舱(\s*\S+)?|重设运营驾驶舱密码|删除运营驾驶舱账号|运营日报|运营周报|运营月报)\s*$/.test(text)) {
@@ -494,7 +495,7 @@ async function setup() {
       if (t === '运营日报接收人') { const P = opsPeople(); await reply(m.message_id, P.length ? '运营日报接收人：' + P.map(x => x.name).join('、') + '（另外抄送你）' : '还没有接收人，发「运营副总 名字」添加'); return; }
       if (/^删除运营日报接收人/.test(t)) { const name = t.replace(/^删除运营日报接收人\s*/, '').trim(); opsSt.people = opsPeople().filter(x => x.name.toLowerCase() !== name.toLowerCase()); saveOps(); await reply(m.message_id, `✅ 已去掉「${name}」。现在的接收人：${opsSt.people.map(x => x.name).join('、') || '没有'}`); return; }
       if (/^(运营驾驶舱|重设运营驾驶舱密码)/.test(t)) { const P = opsPeople(); const want = t.replace(/^(运营驾驶舱|重设运营驾驶舱密码)\s*/, '').trim(); const who = want ? P.find(x => x.name.toLowerCase() === want.toLowerCase()) : P[0]; if (!who) { await reply(m.message_id, want ? `「${want}」还不是运营日报接收人，先发「运营副总 ${want}」` : '还没设置运营副总，先发「运营副总 名字」'); return; } const url = (cfg.cockpitUrl || 'https://work.yesyueji.com/cockpit/').replace(/\/?$/, '/');
-        try { await dm(who.openId, `🔐 林总给你开了「运营驾驶舱」：\n先点这个链接设置你自己的账号和密码（30 分钟内有效、只能用一次，别转发）：\n${web.opsSetupLink(30)}\n\n以后登录网址：${url}\n每天早上 8 点我会私聊你一份运营日报。`); await reply(m.message_id, `✅ 设置链接已私聊发给${who.name}（30 分钟内有效）。过期了再发一次「运营驾驶舱 ${who.name}」。注意：运营驾驶舱目前只有一个账号，谁先设置就是谁的账号密码，后设置的会覆盖前面的。`); } catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 80) + '（他可能还没和机器人说过话，让他在群里随便 @机器人 说一句再试）'); } return; }
+        try { await dm(who.openId, `🔐 林总给你开了「运营驾驶舱」：\n先点这个链接设置你自己的账号和密码（30 分钟内有效、只能用一次，别转发）：\n${web.opsSetupLink(30)}\n\n以后登录网址：${url}\n每天早上 8 点我会私聊你一份运营日报。`); await reply(m.message_id, `✅ 设置链接已私聊发给${who.name}（30 分钟内有效）。过期了再发一次「运营驾驶舱 ${who.name}」。`); } catch (e) { if (/230013|availability/i.test(e.message)) { try { await dm(boss, `🔐 ${who.name} 的运营驾驶舱设置链接（机器人私聊不到对方，请你转发；30 分钟内有效、只能用一次）：\n${web.opsSetupLink(30)}\n登录网址：${url}`); await reply(m.message_id, `机器人私聊不到${who.name}（对方不在机器人所在的飞书企业里），设置链接已私聊发给你，请转发给${who.name}。`); } catch (e2) { await reply(m.message_id, '⚠️ 发送失败：' + e2.message.slice(0, 80)); } } else await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 80)); } return; }
       if (t === '删除运营驾驶舱账号') { web.opsRemove(); await reply(m.message_id, '✅ 运营驾驶舱的账号已全部删除，他们现在都登录不了了。要重新开，发「运营驾驶舱 名字」。'); return; }
       const kind = t === '运营日报' ? 'daily' : t === '运营周报' ? 'week' : 'month';
       await reply(m.message_id, '好，正在生成，稍后私聊你（预览，只发给你）'); try { await sendOps(kind, { previewTo: boss }); } catch (e) { await reply(m.message_id, '⚠️ 没生成出来：' + e.message.slice(0, 100)); } return;
@@ -741,7 +742,8 @@ async function setup() {
     const txt = r.text + `\n\n🖥 运营驾驶舱：${link}`;
     if (o.previewTo) { await dm(o.previewTo, '（预览，只发给你）\n' + txt); return r; }
     const sent = [];
-    for (const pp of opsPeople()) { try { await dm(pp.openId, txt); sent.push(pp.name); } catch (e) { log(`[运营日报] 发给${pp.name}失败：` + e.message); } }
+    if (opsSt.chatId) { try { await call('POST', '/im/v1/messages', { receive_id: opsSt.chatId, msg_type: 'text', content: JSON.stringify({ text: txt.slice(0, 28000) }) }, { receive_id_type: 'chat_id' }); sent.push('运营群'); } catch (e) { log('[运营日报] 发到运营群失败：' + e.message); } }
+    for (const pp of opsPeople()) { try { await dm(pp.openId, txt); sent.push(pp.name); } catch (e) { if (!/230013|availability/i.test(e.message)) log(`[运营日报] 发给${pp.name}失败：` + e.message); } }
     if (boss) { try { await dm(boss, (opsPeople().length ? `（抄送：已发给${opsPeople().map(x => x.name).join('、')}）\n` : '（运营副总还没设置，先只发给你。在经营日报群发「运营副总 名字」设置）\n') + txt); sent.push('老板'); } catch (e) { log('[运营日报] 抄送老板失败：' + e.message); } }
     log(`[运营${kind === 'daily' ? '日报' : kind === 'week' ? '周报' : '月报'}] 已发给：${sent.join('、') || '没人（还不知道发给谁）'}`); return r;
   }
