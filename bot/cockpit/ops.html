@@ -58,7 +58,7 @@ svg text { fill: var(--mute); font-size: 11px }
     <h1>运营驾驶舱<small>禧聚 · 美团管家 + 门店日报</small></h1>
     <div class="grow"></div>
     <div class="datebar"><button id="prev" aria-label="前一天">‹</button><input id="date" type="date" style="font:inherit;border:1px solid var(--line);border-radius:8px;padding:4px 8px;background:var(--panel);color:var(--ink)"><button id="next" aria-label="后一天">›</button></div>
-    <a href="/cockpit/logout" class="status">退出</a>
+    <a href="/cockpit/" class="status" id="bossLink" hidden>回老板驾驶舱</a> <a href="/cockpit/logout" class="status">退出</a>
   </header>
   <div class="status" id="st"></div>
   <div class="kpis" id="kpis"></div>
@@ -92,6 +92,7 @@ svg text { fill: var(--mute); font-size: 11px }
     } catch (e) { $('st').textContent = '⚠️ ' + e.message; }
   }
   function render() {
+    $('bossLink').hidden = D.role !== 'boss';
     const day = D.day, T = day.T, g = D.gj || {};
     $('st').textContent = `${day.date}（${day.week}）· 美团管家数据 ${day.gjOk ? '已到' : '这天还没查到，先用门店日报的数'}` + (g.lastOk ? ` · 插件最近一次查数 ${new Date(g.lastOk).toLocaleString('zh-CN', { hour12: false })}` : '') + (g.lastErr ? ` · 最近问题：${g.lastErr}` : '');
     const K = [['营业额', wan(T.total), `环比 <span class="${cl(T.wow)}">${ps(T.wow)}</span> · 同比 <span class="${cl(T.yoy)}">${ps(T.yoy)}</span>`], ['堂食', wan(T.dine), ''], ['外卖', wan(T.takeout), T.total ? '占 ' + Math.round(T.takeout / T.total * 100) + '%' : ''], ['开台数', fmt(T.tables), ''], ['用餐人数', fmt(T.guests), T.tables ? '桌均 ' + (T.guests / T.tables).toFixed(1) + ' 人' : ''], ['差评', fmt(T.bad), '各平台合计']];
