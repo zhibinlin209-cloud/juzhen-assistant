@@ -474,6 +474,14 @@ async function setup() {
     if (text && text.trim().length <= 16 && /^\s*(关闭|开启|打开)\s*\S+/.test(text) && m.chat_id === dailyChatNow()) { const mm2 = text.trim().match(/^(关闭|开启|打开)\s*(.+)$/); const it = feat.set(mm2[2], mm2[1] !== '关闭'); await reply(m.message_id, it ? `${mm2[1] === '关闭' ? '⚪️ 已关闭' : '🟢 已开启'}：${it[1]}` : '没找到这个功能，发「功能开关」看编号'); return; }
     if (text && /^\s*(需求汇总|需求清单|反馈汇总)\s*$/.test(text) && m.chat_id === dailyChatNow()) { try { await reply(m.message_id, (await feedback.summary({ all: true, days: 7 })) || '最近 7 天群里没有人 @机器人 提需求。'); } catch (e) { await reply(m.message_id, '⚠️ 汇总出错：' + e.message.slice(0, 60)); } return; }
     if (text && /^\s*(重新识别日报|重读日报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { rereadDaily(m.message_id); return; }
+    // 运营日报接收人自己 @机器人 发「运营驾驶舱」：私聊他本人一个设置账号密码的链接（要先被林总加进接收人名单）
+    { const t0 = text ? text.replace(/@_user_\d+/g, '').trim() : ''; const atBot = (m.mentions || []).some(x => /禧聚|助手|机器人|AI/i.test(String(x.name || '')));
+      if (m.chat_id === dailyChatNow() && atBot && /^(运营驾驶舱|驾驶舱账号|设置驾驶舱密码|重设运营驾驶舱密码)$/.test(t0) && sid !== boss) {
+        const me = opsPeople().find(x => x.openId === sid); const url = (cfg.cockpitUrl || 'https://work.yesyueji.com/cockpit/').replace(/\/?$/, '/');
+        if (!me) { await reply(m.message_id, '你还不在运营驾驶舱名单里，请林总在群里发「运营副总 你的飞书名字」把你加进来，再 @我 发一次「运营驾驶舱」。'); return; }
+        try { await dm(sid, `🔐 运营驾驶舱：点这个链接设置你自己的账号和密码（30 分钟内有效、只能用一次，别转发）：\n${web.opsSetupLink(30)}\n\n以后登录网址：${url}\n忘了密码就在经营日报群 @我 再发一次「运营驾驶舱」。`); await reply(m.message_id, '✅ 设置链接已私聊发给你，30 分钟内有效。'); log(`[运营驾驶舱] ${me.name} 自己要了设置链接`); }
+        catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 80)); }
+        return; } }
     // 运营副总相关（只认老板在经营日报群发）：运营副总 名字 / 运营驾驶舱 / 删除运营驾驶舱账号 / 运营日报 运营周报 运营月报（预览，只私聊老板）
     if (text && m.chat_id === dailyChatNow() && /^\s*(运营副总\s*\S+|删除运营日报接收人\s*\S+|运营日报接收人|运营驾驶舱(\s*\S+)?|重设运营驾驶舱密码|删除运营驾驶舱账号|运营日报|运营周报|运营月报)\s*$/.test(text)) {
       if (!boss || sid !== boss) { await reply(m.message_id, '这个指令只有林总能用'); return; }
