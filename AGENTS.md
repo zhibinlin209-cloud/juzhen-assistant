@@ -44,7 +44,7 @@
 - `movebase.js` 跨多维表格搬表（含附件，可断点续搬）。
 - `web.js` 驾驶舱和全部 `/lib/*` 接口。
 - `xlsx.js` / `xlsxwrite.js` 极简 xlsx 读写。
-- `gj.js` 美团管家每日数据：插件早上 6:30 后在老板浏览器里查「营业指标统计 / 渠道营业统计 / 菜品销售统计 / 时段开台分析」，交到 `/lib/gj/need`、`/lib/gj/ingest`，每天一个文件 `data/gj/日期.json`；双系统门店（名字带空格那套）读的时候合并。查询模板存在 pos.meituan.com 的本机存储（`__rm_tpl_*`），服务器备份 `data/gj-tpl.json`（不进仓库）。插件端代码 `extension/gjrun.js`（注入页面、走美团自己的请求签名）。
+- `gj.js` 美团管家每日数据：插件早上 6:30 后在老板浏览器里查「营业指标统计 / 渠道营业统计 / 菜品销售统计 / 时段开台分析」，交到 `/lib/gj/need`、`/lib/gj/ingest`，每天一个文件 `data/gj/日期.json`；双系统门店（名字带空格那套）读的时候合并。查询模板存在 pos.meituan.com 的本机存储（`__rm_tpl_*`），服务器备份 `data/gj-tpl.json`（不进仓库）。插件端代码 `extension/gjrun.js`（注入页面、走美团自己的请求签名）。另有美团经营宝（`extension/jybrun.js`，早上 7 点后、`/lib/jyb/need|ingest`，存 `data/jyb/`）：各店昨天流量 + 「商圈同行店均/标杆店均」、点评和美团差评原文、上周新老客（顾客分析只有按周/月）。
 - `opsreport.js` 运营日报/周报/月报（管家优先、门店日报兜底；环比=上周同日，同比=去年同星期几），每天 8:00 私聊运营副总并抄送老板（开关 26 opsDaily）。
 
 ## 2. 怎么改、怎么上线

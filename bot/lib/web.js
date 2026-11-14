@@ -176,6 +176,8 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
         // 美团管家每日数据（插件早上在老板浏览器里查好交过来）
         if (p === '/lib/gj/need' && gj) return sendc(res, 200, JSON.stringify(gj.need(u.searchParams.get('force') === '1')));
         if (p === '/lib/gj/ingest' && req.method === 'POST' && gj) { let b = ''; for await (const c of req) { b += c; if (b.length > 8e6) break; } try { const j = JSON.parse(b || '{}'); const r = gj.ingest(j); if (onGj) onGj(r, j).catch(e => log('[美团管家] 后续处理出错：' + e.message)); return sendc(res, 200, JSON.stringify(r)); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
+        if (p === '/lib/jyb/need' && gj) return sendc(res, 200, JSON.stringify(gj.jybNeed(u.searchParams.get('force') === '1')));
+        if (p === '/lib/jyb/ingest' && req.method === 'POST' && gj) { let b = ''; for await (const c of req) { b += c; if (b.length > 8e6) break; } try { const j = JSON.parse(b || '{}'); const r = gj.jybIngest(j); if (onGj) onGj(Object.assign({ jyb: true }, r), j).catch(e => log('[经营宝] 后续处理出错：' + e.message)); return sendc(res, 200, JSON.stringify(r)); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
         if (p === '/lib/dailycheck' && req.method === 'GET' && dailyCheck) return sendc(res, 200, JSON.stringify(await dailyCheck()));
         // 数据库核对：每家店在飞书和本地库里的行数、日期范围、营业额合计，逐店对比
         if (p === '/lib/dbcheck' && req.method === 'GET' && dbCheck) { try { return sendc(res, 200, JSON.stringify(await dbCheck())); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }

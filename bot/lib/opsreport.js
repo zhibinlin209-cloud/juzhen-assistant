@@ -42,10 +42,13 @@ function createOpsReport({ gj, store, chat, log }) {
   function dailyData(d) {
     d = d || addDays(ymd(Date.now()), -1); const lw = addDays(d, -7), ly = addDays(d, -364);
     const R = dailyRows(addDays(d, -364), d); const G = gj.day(d), GW = gj.day(lw), GY = gj.day(ly);
+    const J = gj.jybDay ? gj.jybDay(d) : null, CW = gj.custWeek ? gj.custWeek() : null;
     const rows = []; for (const s of STORES) {
       const a = storeDay(G, R, s, d); if (!a.src) { rows.push({ store: s, missing: true }); continue; }
       const w = storeDay(GW, R, s, lw), y = storeDay(GY, R, s, ly);
       const cmp = k => ({ wow: pc(a[k], w[k]), yoy: pc(a[k], y[k]) });
+      const jy = J && J.stores[s]; if (jy) { const C = jy.core || {}; const g = k => C[k] || {}; a.jyb = { view: g('曝光人数').v ?? jy.flow.view, viewPeer: g('曝光人数').peer, viewBench: g('曝光人数').bench, visit: g('访问人数').v ?? jy.flow.visit, visitPeer: g('访问人数').peer, buy: g('购买人数').v, buyPeer: g('购买人数').peer, cvr: g('访问-购买转化率').v, cvrPeer: g('访问-购买转化率').peer, collect: g('新增收藏').v ?? jy.flow.collect, collectPeer: g('新增收藏').peer, checkin: g('打卡人数').v ?? jy.flow.checkin, checkinPeer: g('打卡人数').peer, review: g('新增评价数').v, reviewPeer: g('新增评价数').peer, deal: jy.flow.dealAmt, dealCnt: jy.flow.dealCnt }; a.badText = jy.bad || []; }
+      const cw = CW && CW.stores[s]; if (cw) a.cust = Object.assign({ from: CW.from, to: CW.to }, cw);
       rows.push(Object.assign(a, { c: { total: cmp('total'), dine: cmp('dine'), takeout: cmp('takeout'), tables: cmp('tables'), guests: cmp('guests'), perCap: cmp('perCap'), tableAvg: cmp('tableAvg') }, last: { wTotal: w.total, yTotal: y.total } }));
     }
     const has = rows.filter(r => !r.missing); const sum = (L, k) => L.reduce((t, r) => t + (r[k] || 0), 0);
@@ -53,7 +56,8 @@ function createOpsReport({ gj, store, chat, log }) {
     const wHas = has.filter(r => r.last.wTotal), wT = wHas.reduce((t, r) => t + r.last.wTotal, 0), wA = wHas.reduce((t, r) => t + (r.total || 0), 0), yHas = has.filter(r => r.last.yTotal), yT = yHas.reduce((t, r) => t + r.last.yTotal, 0), yA = yHas.reduce((t, r) => t + (r.total || 0), 0);
     T.wow = wT ? pc(wA, wT) : null; T.yoy = yT ? pc(yA, yT) : null; T.yoyN = yHas.length;
     T.bad = has.reduce((t, r) => t + (r.dpBad || 0) + (r.mtBad || 0) + (r.dyBad || 0) + (r.wmBad || 0), 0);
-    return { date: d, week: wk(d), rows, T, gjOk: !!G, gjStatus: gj.status() };
+    T.badText = has.reduce((t, r) => t + (r.badText || []).length, 0);
+    return { date: d, week: wk(d), rows, T, gjOk: !!G, jybOk: !!J, gjStatus: gj.status() };
   }
   function storeLine(r) {
     if (r.missing) return `【${short(r.store)}】昨天没有数据（管家没查到、门店也没发日报）`;
@@ -65,6 +69,9 @@ function createOpsReport({ gj, store, chat, log }) {
       if (r.peak) L.push(`  晚市高峰 ${r.peak.hh} 开台 ${r.peak.tables}${r.mealMin ? ' · 平均用餐 ' + r.mealMin + ' 分钟' : ''}`);
       if (r.top && r.top.length) L.push(`  销量前五：${r.top.map(x => `${x.name.replace(/[（(].*?[)）]/g, '').slice(0, 10)} ${x.qty}`).join('、')}`);
     } else L.push('  （管家数据没查到，先用门店日报的数）');
+    const x = r.jyb; const times = (a, b) => a != null && b ? (a / b >= 10 ? Math.round(a / b) : (a / b).toFixed(1)) + '倍' : '—';
+    if (x) L.push(`  同商圈：曝光 ${wan(x.view)}（同行均 ${fmt(x.viewPeer)}，${times(x.view, x.viewPeer)}）· 团购购买 ${fmt(x.buy)} 人（同行 ${fmt(x.buyPeer)}，${times(x.buy, x.buyPeer)}）· 访问→购买 ${x.cvr != null ? (x.cvr * 100).toFixed(1) + '%' : '—'}（同行 ${x.cvrPeer != null ? (x.cvrPeer * 100).toFixed(1) + '%' : '—'}）· 打卡 ${fmt(x.checkin)}（同行 ${fmt(x.checkinPeer)}）`);
+    if (r.cust && (r.cust.newBuy != null)) { const tot = (r.cust.newBuy || 0) + (r.cust.oldBuy || 0); L.push(`  新客/老客（${String(r.cust.from || '').slice(4, 6)}/${String(r.cust.from || '').slice(6)}那周，美团+点评团购买单）：新客 ${fmt(r.cust.newBuy)} · 老客 ${fmt(r.cust.oldBuy)}${tot ? '（老客占 ' + Math.round((r.cust.oldBuy || 0) / tot * 100) + '%）' : ''}${r.cust.repurchase != null ? ' · 复购率 ' + (r.cust.repurchase * 100).toFixed(1) + '%' + (r.cust.repurchasePeer ? '（比同行 ' + r.cust.repurchasePeer + '）' : '') : ''}`); }
     const sc = [['点评', r.dp], ['美团', r.mt], ['抖音', r.dy], ['外卖', r.wm]].filter(x => x[1] != null).map(x => x[0] + ' ' + x[1]).join(' · ');
     const bad = (r.dpBad || 0) + (r.mtBad || 0) + (r.dyBad || 0) + (r.wmBad || 0);
     if (sc || bad) L.push(`  评分 ${sc || '—'}｜差评 ${bad}${bad ? '（' + [['点评', r.dpBad], ['美团', r.mtBad], ['抖音', r.dyBad], ['外卖', r.wmBad]].filter(x => x[1]).map(x => x[0] + x[1]).join('、') + '）' : ''}`);
@@ -75,16 +82,18 @@ function createOpsReport({ gj, store, chat, log }) {
     const p = `你是连锁餐饮（海鲜大排档「YES也是大排档」+ 粤菜「粤迹」）的运营分析助手，给运营副总写${kind}点评。\n要求：只用下面给的数字，不许编数字；口语、具体；不超过 8 行；先说整体，再点名 2–3 家最需要关注的店（涨得好的也可以点一家），每家一句原因判断（从人数、人均、开台、外卖、差评里找）+ 一个今天能做的动作；数据缺的就说缺，不要猜。环比=上周同一天，同比=去年同星期几。\n数据：${JSON.stringify(facts).slice(0, 9000)}`;
     try { return String(await chat(p, 900) || '').trim(); } catch (e) { log('[运营日报] AI 分析失败：' + e.message); return ''; }
   }
-  const compact = D => D.rows.filter(r => !r.missing).map(r => ({ 店: short(r.store), 营业额: Math.round(r.total || 0), 环比: ps(r.c.total.wow), 同比: ps(r.c.total.yoy), 堂食: Math.round(r.dine || 0), 堂食环比: ps(r.c.dine.wow), 外卖: Math.round(r.takeout || 0), 外卖环比: ps(r.c.takeout.wow), 开台: r.tables, 开台环比: ps(r.c.tables.wow), 人数: r.guests, 人数环比: ps(r.c.guests.wow), 人均: r.perCap && Math.round(r.perCap), 人均环比: ps(r.c.perCap.wow), 差评: (r.dpBad || 0) + (r.mtBad || 0) + (r.dyBad || 0) + (r.wmBad || 0), 美团分: r.mt, 点评分: r.dp }));
+  const compact = D => D.rows.filter(r => !r.missing).map(r => ({ 店: short(r.store), 营业额: Math.round(r.total || 0), 环比: ps(r.c.total.wow), 同比: ps(r.c.total.yoy), 堂食: Math.round(r.dine || 0), 堂食环比: ps(r.c.dine.wow), 外卖: Math.round(r.takeout || 0), 外卖环比: ps(r.c.takeout.wow), 开台: r.tables, 开台环比: ps(r.c.tables.wow), 人数: r.guests, 人数环比: ps(r.c.guests.wow), 人均: r.perCap && Math.round(r.perCap), 人均环比: ps(r.c.perCap.wow), 差评: (r.dpBad || 0) + (r.mtBad || 0) + (r.dyBad || 0) + (r.wmBad || 0), 美团分: r.mt, 点评分: r.dp, 曝光是同行几倍: r.jyb && r.jyb.viewPeer ? +(r.jyb.view / r.jyb.viewPeer).toFixed(1) : null, 团购购买是同行几倍: r.jyb && r.jyb.buyPeer ? +(r.jyb.buy / r.jyb.buyPeer).toFixed(1) : null, 差评内容: (r.badText || []).slice(0, 3).map(b => b.text.slice(0, 80)) }));
   async function daily(d) {
     const D = dailyData(d); const T = D.T;
     const head = [`📊 运营日报 · ${D.date.slice(5).replace('-', '/')}（${D.week}）`, `全部门店营业额 ${wan(T.total)}（环比 ${ps(T.wow)}，同比 ${ps(T.yoy)}${T.yoyN && T.yoyN < D.rows.filter(r => !r.missing).length ? '，' + T.yoyN + ' 家有去年数据' : ''}）`, `堂食 ${wan(T.dine)} · 外卖 ${wan(T.takeout)} · 开台 ${fmt(T.tables)} · 人数 ${fmt(T.guests)} · 差评 ${T.bad} 条`];
     if (!D.gjOk) head.push('⚠️ 美团管家昨天的数据还没查到（插件可能没跑），下面先用门店日报的数；开台、人数、菜品等管家数据缺。');
     const rows = D.rows.filter(r => !r.missing).sort((a, b) => (b.total || 0) - (a.total || 0)).concat(D.rows.filter(r => r.missing));
     const body = rows.map(storeLine).join('\n\n');
+    const badL = rows.filter(r => (r.badText || []).length).map(r => `【${short(r.store)}】\n` + r.badText.slice(0, 6).map(b => `  · ${b.p} ${b.star != null ? b.star + '星' : ''} ${b.t || ''}${b.replied === false ? '（未回复）' : ''}：${b.text.slice(0, 160)}`).join('\n')).join('\n');
+    const badSec = D.jybOk ? (badL ? '\n\n📝 差评原文（美团经营宝，点评 + 美团）\n' + badL : '\n\n📝 差评原文：昨天点评、美团都没有新差评') : '';
     const an = await ai('日报', { 日期: D.date + D.week, 合计: { 营业额: Math.round(T.total), 环比: ps(T.wow), 同比: ps(T.yoy), 堂食: Math.round(T.dine), 外卖: Math.round(T.takeout) }, 门店: compact(D) });
-    const tail = '\n\n说明：环比 = 和上周同一天比；同比 = 和去年同一个星期几比。营业额含外卖；桌均、人均按堂食算。同商圈对比、新老客占比、差评原文正在接入（美团经营宝），接好后自动加进来。';
-    return { data: D, text: head.join('\n') + '\n\n' + body + (an ? '\n\n🤖 分析\n' + an : '') + tail };
+    const tail = '\n\n说明：环比 = 和上周同一天比；同比 = 和去年同一个星期几比。营业额含外卖；桌均、人均按堂食算。同商圈 = 美团经营宝「商圈同行店均」。新老客只有按周的数，按团购/买单顾客算。' + (D.jybOk ? '' : '\n⚠️ 美团经营宝昨天的数据还没查到，同商圈对比和差评原文晚点在驾驶舱里看。');
+    return { data: D, text: head.join('\n') + '\n\n' + body + badSec + (an ? '\n\n🤖 分析\n' + an : '') + tail };
   }
 
   // ---------- 周报 / 月报 ----------

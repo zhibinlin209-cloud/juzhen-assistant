@@ -733,7 +733,8 @@ async function setup() {
     log(`[运营${kind === 'daily' ? '日报' : kind === 'week' ? '周报' : '月报'}] 已发给：${sent.join('、') || '没人（还不知道发给谁）'}`); return r;
   }
   async function onGj(r, j) { // 插件交来管家数据之后
-    if (r && r.login && boss && opsSt.loginWarn !== bjDay(Date.now())) { opsSt.loginWarn = bjDay(Date.now()); saveOps(); try { await dm(boss, '⚠️ 插件今天没法查美团管家：管家掉线了。请在装了「餐饮矩阵助手」的谷歌浏览器打开 pos.meituan.com 登录一下，插件会自动补上，8 点的运营日报也会补发。'); } catch (e) { } }
+    const k = r && r.jyb ? 'loginWarnJ' : 'loginWarn';
+    if (r && r.login && boss && opsSt[k] !== bjDay(Date.now())) { opsSt[k] = bjDay(Date.now()); saveOps(); try { await dm(boss, r.jyb ? '⚠️ 插件今天没法查美团经营宝（差评原文、同商圈对比、新老客）：经营宝掉线了。请在装了「餐饮矩阵助手」的谷歌浏览器打开 ecom.meituan.com 登录一下，插件会自动补上。' : '⚠️ 插件今天没法查美团管家：管家掉线了。请在装了「餐饮矩阵助手」的谷歌浏览器打开 pos.meituan.com 登录一下，插件会自动补上，8 点的运营日报也会补发。'); } catch (e) { } }
   }
   onGj.lastTexts = () => opsSt.texts || {};
   // 每天 8:00 发日报：管家昨天的数据到了就发；没到就等到 8:30 用门店日报先发。周一加发周报，1 号加发月报

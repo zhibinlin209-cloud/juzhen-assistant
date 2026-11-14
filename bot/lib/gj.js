@@ -92,7 +92,41 @@ function createGj({ dataDir, log }) {
     for (const o of Object.values(S)) { o.tableAvg = o.tables ? o.dine / o.tables : null; o.perCap = o.guests ? o.dine / o.guests : null; o.top = Object.values(o.dishes).sort((p, q) => q.qty - p.qty).slice(0, 10); delete o.dishes; }
     return { from, to, days, stores: S };
   }
-  function status() { const files = fs.readdirSync(DIR).filter(f => /\.json$/.test(f)).sort(); return { days: files.length, first: (files[0] || '').slice(0, 10), last: (files[files.length - 1] || '').slice(0, 10), lastOk: st.lastOk || 0, lastErr: st.lastErr || '', failAt: st.failAt || 0 }; }
-  return { need, ingest, day, range, status, has, norm, addDays, ymd };
+
+  // ---------- 美团经营宝（插件早上 7 点后查）：各店昨天流量 + 商圈同行店均、差评原文；上周新老客 ----------
+  const JDIR = path.join(dataDir, 'jyb'); try { fs.mkdirSync(JDIR, { recursive: true }); } catch (e) { }
+  const jfile = d => path.join(JDIR, d + '.json');
+  const jHas = d => fs.existsSync(jfile(d));
+  const STORE_RULES = [[/华强北/, '深圳华强北燕南店'], [/江南西/, '广州江南西店'], [/玖洲/, '珠海玖洲道店'], [/水东/, '惠州水东街店'], [/HOP|前海/i, '深圳前海HOP店'], [/白石洲/, '深圳白石洲店'], [/千灯湖|西街|保利/, '佛山保利西街店'], [/创意产业园/, '佛山创意产业园店'], [/33小镇|东城/, '东莞东城33小镇店'], [/花园城|蛇口|粤迹/, '深圳蛇口招商花园城店']];
+  const jName = n => { if (CLOSED.test(n)) return null; const r = STORE_RULES.find(([re]) => re.test(n)); return r ? r[1] : null; };
+  const lastWeek = () => { const y = addDays(ymd(Date.now()), -1); const wd = new Date(y + 'T00:00:00Z').getUTCDay(); const sun = addDays(y, -wd); const mon = addDays(sun, -6); return [mon, sun]; };
+  function jybNeed(force) {
+    const now = Date.now(), bj = new Date(now + 8 * 3600e3), y = addDays(ymd(now), -1);
+    if (!force && bj.getUTCHours() * 60 + bj.getUTCMinutes() < 7 * 60) return { ok: true, need: false, why: '早上 7 点以后再查' };
+    if (!force && st.jFailAt && now - st.jFailAt < 25 * 60e3) return { ok: true, need: false, why: '上次没查到，过一会再试' };
+    if (jHas(y) && !force) return { ok: true, need: false };
+    const [mon, sun] = lastWeek(); const wk = mon.replace(/-/g, '/') + '-' + sun.replace(/-/g, '/');
+    return { ok: true, need: true, day: y, week: st.jWeek === wk && !force ? '' : wk };
+  }
+  function jybIngest(j) {
+    if (j.err) { st.jFailAt = Date.now(); st.jErr = String(j.err).slice(0, 200); save(); log('[经营宝] 插件没查到：' + st.jErr); return { ok: false, login: /登录/.test(j.err) }; }
+    const d = String(j.day || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, error: '日期不对' };
+    const stores = {};
+    for (const x of j.stores || []) { const k = jName(x.name); if (!k) continue; stores[k] = { name: x.name, poiId: x.poiId, flow: x.flow || {}, core: x.core || {}, bad: (x.bad || []).slice(0, 30), cust: x.cust || null }; }
+    const active = Object.values(stores).filter(x => (x.flow.view || 0) > 0).length;
+    if (!active) { st.jFailAt = Date.now(); st.jErr = '经营宝昨天的数据还没出来'; save(); log('[经营宝] 昨天的数据还没出来，过会再查'); return { ok: false, notReady: true }; }
+    try { fs.writeFileSync(jfile(d), JSON.stringify({ day: d, at: Date.now(), stores, errors: (j.errors || []).slice(0, 20) })); } catch (e) { log('[经营宝] 存文件失败：' + e.message); }
+    const custN = Object.values(stores).filter(x => x.cust).length; if (j.week && custN) { st.jWeek = j.week; try { fs.writeFileSync(path.join(JDIR, 'week-' + j.week.replace(/\//g, '').replace('-', '_') + '.json'), JSON.stringify(Object.fromEntries(Object.entries(stores).filter(([, x]) => x.cust).map(([k, x]) => [k, x.cust])))); } catch (e) { } }
+    st.jFailAt = 0; st.jErr = (j.errors || []).length ? j.errors.slice(0, 3).join('；') : ''; st.jOk = Date.now(); save();
+    const bad = Object.values(stores).reduce((t, x) => t + x.bad.length, 0);
+    log(`[经营宝] 入库 ${d}：${Object.keys(stores).length} 家店，差评原文 ${bad} 条${custN ? '，新老客 ' + custN + ' 家' : ''}`);
+    return { ok: true, text: `${Object.keys(stores).length} 家店，差评 ${bad} 条` };
+  }
+  function jybDay(d) { try { return JSON.parse(fs.readFileSync(jfile(d), 'utf8')); } catch (e) { return null; } }
+  function custWeek() { // 最近一份周新老客
+    try { const f = fs.readdirSync(JDIR).filter(x => /^week-/.test(x)).sort().pop(); if (!f) return null; const m = f.match(/week-(\d{8})_(\d{8})/); return { from: m && m[1], to: m && m[2], stores: JSON.parse(fs.readFileSync(path.join(JDIR, f), 'utf8')) }; } catch (e) { return null; }
+  }
+  function status() { const files = fs.readdirSync(DIR).filter(f => /\.json$/.test(f)).sort(); return { days: files.length, first: (files[0] || '').slice(0, 10), last: (files[files.length - 1] || '').slice(0, 10), lastOk: st.lastOk || 0, lastErr: st.lastErr || '', failAt: st.failAt || 0, jOk: st.jOk || 0, jErr: st.jErr || '' }; }
+  return { need, ingest, day, range, status, has, norm, addDays, ymd, jybNeed, jybIngest, jybDay, custWeek };
 }
 module.exports = { createGj, norm, addDays, ymd };

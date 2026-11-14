@@ -267,6 +267,27 @@
   }
   setTimeout(() => autoGj(), 2 * 60e3); setInterval(() => autoGj(), 5 * 60e3); // 服务器按北京时间早上 6:30 起放行
 
+  // ---------- 美团经营宝每日数据：早上 7 点后查昨天各店流量 + 商圈同行店均、差评原文；周一顺带查上周新老客 ----------
+  const JY = { busy: false };
+  async function autoJyb(force) {
+    if (JY.busy || GJ.busy || TG.busy) return; let need; try { need = await srv('/lib/jyb/need' + (force ? '?force=1' : '')); } catch (e) { if (force) gjlog('✗ 经营宝：' + e.message); return; }
+    if (!need.need) { if (force) gjlog('经营宝：今天的数据已经拿过了'); return; }
+    JY.busy = true; forceRender(); let w = null;
+    try {
+      gjlog(`打开美团经营宝，查 ${need.day} 的流量、同商圈对比、差评${need.week ? '和上周新老客' : ''}…`);
+      w = await chrome.windows.create({ url: 'https://ecom.meituan.com/bizguide/flow-analysis/overview?commonParams=%7B%22acl_user_id%22%3A0%7D', focused: false, width: 1200, height: 860, type: 'normal' });
+      const tab = w.tabs[0].id; await waitLoad(tab, 30000); await sleep(5000); const tb = await chrome.tabs.get(tab).catch(() => ({}));
+      if (!/^https:\/\/ecom\.meituan\.com\/bizguide\//.test(tb.url || '')) { const er = '没登录美团经营宝（页面跳到了登录页）：请在这个浏览器打开 ecom.meituan.com 登录'; gjlog('✗ ' + er); try { await srv('/lib/jyb/ingest', { err: er }); } catch (e) { } return; }
+      await chrome.scripting.executeScript({ target: { tabId: tab }, world: 'MAIN', files: ['jybrun.js'] });
+      const [r] = await chrome.scripting.executeScript({ target: { tabId: tab }, world: 'MAIN', args: [need.day, need.week || ''], func: async (day, week) => { try { return await window.__rmJybRun(day, week); } catch (e) { return { error: String(e && e.message || e) }; } } });
+      const d = (r && r.result) || { error: '页面没响应' };
+      if (d.error) { gjlog('✗ 经营宝：' + d.error); try { await srv('/lib/jyb/ingest', { err: d.error }); } catch (e) { } return; }
+      const j = await srv('/lib/jyb/ingest', d); gjlog(j.ok ? `✓ 经营宝已交给机器人：${j.text}` : '经营宝昨天的数据还没出来，半小时后再查');
+    } catch (e) { gjlog('✗ 经营宝：' + e.message); }
+    finally { try { if (w) await chrome.windows.remove(w.id); } catch (e) { } JY.busy = false; forceRender(); }
+  }
+  setTimeout(() => autoJyb(), 4 * 60e3); setInterval(() => autoJyb(), 5 * 60e3); // 服务器按北京时间早上 7 点起放行
+
   // ---------- 同类爆款调研：在小红书搜同类关键词，读回近期高赞笔记 ----------
   // 关键词：门店商圈 → 城市攻略 → 品类 → 场景 → 爆款句式（前面带 * 的不限地区，门槛翻倍）
   const KW0 = '水东街美食\n水东街宵夜\n惠州水东街\n惠州老街美食\n惠州西湖附近美食\n华强北美食\n华强北宵夜\n华强北附近吃什么\n福田宵夜\n白石洲美食\n白石洲宵夜\n深圳湾附近美食\n南山宵夜\n前海美食\n前海宵夜\n前海附近吃什么\n宝安中心美食\n蛇口美食\n蛇口花园城美食\n南山粤菜\n深圳粤菜家宴\n江南西美食\n江南西宵夜\n海珠美食\n广州海珠宵夜\n珠海美食\n珠海宵夜\n香洲美食\n珠海本地人推荐\n千灯湖美食\n千灯湖宵夜\n南海美食\n佛山宵夜\n佛山创意产业园美食\n禅城美食\n禅城宵夜\n东城33小镇美食\n东莞东城美食\n东莞宵夜\n惠州美食攻略\n惠州本地人小店\n深圳美食攻略\n深圳本地人推荐\n广州美食攻略\n广州本地人推荐\n珠海美食攻略\n佛山美食攻略\n东莞美食攻略\n海鲜大排档\n粤式大排档\n广式大排档\n潮汕大排档\n生腌\n干炒牛河\n砂锅粥\n粤菜家宴\n粤菜馆推荐\n宵夜大排档\n深圳宵夜\n广州宵夜\n朋友聚餐推荐\n家庭聚餐粤菜\n请客吃饭粤菜\n凌晨还开的店\n一个人宵夜\n*本地人私藏大排档\n*大排档避雷\n*大排档必点\n*人均50宵夜\n*宵夜清单\n*本地人才知道的店';
@@ -377,7 +398,7 @@
       ${S.busy ? `<div class="hint"><b>${S.paused ? '⏸ 等你在小红书窗口里完成验证…' : S.restUntil ? `⏸ 歇一会，约 ${new Date(S.restUntil).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })} 接着读第 ${S.i + 1}/${S.n} 条` : `进行中 ${S.i}/${S.n}：${h(S.cur)}`}</b> · 成功 ${S.ok} · 读不了 ${S.fail}</div>` : ''}
       ${S.log.length ? `<pre class="small-pre">${h(S.log.slice(0, 12).join('\n'))}</pre>` : ''}
     </div>
-    <div class="section-h"><h2>美团管家每日数据</h2><span class="hint">每天早上 6:30 后自动查昨天各店的营业额、堂食/外卖、开台数、人数、桌均、人均、菜品销量、时段开台，交给机器人做运营日报。要求这个浏览器登录着美团管家。</span></div>
+    <div class="section-h"><h2>美团管家 / 经营宝每日数据</h2><span class="hint">每天早上 6:30 后自动查美团管家（营业额、堂食/外卖、开台、人数、桌均、人均、菜品、时段开台），7 点后查美团经营宝（同商圈对比、差评原文、新老客），交给机器人做运营日报。要求这个浏览器登录着美团管家和经营宝。</span></div>
     <div class="panel stack"><div class="row"><span class="hint grow">${GJ.busy ? '查询中…' : GJ.last ? '最近一次：' + h(GJ.last) : '等早上自动跑'}</span><button class="btn" data-action="fs-own-gj" ${GJ.busy || !has ? 'disabled' : ''}>现在查一次</button></div>
       ${GJ.log.length ? `<pre class="small-pre">${h(GJ.log.join('\n'))}</pre>` : ''}</div>
     `;
@@ -401,7 +422,7 @@
     </div>
 `;
   }
-  async function act(action) { if (action === 'fs-own-tgt') autoTgt(true); if (action === 'fs-own-gj') autoGj(true); if (action === 'fs-own-dy') syncDouyin(false); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-bad') { if (S.bad) { S.bad = null; forceRender(); } else { try { S.bad = (await srv('/lib/unreadable')).items || []; } catch (e) { toast(e.message); } forceRender(); } } if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
+  async function act(action) { if (action === 'fs-own-tgt') autoTgt(true); if (action === 'fs-own-gj') { autoGj(true).then(() => autoJyb(true)); } if (action === 'fs-own-dy') syncDouyin(false); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-bad') { if (S.bad) { S.bad = null; forceRender(); } else { try { S.bad = (await srv('/lib/unreadable')).items || []; } catch (e) { toast(e.message); } forceRender(); } } if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
   function attach(root) {
     if (!S.info && CFG().key) refresh();
     root.addEventListener('change', e => { const t = e.target; const k = t.dataset && t.dataset.own; if (k === 'batch') S.batch = +t.value || 100; if (k === 'per' || k === 'minLike' || k === 'days') R[k] = +t.value; if (k === 'work' || k === 'rest') { R[k] = +t.value; saveRS(); forceRender(); } if (k === 'camp') T.cur = t.value; });
