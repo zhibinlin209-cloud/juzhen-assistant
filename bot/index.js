@@ -476,6 +476,7 @@ async function setup() {
     if (text && /^\s*(重新识别日报|重读日报)\s*$/.test(text) && m.chat_id === dailyChatNow()) { rereadDaily(m.message_id); return; }
     // 运营日报接收人自己 @机器人 发「运营驾驶舱」：私聊他本人一个设置账号密码的链接（要先被林总加进接收人名单）
     { const t0 = text ? text.replace(/@_user_\d+/g, '').trim() : ''; const atBot = (m.mentions || []).some(x => /禧聚|助手|机器人|AI/i.test(String(x.name || '')));
+      if (m.chat_id === dailyChatNow() && atBot && /^(运营驾驶舱|驾驶舱账号|设置驾驶舱密码|重设运营驾驶舱密码)/.test(t0) && sid === boss) { await reply(m.message_id, '林总不用 @我，直接发「运营驾驶舱 名字」就会私聊那个人设置链接；名单里的同事自己 @我 发「运营驾驶舱」也可以。'); return; }
       if (m.chat_id === dailyChatNow() && atBot && /^(运营驾驶舱|驾驶舱账号|设置驾驶舱密码|重设运营驾驶舱密码)$/.test(t0) && sid !== boss) {
         const me = opsPeople().find(x => x.openId === sid); const url = (cfg.cockpitUrl || 'https://work.yesyueji.com/cockpit/').replace(/\/?$/, '/');
         if (!me) { await reply(m.message_id, '你还不在运营驾驶舱名单里，请林总在群里发「运营副总 你的飞书名字」把你加进来，再 @我 发一次「运营驾驶舱」。'); return; }
