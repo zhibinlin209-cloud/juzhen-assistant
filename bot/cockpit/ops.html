@@ -90,7 +90,7 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
 <div class="wrap">
   <header class="top">
     <div class="brand">禧聚 <b>运营</b> 驾驶舱</div>
-    <nav class="tabs"><a class="tab" href="#s-stores">门店</a><a class="tab" href="#s-trend">走势</a><a class="tab" href="#s-bad">差评</a><a class="tab" href="#s-rep">报告</a></nav>
+    <nav class="tabs"><a class="tab" href="#s-stores">门店</a><a class="tab" href="#s-cmp">菜品/同行/新老客</a><a class="tab" href="#s-trend">走势</a><a class="tab" href="#s-bad">差评</a><a class="tab" href="#s-rep">报告</a></nav>
     <div class="status">
       <span id="src"></span>
       <span class="datebar"><button id="prev" aria-label="前一天">‹</button><input id="date" type="date"><button id="next" aria-label="后一天">›</button></span>
@@ -101,6 +101,8 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
   <div class="kpis" id="kpis"></div>
   <div class="sec" id="s-stores">各门店 <span>点卡片看详情 · 绿=比上周同日涨 · 红=跌超 10%</span></div>
   <div class="stores" id="stores"></div>
+  <div class="sec" id="s-cmp">菜品 · 同商圈 · 新老客 <span>点门店名看详情</span></div>
+  <div class="pane"><div style="overflow-x:auto"><table id="cmp"></table></div><div class="empty" id="cmpNote"></div></div>
   <div class="sec" id="s-trend">走势与排名</div>
   <div class="grid2">
     <div class="pane"><h2>营业额每日走势 <span id="chartSub">近 30 天 · 含外卖</span></h2><div class="pills" id="pills"></div><div id="chart"></div>
@@ -176,6 +178,16 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
     const bl = rows.flatMap(r => (r.badText || []).map(b => Object.assign({ s: r.store }, b)));
     $('badSub').textContent = day.jybOk ? `点评 + 美团 · ${bl.length} 条` : '经营宝这天还没查到';
     $('bad').innerHTML = bl.length ? bl.map(b => `<div class="bitem"><div class="m"><b>${short(b.s)}</b><span>${esc(b.p)} ${b.star != null ? esc(b.star) + ' 星' : ''}</span><span>${esc(b.t || '')}</span>${b.replied === false ? '<span class="down">未回复</span>' : ''}</div>${esc(b.text)}</div>`).join('') : `<div class="empty">${day.jybOk ? '这天点评、美团没有新差评' : '经营宝数据到了以后，差评原文会显示在这里'}</div>`;
+    // 菜品 · 同商圈 · 新老客 对比表
+    const tx = (a, b) => a != null && b ? (a / b).toFixed(1) + '倍' : '—';
+    $('cmp').innerHTML = '<thead><tr><th>门店</th><th>销量前五（不含饮料）</th><th>曝光是同行</th><th>团购购买是同行</th><th>访问→购买 本店/同行</th><th>新客</th><th>老客</th><th>老客占比</th><th>复购率</th></tr></thead><tbody>' + all.filter(r => !r.missing).map(r => { const x = r.jyb || {}, c = r.cust || {}; const t = (c.newBuy || 0) + (c.oldBuy || 0);
+      return `<tr><td><a href="#" data-o="${esc(r.store)}" style="color:var(--ink)">${short(r.store)}</a></td><td style="font-family:var(--f-body);text-align:left;white-space:normal;min-width:220px">${(r.top || []).map(d => esc(d.name.replace(/[（(].*?[)）]/g, '').slice(0, 8)) + ' <span style="color:var(--faint)">' + fmt(d.qty) + '</span>').join('、') || '<span style="color:var(--faint)">—</span>'}</td><td class="${x.viewPeer && x.view / x.viewPeer < 3 ? 'down' : ''}">${tx(x.view, x.viewPeer)}</td><td class="${x.buyPeer && x.buy / x.buyPeer < 1 ? 'down' : ''}">${tx(x.buy, x.buyPeer)}</td><td>${x.cvr != null ? (x.cvr * 100).toFixed(1) + '% / ' + (x.cvrPeer != null ? (x.cvrPeer * 100).toFixed(1) + '%' : '—') : '—'}</td><td>${fmt(c.newBuy)}</td><td>${fmt(c.oldBuy)}</td><td>${t ? Math.round(c.oldBuy / t * 100) + '%' : '—'}</td><td>${c.repurchase != null ? (c.repurchase * 100).toFixed(1) + '%' : '—'}</td></tr>`; }).join('') + '</tbody>';
+    $('cmp').querySelectorAll('a[data-o]').forEach(a => a.onclick = e => { e.preventDefault(); open(a.dataset.o); });
+    const cw = rows.find(r => r.cust); const notes = [];
+    if (!rows.some(r => (r.top || []).length)) notes.push('菜品销量：美团管家这天的菜品数据还没查到（插件查管家时会一起查）。');
+    if (!day.jybOk) notes.push('同商圈对比：美团经营宝这天的数据还没查到。插件早上 7 点后查，查到前这几列是「—」；如果一直没有，看插件侧边栏有没有报错（可能经营宝没登录）。');
+    if (!cw) notes.push('新客/老客：美团只按周给，插件每周查一次上周的数，还没查到。'); else notes.push(`新客/老客是 ${String(cw.cust.from).slice(4, 6)}/${String(cw.cust.from).slice(6)}–${String(cw.cust.to).slice(4, 6)}/${String(cw.cust.to).slice(6)} 那一周的（美团只按周给），只算在美团、点评买团购或买单的顾客。同商圈 = 经营宝「商圈同行店均」。`);
+    $('cmpNote').textContent = notes.join(' ');
     chart(); reports();
   }
   function chart() {
