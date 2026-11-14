@@ -48,7 +48,7 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
   let PASS = null; try { PASS = JSON.parse(fs.readFileSync(PASS_F, 'utf8')); } catch (e) { }
   // 运营副总的账号（2026-11-14 起）：单独一份 data/cockpit-pass-ops.json；登录后只看运营驾驶舱，操作权限和老板一样
   const OPS_F = path.join(process.env.BOT_DATA_DIR || path.join(__dirname, '..'), 'cockpit-pass-ops.json');
-  let OPS = null; try { OPS = JSON.parse(fs.readFileSync(OPS_F, 'utf8')); } catch (e) { }
+  let OPS = null; try { OPS = JSON.parse(fs.readFileSync(OPS_F, 'utf8')); if (OPS && OPS.user) OPS = { users: [OPS] }; if (!OPS || !(OPS.users || []).length) OPS = null; } catch (e) { } // 可以有多个运营账号（运营副总、Mable…）
   function opsSetupLink(min) { return `${base}login?s=${sign('ops', Date.now() + (min || 30) * 60e3, 'Q')}`; }
   function opsRemove() { OPS = null; try { fs.unlinkSync(OPS_F); } catch (e) { } }
   const hasOps = () => !!OPS;
@@ -60,7 +60,7 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
   const esc = x => String(x || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const shell = (title, body) => `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><style>body{margin:0;background:#f5f5f4;font:16px/1.6 -apple-system,'PingFang SC','Microsoft YaHei',sans-serif;color:#1c1917}main{max-width:360px;margin:12vh auto;padding:28px 24px;background:#fff;border-radius:14px;box-shadow:0 1px 3px #0001}h1{font-size:20px;margin:0 0 16px}label{display:block;font-size:14px;color:#57534e;margin:12px 0 4px}input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d6d3d1;border-radius:8px;font-size:16px}button{margin-top:18px;width:100%;padding:11px;border:0;border-radius:8px;background:#b91c1c;color:#fff;font-size:16px}.m{color:#b91c1c;font-size:14px;margin-top:10px}.h{color:#78716c;font-size:13px;margin-top:14px}</style></head><body><main>${body}</main></body></html>`;
   const loginPage = msg => shell('禧聚驾驶舱 · 登录', `<h1>禧聚经营驾驶舱</h1><form method="post" action="${base}login"><label>账号</label><input name="user" autocomplete="username" required><label>密码</label><input name="pass" type="password" autocomplete="current-password" required><button>登录</button></form>${msg ? `<div class="m">${esc(msg)}</div>` : ''}<div class="h">${PASS ? '忘记密码：在飞书「经营日报」群发「重设驾驶舱密码」，机器人会私聊老板一个重设链接。' : '还没有设置密码：在飞书「经营日报」群发「驾驶舱」，机器人会私聊老板一个设置链接。'}</div>`);
-  const setPage = (tok, msg, role) => shell('设置驾驶舱密码', `<h1>${role === 'ops' ? '设置运营驾驶舱账号密码' : '设置驾驶舱账号密码'}</h1><form method="post" action="${base}setpass"><input type="hidden" name="s" value="${esc(tok)}"><label>账号（自己起一个，如 linzong）</label><input name="user" autocomplete="username" required minlength="2" maxlength="30" value="${esc(role === 'ops' ? (OPS && OPS.user) : (PASS && PASS.user))}"><label>密码（至少 8 位，建议字母+数字）</label><input name="pass" type="password" autocomplete="new-password" required minlength="8"><label>再输一次密码</label><input name="pass2" type="password" autocomplete="new-password" required minlength="8"><button>保存并登录</button></form>${msg ? `<div class="m">${esc(msg)}</div>` : ''}<div class="h">${role === 'ops' ? '账号自己起一个（不能和老板的一样）。设置后用这个账号密码登录运营驾驶舱。' : '设置后，旧的登录链接全部失效，所有人都要用账号密码重新登录。'}</div>`);
+  const setPage = (tok, msg, role) => shell('设置驾驶舱密码', `<h1>${role === 'ops' ? '设置运营驾驶舱账号密码' : '设置驾驶舱账号密码'}</h1><form method="post" action="${base}setpass"><input type="hidden" name="s" value="${esc(tok)}"><label>账号（自己起一个，如 linzong）</label><input name="user" autocomplete="username" required minlength="2" maxlength="30" value="${esc(role === 'ops' ? '' : (PASS && PASS.user))}"><label>密码（至少 8 位，建议字母+数字）</label><input name="pass" type="password" autocomplete="new-password" required minlength="8"><label>再输一次密码</label><input name="pass2" type="password" autocomplete="new-password" required minlength="8"><button>保存并登录</button></form>${msg ? `<div class="m">${esc(msg)}</div>` : ''}<div class="h">${role === 'ops' ? '账号自己起一个（不能和别人的一样；用自己以前的账号名就是改密码）。设置后用这个账号密码登录运营驾驶舱。' : '设置后，旧的登录链接全部失效，所有人都要用账号密码重新登录。'}</div>`);
   const sessCookie = who => `xck2=${sign(who, Date.now() + 7 * DAY, 'S')}; Path=/cockpit/; Max-Age=${7 * 86400}; HttpOnly; Secure; SameSite=Lax`;
   async function form(req) { let b = ''; for await (const c of req) { b += c; if (b.length > 8192) break; } return Object.fromEntries(new URLSearchParams(b)); }
   const ipOf = req => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
@@ -213,7 +213,7 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
         const b = await form(req);
         if (!PASS && !OPS) return send(res, 200, loginPage('还没有设置密码。'), H);
         const chk = A => !!A && String(b.user || '').trim() === A.user && crypto.timingSafeEqual(Buffer.from(hashPw(b.pass || '', A.salt), 'hex'), Buffer.from(A.hash, 'hex'));
-        const role = chk(PASS) ? 'boss' : chk(OPS) ? 'ops' : '';
+        const role = chk(PASS) ? 'boss' : (OPS && OPS.users.some(chk)) ? 'ops' : '';
         if (!role) { f.push(now); log(`[驾驶舱] 登录失败（${ip}，第 ${f.length} 次）`); return send(res, 401, loginPage('账号或密码不对。'), H); }
         fails.delete(ip); log(`[驾驶舱] ${role === 'ops' ? '运营副总' : '老板'}账号登录成功（${ip}）`); return send(res, 302, '', 'text/plain', { location: base, 'set-cookie': sessCookie(role === 'ops' ? 'ops' : (bossId() || 'boss')) });
       }
@@ -222,12 +222,12 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
         if (!who || usedSetup.has(b.s)) return send(res, 403, shell('链接失效', '<h1>设置链接已失效</h1><p>请在飞书「经营日报」群发「重设驾驶舱密码」拿新链接。</p>'), H);
         const user = String(b.user || '').trim(), pass = String(b.pass || '');
         if (user.length < 2 || user.length > 30) return send(res, 200, setPage(b.s, '账号 2–30 个字。', role), H);
-        if ((isOps && PASS && user === PASS.user) || (!isOps && OPS && user === OPS.user)) return send(res, 200, setPage(b.s, '这个账号名已经被占用，换一个。', role), H);
+        if ((isOps && PASS && user === PASS.user) || (!isOps && OPS && OPS.users.some(x => x.user === user))) return send(res, 200, setPage(b.s, '这个账号名已经被占用，换一个。', role), H);
         if (pass.length < 8) return send(res, 200, setPage(b.s, '密码至少 8 位。', role), H);
         if (pass !== b.pass2) return send(res, 200, setPage(b.s, '两次输入的密码不一样。', role), H);
         const salt = crypto.randomBytes(16).toString('hex'); const rec = { user, salt, hash: hashPw(pass, salt), at: Date.now() };
-        try { fs.writeFileSync(isOps ? OPS_F : PASS_F, JSON.stringify(rec), { mode: 0o600 }); } catch (e) { log('[驾驶舱] 保存密码失败：' + e.message); return send(res, 500, setPage(b.s, '保存失败，请稍后再试。', role), H); }
-        if (isOps) OPS = rec; else PASS = rec;
+        const opsNext = isOps ? { users: ((OPS && OPS.users) || []).filter(x => x.user !== user).concat([rec]) } : null; try { fs.writeFileSync(isOps ? OPS_F : PASS_F, JSON.stringify(isOps ? opsNext : rec), { mode: 0o600 }); } catch (e) { log('[驾驶舱] 保存密码失败：' + e.message); return send(res, 500, setPage(b.s, '保存失败，请稍后再试。', role), H); }
+        if (isOps) OPS = opsNext; else PASS = rec;
         usedSetup.add(b.s); log(`[驾驶舱] 已设置${isOps ? '运营副总' : '老板'}账号密码`); return send(res, 302, '', 'text/plain', { location: base, 'set-cookie': sessCookie(who) });
       }
       const who = verify(cookie(req), 'S');
