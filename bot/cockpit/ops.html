@@ -50,6 +50,18 @@ body { background: radial-gradient(1200px 600px at 50% -10%, #12234080, transpar
 .store .sub div { display: flex; justify-content: space-between; gap: 6px; color: var(--mute); min-width: 0 } .store .sub b { color: var(--ink); font-weight: 500; font-family: var(--f-data); white-space: nowrap }
 .store .ft { display: flex; gap: 6px; flex-wrap: wrap; font-size: 11px }
 .flag { border-radius: 4px; padding: 0 6px; background: #ff6b6b1f; color: var(--bad) } .flag.ok { background: #3ddc971a; color: var(--good) } .flag.mid { background: #4cc9f01a; color: var(--cyan) }
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px }
+.hb { display: grid; gap: 7px }
+.hb .r { display: grid; grid-template-columns: 68px minmax(0, 1fr) 64px; gap: 8px; align-items: center; font-size: 12px; cursor: pointer }
+.hb .r:hover span:first-child { color: var(--cyan) }
+.hb .t { height: 10px; background: var(--panel2); border-radius: 5px; overflow: hidden; display: flex }
+.hb .t i { display: block; height: 100% }
+.hb .v { text-align: right; font-family: var(--f-data); font-size: 12px }
+.hb .v small { display: block; color: var(--faint); font-size: 10px; line-height: 1.2 }
+.lg2 { display: flex; gap: 12px; font-size: 11px; color: var(--faint); margin-top: 10px; flex-wrap: wrap } .lg2 i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 4px }
+.dtop { display: grid; gap: 6px } .dtop .d { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 12.5px } .dtop .d b { font-family: var(--f-data); font-weight: 500 } .dtop .n { color: var(--faint); font-family: var(--f-data); font-size: 11px }
+.dtop .bar { grid-column: 2 / 4; height: 4px; background: var(--panel2); border-radius: 2px; overflow: hidden; margin-top: -3px } .dtop .bar i { display: block; height: 100%; background: var(--amber) }
+.sig { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; display: grid; gap: 4px; font-size: 12px } .sig div { display: flex; justify-content: space-between; gap: 8px; cursor: pointer } .sig span:last-child { color: var(--mute); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .grid2 { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 12px }
 .pane { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; min-width: 0 }
 .pane h2 { margin: 0 0 10px; font-size: 14px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap } .pane h2 span { color: var(--faint); font-weight: 400; font-size: 12px }
@@ -84,7 +96,7 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
 .hrs div.pk { background: var(--amber) }
 .hrs b { position: absolute; top: -15px; left: 50%; transform: translateX(-50%); font-size: 10px; font-weight: 500; font-family: var(--f-data) }
 .hrs span { position: absolute; bottom: -16px; left: 50%; transform: translateX(-50%); font-size: 10px; color: var(--faint); font-family: var(--f-data) }
-@media (max-width: 980px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)) } .grid2 { grid-template-columns: 1fr } }
+@media (max-width: 980px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)) } .grid2, .trio { grid-template-columns: 1fr } }
 @media (max-width: 520px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)) } .status { margin-left: 0 } .kpi b { font-size: 18px } }
 </style>
 <div class="wrap">
@@ -101,8 +113,13 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
   <div class="kpis" id="kpis"></div>
   <div class="sec" id="s-stores">各门店 <span>点卡片看详情 · 绿=比上周同日涨 · 红=跌超 10%</span></div>
   <div class="stores" id="stores"></div>
-  <div class="sec" id="s-cmp">菜品 · 同商圈 · 新老客 <span>点门店名看详情</span></div>
-  <div class="pane"><div style="overflow-x:auto"><table id="cmp"></table></div><div class="empty" id="cmpNote"></div></div>
+  <div class="sec" id="s-cmp">菜品 · 同商圈 · 新老客 <span>点任意一行看这家店详情</span></div>
+  <div class="trio">
+    <div class="pane"><h2>同商圈对比 <span>曝光是同行的几倍</span></h2><div class="hb" id="peer"></div><div class="lg2"><span><i style="background:var(--good)"></i>8 倍以上 强</span><span><i style="background:var(--cyan)"></i>3–8 倍</span><span><i style="background:var(--bad)"></i>3 倍以下 弱</span></div></div>
+    <div class="pane"><h2>新客 / 老客 <span id="custSub">按周</span></h2><div class="hb" id="cust"></div><div class="lg2"><span><i style="background:var(--cyan)"></i>新客</span><span><i style="background:var(--amber)"></i>老客</span></div></div>
+    <div class="pane"><h2>卖得最好的菜 <span>不含饮料</span></h2><div id="dish"></div></div>
+  </div>
+  <div class="empty" id="cmpNote"></div>
   <div class="sec" id="s-trend">走势与排名</div>
   <div class="grid2">
     <div class="pane"><h2>营业额每日走势 <span id="chartSub">近 30 天 · 含外卖</span></h2><div class="pills" id="pills"></div><div id="chart"></div>
@@ -124,7 +141,7 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
   const ps = x => x == null || !isFinite(x) ? '—' : (x > 0 ? '+' : '') + Math.round(x * 100) + '%';
   const cl = x => x == null || !isFinite(x) ? '' : x > 0.005 ? 'up' : x < -0.005 ? 'down' : '';
   const chip = (lbl, x) => `<span class="chip ${cl(x)}">${lbl} ${ps(x)}</span>`;
-  const short = s => String(s).replace(/^(深圳|广州|佛山|珠海|东莞|惠州)/, '').replace(/店$/, '');
+  const short = s => String(s).replace(/^(深圳|广州|佛山|珠海|东莞|惠州)/, '').replace(/店$/, '').replace('蛇口招商花园城', '花园城').replace('华强北燕南', '华强北').replace('东城33小镇', '33小镇');
   const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const ymd = t => new Date(t + 8 * 3600e3).toISOString().slice(0, 10);
   const add = (d, n) => ymd(Date.parse(d + 'T00:00:00+08:00') + n * 864e5);
@@ -178,15 +195,22 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
     const bl = rows.flatMap(r => (r.badText || []).map(b => Object.assign({ s: r.store }, b)));
     $('badSub').textContent = day.jybOk ? `点评 + 美团 · ${bl.length} 条` : '经营宝这天还没查到';
     $('bad').innerHTML = bl.length ? bl.map(b => `<div class="bitem"><div class="m"><b>${short(b.s)}</b><span>${esc(b.p)} ${b.star != null ? esc(b.star) + ' 星' : ''}</span><span>${esc(b.t || '')}</span>${b.replied === false ? '<span class="down">未回复</span>' : ''}</div>${esc(b.text)}</div>`).join('') : `<div class="empty">${day.jybOk ? '这天点评、美团没有新差评' : '经营宝数据到了以后，差评原文会显示在这里'}</div>`;
-    // 菜品 · 同商圈 · 新老客 对比表
-    const tx = (a, b) => a != null && b ? (a / b).toFixed(1) + '倍' : '—';
-    $('cmp').innerHTML = '<thead><tr><th>门店</th><th>销量前五（不含饮料）</th><th>曝光是同行</th><th>团购购买是同行</th><th>访问→购买 本店/同行</th><th>新客</th><th>老客</th><th>老客占比</th><th>复购率</th></tr></thead><tbody>' + all.filter(r => !r.missing).map(r => { const x = r.jyb || {}, c = r.cust || {}; const t = (c.newBuy || 0) + (c.oldBuy || 0);
-      return `<tr><td><a href="#" data-o="${esc(r.store)}" style="color:var(--ink)">${short(r.store)}</a></td><td style="font-family:var(--f-body);text-align:left;white-space:normal;min-width:220px">${(r.top || []).map(d => esc(d.name.replace(/[（(].*?[)）]/g, '').slice(0, 8)) + ' <span style="color:var(--faint)">' + fmt(d.qty) + '</span>').join('、') || '<span style="color:var(--faint)">—</span>'}</td><td class="${x.viewPeer && x.view / x.viewPeer < 3 ? 'down' : ''}">${tx(x.view, x.viewPeer)}</td><td class="${x.buyPeer && x.buy / x.buyPeer < 1 ? 'down' : ''}">${tx(x.buy, x.buyPeer)}</td><td>${x.cvr != null ? (x.cvr * 100).toFixed(1) + '% / ' + (x.cvrPeer != null ? (x.cvrPeer * 100).toFixed(1) + '%' : '—') : '—'}</td><td>${fmt(c.newBuy)}</td><td>${fmt(c.oldBuy)}</td><td>${t ? Math.round(c.oldBuy / t * 100) + '%' : '—'}</td><td>${c.repurchase != null ? (c.repurchase * 100).toFixed(1) + '%' : '—'}</td></tr>`; }).join('') + '</tbody>';
-    $('cmp').querySelectorAll('a[data-o]').forEach(a => a.onclick = e => { e.preventDefault(); open(a.dataset.o); });
+    // 菜品 · 同商圈 · 新老客：三块小图，少数字
+    const live = all.filter(r => !r.missing);
+    const pr = live.filter(r => r.jyb && r.jyb.viewPeer).map(r => ({ r, x: r.jyb.view / r.jyb.viewPeer, b: r.jyb.buyPeer ? r.jyb.buy / r.jyb.buyPeer : null })).sort((a, b) => b.x - a.x); const pm = Math.max(10, ...pr.map(z => z.x));
+    $('peer').innerHTML = pr.length ? pr.map(z => `<div class="r" data-o="${esc(z.r.store)}"><span>${short(z.r.store)}</span><div class="t"><i style="width:${Math.min(100, z.x / pm * 100)}%;background:${z.x >= 8 ? 'var(--good)' : z.x >= 3 ? 'var(--cyan)' : 'var(--bad)'}"></i></div><span class="v">${z.x.toFixed(1)}倍${z.b != null ? `<small>购买 ${z.b.toFixed(1)}倍</small>` : ''}</span></div>`).join('') : '<div class="empty">经营宝这天的数据还没查到</div>';
+    const cu = live.filter(r => r.cust && r.cust.newBuy != null).map(r => ({ r, n: r.cust.newBuy || 0, o: r.cust.oldBuy || 0 })).sort((a, b) => (b.o / Math.max(1, b.n + b.o)) - (a.o / Math.max(1, a.n + a.o))); const cm = Math.max(1, ...cu.map(z => z.n + z.o));
+    const cw0 = cu[0] && cu[0].r.cust; $('custSub').textContent = cw0 ? `${String(cw0.from).slice(4, 6)}/${String(cw0.from).slice(6)} 那周 · 按老客占比排` : '按周';
+    $('cust').innerHTML = cu.length ? cu.map(z => `<div class="r" data-o="${esc(z.r.store)}"><span>${short(z.r.store)}</span><div class="t" style="width:${Math.max(18, (z.n + z.o) / cm * 100)}%"><i style="width:${z.n / Math.max(1, z.n + z.o) * 100}%;background:var(--cyan)"></i><i style="width:${z.o / Math.max(1, z.n + z.o) * 100}%;background:var(--amber)"></i></div><span class="v">老客 ${Math.round(z.o / Math.max(1, z.n + z.o) * 100)}%<small>${fmt(z.n + z.o)} 人</small></span></div>`).join('') : '<div class="empty">还没查到（美团只按周给）</div>';
+    const agg = {}; live.forEach(r => (r.top || []).forEach(d => { const k = d.name.replace(/[（(].*?[)）]/g, '').replace(/[.。\s]+$/, ''); agg[k] = (agg[k] || 0) + (d.qty || 0); }));
+    const at = Object.entries(agg).sort((a, b) => b[1] - a[1]).slice(0, 5); const am = Math.max(1, ...at.map(z => z[1]));
+    $('dish').innerHTML = at.length ? `<div class="status" style="margin:0 0 6px;font-size:11px;color:var(--faint)">全品牌合计</div><div class="dtop">${at.map((z, i) => `<div class="d"><span class="n">${i + 1}</span><span>${esc(z[0].slice(0, 12))}</span><b>${fmt(z[1])}</b><div class="bar"><i style="width:${z[1] / am * 100}%"></i></div></div>`).join('')}</div>
+      <div class="sig"><div style="cursor:default;color:var(--faint);font-size:11px"><span>各店卖得最好的</span><span></span></div>${live.filter(r => (r.top || []).length).map(r => `<div data-o="${esc(r.store)}"><span>${short(r.store)}</span><span>${esc(r.top[0].name.replace(/[（(].*?[)）]/g, '').slice(0, 10))} · ${fmt(r.top[0].qty)}</span></div>`).join('')}</div>` : '<div class="empty">管家这天的菜品数据还没查到</div>';
+    document.querySelectorAll('#peer [data-o], #cust [data-o], #dish [data-o]').forEach(a => a.onclick = () => open(a.dataset.o));
     const cw = rows.find(r => r.cust); const notes = [];
     if (!rows.some(r => (r.top || []).length)) notes.push('菜品销量：美团管家这天的菜品数据还没查到（插件查管家时会一起查）。');
     if (!day.jybOk) notes.push('同商圈对比：美团经营宝这天的数据还没查到。插件早上 7 点后查，查到前这几列是「—」；如果一直没有，看插件侧边栏有没有报错（可能经营宝没登录）。');
-    if (!cw) notes.push('新客/老客：美团只按周给，插件每周查一次上周的数，还没查到。'); else notes.push(`新客/老客是 ${String(cw.cust.from).slice(4, 6)}/${String(cw.cust.from).slice(6)}–${String(cw.cust.to).slice(4, 6)}/${String(cw.cust.to).slice(6)} 那一周的（美团只按周给），只算在美团、点评买团购或买单的顾客。同商圈 = 经营宝「商圈同行店均」。`);
+    if (!cw) notes.push('新客/老客：美团只按周给，插件每周查一次上周的数，还没查到。'); else notes.push('新客/老客只算在美团、点评买团购或买单的顾客；同商圈 = 经营宝「商圈同行店均」。点任意一行看这家店的详细数字。');
     $('cmpNote').textContent = notes.join(' ');
     chart(); reports();
   }
