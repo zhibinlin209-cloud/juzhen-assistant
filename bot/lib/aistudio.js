@@ -30,8 +30,7 @@ function createStudio({ cfg, api, core, upload, download, log, dataDir, bossId }
       catch (e) { out.permError = e.message; }
     }
     S.draftT = await ensureTable(S.app, 'AI稿件', DRAFT_COLS); S.libT = await ensureTable(S.app, '素材图库', LIB_COLS); save();
-    // 删掉新表格自带的空「数据表」
-    try { const ts = (await api.call('GET', `/bitable/v1/apps/${S.app}/tables`, null, { page_size: 100 })).items || []; const def = ts.find(x => /^(数据表|Table1|表格1)$/.test(x.name)); if (def && ts.length > 2 && !S.cleaned) { const r = await api.call('POST', `/bitable/v1/apps/${S.app}/tables/${def.table_id}/records/search`, {}, { page_size: 5 }); if (!(r.items || []).some(x => Object.values(x.fields || {}).some(v => v !== null && v !== '' && !(Array.isArray(v) && !v.length)))) { await api.call('DELETE', `/bitable/v1/apps/${S.app}/tables/${def.table_id}`); S.cleaned = true; save(); } } } catch (e) { }
+    // 保留新表格自带的空「数据表」；机器人不自动删除任何 Bitable 表。
     return Object.assign(out, { app: S.app, url: S.url, bossAdded: !!S.bossAdded });
   }
   const info = () => S;
