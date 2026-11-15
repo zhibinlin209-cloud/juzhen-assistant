@@ -719,6 +719,14 @@ async function setup() {
       if (L.length) await call('POST', '/im/v1/messages', { receive_id: tgtState.chat, msg_type: 'text', content: JSON.stringify({ text: at + L.join('\n') }) }, { receive_id_type: 'chat_id' });
     } catch (e) { log('[推广通提醒] 发送失败：' + e.message); }
   }, 60e3);
+  // 9:30 插件还没自动拉到推广通（也没报过错）：私聊老板一次，免得没人发现
+  setInterval(async () => {
+    const bj = new Date(Date.now() + 8 * 3600e3), today = bjDay(Date.now());
+    if (!on('tgtAuto') || !boss || bj.getUTCHours() < 9 || (bj.getUTCHours() === 9 && bj.getUTCMinutes() < 30) || tgtState.autoDay === today || (tgtState.lastDay || 0) >= today - 1 || tgtState.missWarn === today) return;
+    tgtState.missWarn = today; saveTS(); const tried = tgtState.autoTry && bjDay(tgtState.autoTry) === today;
+    log('[推广通·插件] 9:30 还没自动拉到' + (tried ? '（试过，报错）' : '（插件没来拉）'));
+    try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: '⚠️ 今天插件还没自动拉到推广通报表' + (tried ? '（试过但出错了）' : '（插件今天没来拉）') + '。请看一下：电脑上 Chrome 开着、「餐饮矩阵助手」侧边栏开着；侧边栏「推广通」那块点一下「现在拉一次」。还不行就在 chrome://extensions 里把插件重新加载。' }) }, { receive_id_type: 'open_id' }); } catch (e) { }
+  }, 5 * 60e3);
   // 周一：收到 30 天报表就出周报；14:00 还没收到就用现有数据出
   setInterval(() => { const bj = new Date(Date.now() + 8 * 3600e3); if (!on('adsWeekly') || bj.getUTCDay() !== 1 || tgtState.weekly === bjDay(Date.now())) return; if (bj.getUTCHours() >= 14) sendAdsWeekly({ weekly: true }); }, 5 * 60e3);
   async function registerLinks(text, who) { // 领稿页提交的链接 → 和群里贴链接一样登记进数据表

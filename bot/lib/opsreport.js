@@ -138,7 +138,7 @@ function createOpsReport({ gj, store, chat, log }) {
     const badL = rows.filter(r => (r.badText || []).length).map(r => `【${short(r.store)}】\n` + r.badText.slice(0, 6).map(b => `  · ${b.p} ${b.star != null ? b.star + '星' : ''} ${b.t || ''}${b.replied === false ? '（未回复）' : ''}：${b.text.slice(0, 160)}`).join('\n')).join('\n');
     const badSec = D.jybOk ? (badL ? '\n\n📝 差评原文（美团经营宝，点评 + 美团）\n' + badL : '\n\n📝 差评原文：昨天点评、美团都没有新差评') : '';
     const an = await ai('日报', { 日期: D.date + D.week, 合计: { 营业额: Math.round(T.total), 环比: ps(T.wow), 同比: ps(T.yoy), 堂食: Math.round(T.dine), 外卖: Math.round(T.takeout) }, 门店: compact(D) });
-    const tail = '\n\n说明：环比 = 和上周同一天比；同比 = 和去年同一个星期几比。营业额含外卖；桌均、人均按堂食算。同商圈 = 美团经营宝「商圈同行店均」。新老客只有按周的数，按团购/买单顾客算。' + (D.jybOk ? '' : '\n⚠️ 美团经营宝昨天的数据还没查到，同商圈对比和差评原文晚点在驾驶舱里看。');
+    const tail = '\n\n说明：环比 = 和上周同一天比；同比 = 和去年同一个星期几比。营业额按实收（美团管家「营业收入」= 应收减优惠），含外卖；桌均、人均按堂食实收算。同商圈 = 美团经营宝「商圈同行店均」。新老客只有按周的数，按团购/买单顾客算。' + (D.jybOk ? '' : '\n⚠️ 美团经营宝昨天的数据还没查到，同商圈对比和差评原文晚点在驾驶舱里看。');
     return { data: D, text: head.join('\n') + '\n\n' + body + badSec + (an ? '\n\n🤖 分析\n' + an : '') + tail };
   }
 
@@ -174,7 +174,7 @@ function createOpsReport({ gj, store, chat, log }) {
       return L.join('\n');
     }).join('\n\n');
     const an = await ai(D.kind, { 期间: D.from + '~' + D.to, 合计: { 营业额: Math.round(T.total), 比上期: ps(T.wow), 同比: ps(T.yoy) }, 门店: D.rows.filter(r => !r.missing).map(r => ({ 店: short(r.store), 营业额: Math.round(r.total), 比上期: ps(r.wow), 同比: ps(r.yoy), 开台: r.tables, 开台变化: ps(pc(r.tables, r.pTables)), 人数变化: ps(pc(r.guests, r.pGuests)), 人均: r.perCap && Math.round(r.perCap), 人均变化: ps(pc(r.perCap, r.pPerCap)) })) });
-    return { data: D, text: head.join('\n') + '\n\n' + body + (an ? '\n\n🤖 分析\n' + an : '') + '\n\n说明：管家数据没覆盖到的时段，营业额用门店日报补；同比按去年同期。' };
+    return { data: D, text: head.join('\n') + '\n\n' + body + (an ? '\n\n🤖 分析\n' + an : '') + '\n\n说明：营业额按实收（美团管家「营业收入」）；管家数据没覆盖到的时段，用门店日报的营业额补；同比按去年同期。' };
   }
 
   // 驾驶舱用：近 N 天每店营业额走势

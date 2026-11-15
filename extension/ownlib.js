@@ -210,14 +210,17 @@
   const TG = { busy: false, log: [] };
   const tglog = t => { TG.log.unshift(new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '  ' + t); TG.log = TG.log.slice(0, 12); forceRender(); };
   async function autoTgt(force) {
-    if (TG.busy) return; let need; try { need = await srv('/lib/tgt/need'); } catch (e) { if (force) tglog('✗ ' + e.message); return; }
-    if (!need.need && !force) return; TG.busy = true; forceRender(); let bt = null;
+    // 上一轮卡住超过 10 分钟（页面没响应、窗口被冻结）：放掉重来，不让一次卡死耽误一整天
+    if (TG.busy && Date.now() - (TG.since || 0) < 10 * 60e3) return; let need; try { need = await srv('/lib/tgt/need'); } catch (e) { if (force) tglog('✗ ' + e.message); return; }
+    if (!need.need && !force) return; TG.busy = true; TG.since = Date.now(); forceRender(); let bt = null;
+    const lim = (p, ms, m) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(m)), ms))]);
     try {
       tglog(`打开推广通后台，生成 ${need.begin} ~ ${need.end} 的门店报表…`);
-      bt = await bgTab('https://midas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-data-promo-report/html/main.html', 'midas.dianping.com');
+      // 每次新开一个后台窗口（不用已有的推广通标签页：那个页面可能被浏览器冻结，脚本注入会一直卡住）
+      bt = await lim((async () => { const w = await chrome.windows.create({ url: 'https://midas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-data-promo-report/html/main.html', focused: false, width: 1200, height: 860, type: 'normal' }); const t = w.tabs[0].id; await waitLoad(t, 30000); await sleep(4000); return { tab: t, own: true, win: w.id }; })(), 90e3, '推广通后台 90 秒没打开');
       await sleep(2500); const tb = await chrome.tabs.get(bt.tab).catch(() => ({}));
       if (!/^https:\/\/midas\.dianping\.com\//.test(tb.url || '')) { const er = '没登录推广通后台（页面跳到了登录页）：请在这个浏览器打开 e.dianping.com 登录'; tglog('✗ ' + er); try { await srv('/lib/tgt/ingest', { err: er }); } catch (e) { } return; }
-      const [r] = await chrome.scripting.executeScript({ target: { tabId: bt.tab }, world: 'MAIN', args: [need.begin, need.end], func: async (begin, end) => {
+      const [r] = await lim(chrome.scripting.executeScript({ target: { tabId: bt.tab }, world: 'MAIN', args: [need.begin, need.end], func: async (begin, end) => {
         if (location.host !== 'midas.dianping.com') return { error: '没登录推广通后台（请在这个浏览器打开 e.dianping.com 登录）' };
         const xhr = (m, u, b) => new Promise((res, rej) => { const x = new XMLHttpRequest(); x.open(m, u); x.withCredentials = true; if (b) x.setRequestHeader('content-type', 'application/x-www-form-urlencoded'); x.onload = () => { try { res(JSON.parse(x.responseText)); } catch (e) { rej(new Error('返回的不是数据（可能没登录）：HTTP ' + x.status)); } }; x.onerror = () => rej(new Error('网络错误')); x.send(b || null); });
         const M = 'dd_1_charge,dd_1_imp,dd_1_click,dd_1_cpc,dd_1_viewPhoto,dd_1_viewReview,dd_1_viewTg,dd_1_viewAddress,dd_1_callCnt,dd_1_viewDish,dd_1_addFavor,dd_1_share,dd_1_orderPromo,dd_1_orderTg,dd_1_sh_cnt,dd_1_pv,dd_1_100001,dd_1_100002,dd_1_cash,dd_1_payOrderCnt7day,dd_1_payOrderCnt15day,dd_1_payOrderCnt30day,dd_1_tgOrderCnt7day,dd_1_tgOrderCnt15day,dd_1_tgOrderCnt30day';
@@ -232,13 +235,13 @@
           if (u[0]) return { url: u[0] }; if (/失败/.test((t.taskStatus || {}).value || '')) return { error: '推广通报表生成失败：' + t.taskStatus.value };
         }
         return { error: '等了 3 分钟报表还没生成，下个小时再试' };
-      } });
+      } }), 5 * 60e3, '推广通页面 5 分钟没响应（下个小时再试）');
       const d = (r && r.result) || { error: '页面没响应' };
       if (d.error) { tglog('✗ ' + d.error); try { await srv('/lib/tgt/ingest', { err: d.error }); } catch (e) { } return; }
       tglog('报表已生成，交给机器人入库…');
       const j = await srv('/lib/tgt/ingest', { url: d.url, begin: need.begin, end: need.end });
       tglog(`✓ 已入库 ${j.rows || 0} 行（新增 ${j.added || 0}、更新 ${j.updated || 0}），最新一天 ${j.last || '—'}`); if (force) toast('推广通报表已入库');
-    } catch (e) { tglog('✗ ' + e.message); }
+    } catch (e) { tglog('✗ ' + e.message); try { await srv('/lib/tgt/ingest', { err: e.message }); } catch (e2) { } }
     finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } TG.busy = false; forceRender(); }
   }
   setTimeout(() => autoTgt(), 3 * 60e3); setInterval(() => autoTgt(), 5 * 60e3); // 服务器按北京时间早上 8 点起放行
@@ -398,6 +401,9 @@
       ${S.busy ? `<div class="hint"><b>${S.paused ? '⏸ 等你在小红书窗口里完成验证…' : S.restUntil ? `⏸ 歇一会，约 ${new Date(S.restUntil).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit' })} 接着读第 ${S.i + 1}/${S.n} 条` : `进行中 ${S.i}/${S.n}：${h(S.cur)}`}</b> · 成功 ${S.ok} · 读不了 ${S.fail}</div>` : ''}
       ${S.log.length ? `<pre class="small-pre">${h(S.log.slice(0, 12).join('\n'))}</pre>` : ''}
     </div>
+    <div class="section-h"><h2>推广通报表</h2><span class="hint">每天早上 8 点后自动在推广通后台生成「近 30 天、按门店按日」报表交给机器人。要求这个浏览器登录着 e.dianping.com。</span></div>
+    <div class="panel stack"><div class="row"><span class="hint grow">${TG.busy ? '拉取中…' : '等早上自动跑'}</span><button class="btn primary" data-action="fs-own-tgt" ${TG.busy ? 'disabled' : ''}>现在拉一次</button></div>
+      ${TG.log.length ? `<pre class="small-pre">${h(TG.log.slice(0, 8).join('\n'))}</pre>` : ''}</div>
     <div class="section-h"><h2>美团管家 / 经营宝每日数据</h2><span class="hint">每天早上 6:30 后自动查美团管家（营业额、堂食/外卖、开台、人数、桌均、人均、菜品、时段开台），7 点后查美团经营宝（同商圈对比、差评原文、新老客），交给机器人做运营日报。要求这个浏览器登录着美团管家和经营宝。</span></div>
     <div class="panel stack"><div class="row"><span class="hint grow">${GJ.busy ? '查询中…' : GJ.last ? '最近一次：' + h(GJ.last) : '等早上自动跑'}</span><button class="btn" data-action="fs-own-gj" ${GJ.busy || !has ? 'disabled' : ''}>现在查一次</button></div>
       ${GJ.log.length ? `<pre class="small-pre">${h(GJ.log.join('\n'))}</pre>` : ''}</div>

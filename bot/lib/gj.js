@@ -60,21 +60,25 @@ function createGj({ dataDir, log }) {
   // 某一天每家店的合并数据
   function day(d) {
     const raw = rawOf(d); if (!raw) return null; const S = {};
-    const get = name => { const k = norm(name); if (!k || CLOSED.test(k)) return null; return S[k] = S[k] || { store: k, revenue: 0, income: 0, discount: 0, orders: 0, guests: 0, tables: 0, _big: null, dine: null, takeout: null, ch: {}, chOrders: {}, dishes: {}, hourly: {} }; };
+    const get = name => { const k = norm(name); if (!k || CLOSED.test(k)) return null; return S[k] = S[k] || { store: k, revenue: 0, income: 0, discount: 0, orders: 0, guests: 0, tables: 0, _big: null, dine: null, takeout: null, ch: {}, chGross: {}, chOrders: {}, dishes: {}, hourly: {} }; };
     for (const r of raw.index || []) { const s = get(r.store); if (!s) continue; for (const k of ['revenue', 'income', 'discount', 'orders', 'guests', 'tables']) s[k] += r[k] || 0; if (!s._big || (r.tables || 0) > (s._big.tables || 0)) s._big = r; }
-    for (const r of raw.channel || []) { const s = get(r.store); if (!s) continue; s.chRevenue = (s.chRevenue || 0) + (r.revenue || 0); for (const [c, v] of Object.entries(r.ch || {})) { s.ch[c] = (s.ch[c] || 0) + (v.bizAmt || 0); s.chOrders[c] = (s.chOrders[c] || 0) + (v.orderCnt || 0); } }
+    for (const r of raw.channel || []) { const s = get(r.store); if (!s) continue; s.chRevenue = (s.chRevenue || 0) + (r.revenue || 0); for (const [c, v] of Object.entries(r.ch || {})) { const inc = v.ordIncomeAmt != null ? v.ordIncomeAmt : (v.bizAmt || 0); if (v.ordIncomeAmt != null) s.chHasInc = true; s.ch[c] = (s.ch[c] || 0) + inc; s.chGross[c] = (s.chGross[c] || 0) + (v.bizAmt || 0); s.chOrders[c] = (s.chOrders[c] || 0) + (v.orderCnt || 0); } }
     for (const r of raw.dish || []) { const s = get(r.store); if (!s) continue; for (const [n, q, a, t] of r.top || []) { const k = String(n).replace(/[.。\s]+$/, ''); const o = s.dishes[k] = s.dishes[k] || { name: k, qty: 0, amt: 0, type: t || '' }; o.qty += q || 0; o.amt += a || 0; } }
     for (const r of raw.hourly || []) { const s = get(r.store); if (!s) continue; for (const [hh, t, p, a] of r.h || []) { const o = s.hourly[hh] = s.hourly[hh] || [0, 0, 0]; o[0] += t || 0; o[1] += p || 0; o[2] += a || 0; } }
     for (const s of Object.values(S)) {
       if (Object.keys(s.ch).length) { s.dine = Object.entries(s.ch).filter(([c]) => !TAKEOUT.test(c)).reduce((t, [, v]) => t + v, 0); s.takeout = Object.entries(s.ch).filter(([c]) => TAKEOUT.test(c)).reduce((t, [, v]) => t + v, 0); s.dineOrders = Object.entries(s.chOrders).filter(([c]) => !TAKEOUT.test(c)).reduce((t, [, v]) => t + v, 0); }
-      s.total = s.chRevenue || s.revenue; // 渠道表的营业额含外卖，是全口径
-      const dineRev = s.dine != null ? s.dine : s.revenue;
+      // 营业额一律按「实收」（美团管家的营业收入 ordIncomeAmt = 应收 − 优惠），林总 2026-11-15 定；gross 留着应收备查
+      const chInc = Object.values(s.ch).reduce((t, v) => t + v, 0);
+      s.gross = s.chRevenue || s.revenue;
+      s.total = (s.chHasInc && chInc) || s.income || s.gross; s.basis = (s.chHasInc && chInc) || s.income ? '实收' : '应收';
+      if (!s.chHasInc && s.income && s.gross && s.dine != null) { const k = s.income / s.gross; s.dine *= k; s.takeout *= k; } // 渠道表没有实收：按比例折算
+      const dineRev = s.dine != null ? s.dine : (s.income || s.revenue);
       s.tableAvg = s.tables ? dineRev / s.tables : null; s.perCap = s.guests ? dineRev / s.guests : null;
       const b = s._big || {}; s.flip = b.flip ?? null; s.openRate = b.openRate ?? null; s.seatRate = b.seatRate ?? null; s.mealMin = b.mealMin ?? null;
       s.top = Object.values(s.dishes).sort((p, q) => q.qty - p.qty);
       const hrs = Object.entries(s.hourly).map(([hh, v]) => ({ hh, tables: v[0], people: v[1], amt: v[2] })).sort((p, q) => hk(p.hh) - hk(q.hh)); s.hours = hrs;
       const peak = hrs.filter(h => +h.hh.slice(0, 2) >= 16 || +h.hh.slice(0, 2) < 3).sort((p, q) => q.tables - p.tables)[0]; s.peak = peak || null;
-      delete s._big; delete s.dishes; delete s.hourly;
+      delete s._big; delete s.dishes; delete s.hourly; delete s.chHasInc;
     }
     return { date: d, at: raw.at, stores: S };
   }
@@ -85,7 +89,7 @@ function createGj({ dataDir, log }) {
       const x = day(d); if (!x) continue; days++;
       for (const s of Object.values(x.stores)) {
         const o = S[s.store] = S[s.store] || { store: s.store, total: 0, dine: 0, takeout: 0, tables: 0, guests: 0, orders: 0, discount: 0, days: 0, dishes: {} };
-        o.total += s.total || 0; o.dine += s.dine != null ? s.dine : (s.revenue || 0); o.takeout += s.takeout || 0; o.tables += s.tables || 0; o.guests += s.guests || 0; o.orders += s.orders || 0; o.discount += s.discount || 0; o.days++;
+        o.total += s.total || 0; o.dine += s.dine != null ? s.dine : (s.income || s.revenue || 0); o.gross = (o.gross || 0) + (s.gross || 0); o.takeout += s.takeout || 0; o.tables += s.tables || 0; o.guests += s.guests || 0; o.orders += s.orders || 0; o.discount += s.discount || 0; o.days++;
         for (const t of s.top || []) { const k = t.name; const q = o.dishes[k] = o.dishes[k] || { name: k, qty: 0, amt: 0 }; q.qty += t.qty; q.amt += t.amt; }
       }
     }

@@ -124,7 +124,7 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
   <div class="empty" id="cmpNote"></div>
   <div class="sec" id="s-trend">走势与排名</div>
   <div class="grid2">
-    <div class="pane"><h2>营业额每日走势 <span id="chartSub">近 30 天 · 含外卖</span></h2><div class="pills" id="pills"></div><div id="chart"></div>
+    <div class="pane"><h2>营业额每日走势 <span id="chartSub">近 30 天 · 实收 · 含外卖</span></h2><div class="pills" id="pills"></div><div id="chart"></div>
       <div class="legend"><span><i style="background:#4cc9f0aa"></i>当天营业额</span><span><i style="background:var(--amber)"></i>上周同一天</span><span><i style="background:var(--faint)"></i>周末</span></div></div>
     <div class="pane"><h2 id="rankH">环比排名 <span>比上周同一天</span></h2><div class="rank" id="rank"></div></div>
   </div>
@@ -249,7 +249,7 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
     let d = ''; prev.forEach((v, i) => { if (v == null) return; d += (d && prev[i - 1] != null ? 'L' : 'M') + (X(i) + bw / 2).toFixed(1) + ' ' + Y(v).toFixed(1); }); if (d) s += `<path d="${d}" fill="none" stroke="#ffb547" stroke-width="1.6" stroke-dasharray="4 3"/>`;
     $('chart').innerHTML = s + '</svg>';
     const sum = a => a.filter(v => v != null).reduce((t, v) => t + v, 0); const a7 = sum(vals.slice(-7)), p7 = sum(prev.slice(-7));
-    $('chartSub').textContent = `近 ${nd} 天 · 含外卖 · 高亮的是选中时段${a7 && p7 ? ' · 近 7 天比前 7 天 ' + ps((a7 - p7) / p7) : ''}`;
+    $('chartSub').textContent = `近 ${nd} 天 · 实收 · 含外卖 · 高亮的是选中时段${a7 && p7 ? ' · 近 7 天比前 7 天 ' + ps((a7 - p7) / p7) : ''}`;
   }
   function open(s) {
     const r = D.day.rows.find(x => x.store === s); if (!r) return; const w = r.c.total.wow; const hue = w == null ? 'var(--cyan)' : w > 0.005 ? 'var(--good)' : w < -0.1 ? 'var(--bad)' : 'var(--cyan)';
