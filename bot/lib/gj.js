@@ -12,12 +12,17 @@ const norm = s => { s = String(s || '').replace(/\s+/g, '').trim(); return ALIAS
 const ymd = t => new Date(t + 8 * 3600e3).toISOString().slice(0, 10);
 const addDays = (d, n) => ymd(Date.parse(d + 'T00:00:00+08:00') + n * DAY);
 const TAKEOUT = /外卖|闪购|饿了么|自提|配送/;
+// 各店实际桌数（林总 2026-11-15 给的；管家点单机里的桌台数不准）。翻台率 = 消费桌数 ÷ 实际桌数。可在 data/store-seats.json 里按 {关键词: 桌数} 覆盖
+const SEATS = [[/华强北/, 46], [/前海|HOP/, 42], [/白石洲/, 40], [/水东街/, 42], [/33小镇/, 40], [/千灯湖|灯湖|保利西街/, 44], [/创意产业园|创产/, 36], [/江南西/, 40], [/珠海|玖洲道/, 38], [/花园城|粤迹/, 32]];
 const hk = hh => { const h = +String(hh).slice(0, 2); return h < 6 ? h + 24 : h; }; // 营业日：凌晨的小时排在最后
 
 function createGj({ dataDir, log }) {
   const DIR = path.join(dataDir, 'gj'); try { fs.mkdirSync(DIR, { recursive: true }); } catch (e) { }
   const TPL_F = path.join(dataDir, 'gj-tpl.json'), ST_F = path.join(dataDir, 'gj-state.json');
   let st = {}; try { st = JSON.parse(fs.readFileSync(ST_F, 'utf8')); } catch (e) { }
+  const seatsOf = name => { let o = {}; try { o = JSON.parse(fs.readFileSync(path.join(dataDir, 'store-seats.json'), 'utf8')); } catch (e) { }
+    for (const [k, v] of Object.entries(o)) if (k && String(name).includes(k) && +v > 0) return +v;
+    const f = SEATS.find(([re]) => re.test(name)); return f ? f[1] : null; };
   const save = () => { try { fs.writeFileSync(ST_F, JSON.stringify(st)); } catch (e) { } };
   const fileOf = d => path.join(DIR, d + '.json');
   const has = d => { try { const j = JSON.parse(fs.readFileSync(fileOf(d), 'utf8')); return (j.index || []).length > 0 && (j.channel || []).length > 0; } catch (e) { return false; } };
@@ -74,7 +79,7 @@ function createGj({ dataDir, log }) {
       if (!s.chHasInc && s.income && s.gross && s.dine != null) { const k = s.income / s.gross; s.dine *= k; s.takeout *= k; } // 渠道表没有实收：按比例折算
       const dineRev = s.dine != null ? s.dine : (s.income || s.revenue);
       s.tableAvg = s.tables ? dineRev / s.tables : null; s.perCap = s.guests ? dineRev / s.guests : null;
-      const b = s._big || {}; s.flip = b.flip ?? null; s.openRate = b.openRate ?? null; s.seatRate = b.seatRate ?? null; s.mealMin = b.mealMin ?? null;
+      const b = s._big || {}; s.seats = seatsOf(s.store); s.flipPos = b.flip ?? null; s.flip = s.seats && s.tables ? s.tables / s.seats : (b.flip ?? null); s.openRate = b.openRate ?? null; s.seatRate = b.seatRate ?? null; s.mealMin = b.mealMin ?? null;
       s.top = Object.values(s.dishes).sort((p, q) => q.qty - p.qty);
       const hrs = Object.entries(s.hourly).map(([hh, v]) => ({ hh, tables: v[0], people: v[1], amt: v[2] })).sort((p, q) => hk(p.hh) - hk(q.hh)); s.hours = hrs;
       const peak = hrs.filter(h => +h.hh.slice(0, 2) >= 16 || +h.hh.slice(0, 2) < 3).sort((p, q) => q.tables - p.tables)[0]; s.peak = peak || null;
