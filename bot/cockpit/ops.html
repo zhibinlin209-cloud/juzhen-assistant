@@ -1,5 +1,5 @@
-<!-- 禧聚 运营驾驶舱 v2 · 和老板驾驶舱同一套深色指挥台风格 · 数据来自 /cockpit/api/ops（美团管家 + 经营宝 + 门店日报） -->
-<title>禧聚 运营驾驶舱</title>
+<!-- 粤迹运营驾驶舱 v3 · 和老板驾驶舱同一套深色指挥台风格 · 数据来自 /cockpit/api/ops（美团管家 + 经营宝 + 门店日报） -->
+<title>粤迹运营驾驶舱</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
 <style>
 :root {
@@ -22,7 +22,9 @@ body { background: radial-gradient(1200px 600px at 50% -10%, #12234080, transpar
 .tab:hover { color: var(--ink) }
 .status { margin-left: auto; display: flex; gap: 12px; color: var(--mute); font-size: 12px; align-items: center; flex-wrap: wrap }
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 5px; background: var(--faint) } .dot.on { background: var(--good); box-shadow: 0 0 8px var(--good) } .dot.off { background: var(--amber) }
-.datebar { display: flex; align-items: center; gap: 4px }
+.datebar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 7px; overflow: hidden } .seg button { font: inherit; font-size: 12px; color: var(--mute); background: var(--panel); border: 0; padding: 3px 10px; cursor: pointer } .seg button + button { border-left: 1px solid var(--line) } .seg button.on { background: var(--cyan); color: #04121c; font-weight: 600 }
+.datebar .to { color: var(--faint); font-size: 12px }
 .datebar button, .datebar input { font: inherit; font-size: 12px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; cursor: pointer; color-scheme: dark }
 .status a { color: var(--mute); text-decoration: none } .status a:hover { color: var(--ink) }
 .say { background: var(--panel); border: 1px solid #ffb54755; box-shadow: 0 0 0 1px #ffb54718, 0 8px 40px -14px #ffb54744; border-radius: 10px; padding: 12px 16px; margin: 6px 0 16px; display: flex; gap: 14px; align-items: baseline; flex-wrap: wrap }
@@ -101,30 +103,30 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
 </style>
 <div class="wrap">
   <header class="top">
-    <div class="brand">禧聚 <b>运营</b> 驾驶舱</div>
+    <div class="brand">粤迹 <b>运营</b> 驾驶舱</div>
     <nav class="tabs"><a class="tab" href="#s-stores">门店</a><a class="tab" href="#s-cmp">菜品/同行/新老客</a><a class="tab" href="#s-trend">走势</a><a class="tab" href="#s-bad">差评</a><a class="tab" href="#s-rep">报告</a></nav>
     <div class="status">
       <span id="src"></span>
-      <span class="datebar"><button id="prev" aria-label="前一天">‹</button><input id="date" type="date"><button id="next" aria-label="后一天">›</button></span>
-      <a href="/cockpit/" id="bossLink" hidden>老板驾驶舱 ↗</a><a href="/cockpit/logout">退出</a>
+      <span class="datebar"><span class="seg" id="modes"><button data-m="day">日</button><button data-m="week">周</button><button data-m="month">月</button><button data-m="custom">自定义</button></span><button id="prev" aria-label="上一段">‹</button><span id="pickers"></span><button id="next" aria-label="下一段">›</button></span>
+      <a href="/cockpit/" id="bossLink" hidden>粤迹 AI 驾驶舱 ↗</a><a href="/cockpit/logout">退出</a>
     </div>
   </header>
   <div class="say"><h1 id="sayH">—</h1><p id="sayP">读取中…</p></div>
   <div class="kpis" id="kpis"></div>
-  <div class="sec" id="s-stores">各门店 <span>点卡片看详情 · 绿=比上周同日涨 · 红=跌超 10%</span></div>
+  <div class="sec" id="s-stores">各门店 <span>点卡片看详情 · 绿=比上期涨 · 红=跌超 10%</span></div>
   <div class="stores" id="stores"></div>
   <div class="sec" id="s-cmp">菜品 · 同商圈 · 新老客 <span>点任意一行看这家店详情</span></div>
   <div class="trio">
     <div class="pane"><h2>同商圈对比 <span>曝光是同行的几倍</span></h2><div class="hb" id="peer"></div><div class="lg2"><span><i style="background:var(--good)"></i>8 倍以上 强</span><span><i style="background:var(--cyan)"></i>3–8 倍</span><span><i style="background:var(--bad)"></i>3 倍以下 弱</span></div></div>
     <div class="pane"><h2>新客 / 老客 <span id="custSub">按周</span></h2><div class="hb" id="cust"></div><div class="lg2"><span><i style="background:var(--cyan)"></i>新客</span><span><i style="background:var(--amber)"></i>老客</span></div></div>
-    <div class="pane"><h2>卖得最好的菜 <span>不含饮料</span></h2><div id="dish"></div></div>
+    <div class="pane"><h2>菜品销量前 15 <span>全品牌合计 · 不含饮料</span></h2><div id="dish"></div></div>
   </div>
   <div class="empty" id="cmpNote"></div>
   <div class="sec" id="s-trend">走势与排名</div>
   <div class="grid2">
     <div class="pane"><h2>营业额每日走势 <span id="chartSub">近 30 天 · 含外卖</span></h2><div class="pills" id="pills"></div><div id="chart"></div>
       <div class="legend"><span><i style="background:#4cc9f0aa"></i>当天营业额</span><span><i style="background:var(--amber)"></i>上周同一天</span><span><i style="background:var(--faint)"></i>周末</span></div></div>
-    <div class="pane"><h2>环比排名 <span>比上周同一天</span></h2><div class="rank" id="rank"></div></div>
+    <div class="pane"><h2 id="rankH">环比排名 <span>比上周同一天</span></h2><div class="rank" id="rank"></div></div>
   </div>
   <div class="sec" id="s-bad">差评与报告</div>
   <div class="grid2">
@@ -146,14 +148,30 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
   const ymd = t => new Date(t + 8 * 3600e3).toISOString().slice(0, 10);
   const add = (d, n) => ymd(Date.parse(d + 'T00:00:00+08:00') + n * 864e5);
   const yday = add(ymd(Date.now()), -1);
-  let D = null, cur = yday, pick = '全部门店', repKey = 'daily';
-  try { pick = localStorage.getItem('ops-pick') || pick; } catch (e) { }
-  $('date').value = cur; $('date').max = yday;
-  $('prev').onclick = () => go(add(cur, -1)); $('next').onclick = () => { if (cur < yday) go(add(cur, 1)); }; $('date').onchange = e => go(e.target.value);
-  function go(d) { cur = d; $('date').value = d; load(); }
+  let D = null, pick = '全部门店', repKey = 'daily', mode = 'day', from = yday, to = yday;
+  try { pick = localStorage.getItem('ops-pick') || pick; mode = localStorage.getItem('ops-mode') || 'day'; } catch (e) { }
+  const wdOf = d => new Date(d + 'T00:00:00Z').getUTCDay();
+  const monday = d => add(d, -((wdOf(d) + 6) % 7));
+  const mEnd = d => { const y = +d.slice(0, 4), m = +d.slice(5, 7); return `${d.slice(0, 7)}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`; };
+  const cap = d => d > yday ? yday : d;
+  function setRange(m, anchor, end) { mode = m; if (m === 'day') { from = to = cap(anchor); } else if (m === 'week') { from = monday(cap(anchor)); to = cap(add(from, 6)); } else if (m === 'month') { from = cap(anchor).slice(0, 7) + '-01'; to = cap(mEnd(from)); } else { from = cap(anchor); to = cap(end || anchor); if (from > to) [from, to] = [to, from]; } try { localStorage.setItem('ops-mode', mode); } catch (e) { } pickers(); load(); }
+  function pickers() {
+    document.querySelectorAll('#modes button').forEach(b => b.classList.toggle('on', b.dataset.m === mode));
+    const P = $('pickers');
+    if (mode === 'day') P.innerHTML = `<input type="date" id="pA" value="${from}" max="${yday}">`;
+    else if (mode === 'week') P.innerHTML = `<input type="date" id="pA" value="${from}" max="${yday}" title="选这周里任意一天"><span class="to">${from.slice(5).replace('-', '/')}–${add(from, 6).slice(5).replace('-', '/')}</span>`;
+    else if (mode === 'month') P.innerHTML = `<input type="month" id="pA" value="${from.slice(0, 7)}" max="${yday.slice(0, 7)}">`;
+    else P.innerHTML = `<input type="date" id="pA" value="${from}" max="${yday}"><span class="to">至</span><input type="date" id="pB" value="${to}" max="${yday}">`;
+    $('pA').onchange = e => { const v = e.target.value; if (!v) return; setRange(mode, mode === 'month' ? v + '-01' : v, mode === 'custom' ? to : undefined); };
+    if ($('pB')) $('pB').onchange = e => { if (e.target.value) setRange('custom', from, e.target.value); };
+    $('next').disabled = to >= yday;
+  }
+  document.querySelectorAll('#modes button').forEach(b => b.onclick = () => setRange(b.dataset.m, to, mode === 'custom' ? to : undefined));
+  $('prev').onclick = () => { if (mode === 'day') setRange('day', add(from, -1)); else if (mode === 'week') setRange('week', add(from, -7)); else if (mode === 'month') setRange('month', add(from, -1)); else { const n = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1; setRange('custom', add(from, -n), add(from, -1)); } };
+  $('next').onclick = () => { if (to >= yday) return; if (mode === 'day') setRange('day', add(from, 1)); else if (mode === 'week') setRange('week', add(from, 7)); else if (mode === 'month') setRange('month', add(mEnd(from), 1)); else { const n = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1; setRange('custom', add(to, 1), add(to, n)); } };
   async function load() {
     try {
-      const r = await fetch('/cockpit/api/ops?date=' + cur + '&days=35', { credentials: 'same-origin' });
+      const nd = Math.round((Date.parse(to) - Date.parse(from)) / 864e5) + 1; const r = await fetch(`/cockpit/api/ops?from=${from}&to=${to}&mode=${mode}&days=${Math.max(37, nd + 7)}`, { credentials: 'same-origin' });
       if (r.status === 401) { location.href = '/cockpit/login?next=ops'; return; }
       D = await r.json(); if (!D.ok) throw new Error(D.error || '读取失败'); render();
     } catch (e) { $('sayP').textContent = '⚠️ ' + e.message; }
@@ -166,11 +184,11 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
     $('src').innerHTML = `<span><i class="dot ${day.gjOk ? 'on' : 'off'}"></i>管家</span><span><i class="dot ${day.jybOk ? 'on' : 'off'}"></i>经营宝</span>`;
     const rows = day.rows.filter(r => !r.missing);
     const up = rows.filter(r => r.c.total.wow > 0.005).length, down = rows.filter(r => r.c.total.wow < -0.1);
-    $('sayH').textContent = `${day.date.slice(5).replace('-', '/')}（${day.week}）`;
-    $('sayP').innerHTML = rows.length ? `${rows.length} 家店营业额 <b class="mono">${wan(T.total)}</b>，比上周同一天 <b class="${cl(T.wow)}">${ps(T.wow)}</b>${T.yoy != null ? `，比去年同期 <b class="${cl(T.yoy)}">${ps(T.yoy)}</b>` : ''}；${up} 家在涨${down.length ? `，<b class="down">${down.map(r => short(r.store)).join('、')}</b> 跌超 10%` : ''}${T.badText ? `；差评原文 ${T.badText} 条` : (T.bad ? `；差评 ${T.bad} 条` : '')}。` + (!day.gjOk ? ' <span class="chip">管家这天还没查到，先用门店日报</span>' : '')
+    $('sayH').textContent = day.label || day.date; const cmpL = day.mode === 'day' ? '环比' : '比上期'; $('rankH').innerHTML = `${day.mode === 'day' ? '环比' : '对比上期'}排名 <span>比${esc(day.prevName || '上周同一天')}</span>`;
+    $('sayP').innerHTML = rows.length ? `${rows.length} 家店营业额 <b class="mono">${wan(T.total)}</b>，比${esc(day.prevName || '上周同一天')} <b class="${cl(T.wow)}">${ps(T.wow)}</b>${T.yoy != null ? `，比去年同期 <b class="${cl(T.yoy)}">${ps(T.yoy)}</b>` : ''}；${up} 家在涨${down.length ? `，<b class="down">${down.map(r => short(r.store)).join('、')}</b> 跌超 10%` : ''}${T.badText ? `；差评原文 ${T.badText} 条` : (T.bad ? `；差评 ${T.bad} 条` : '')}。` + (!day.gjOk ? ' <span class="chip">管家这天还没查到，先用门店日报</span>' : '')
       : '这天还没有数据。插件每天早上 6:30 查美团管家、7 点查经营宝；刚装好的话，在插件侧边栏点「现在查一次」。';
     const sp = k => spark(series('全部门店', day.date, 14).map((v, i, a) => k === 'total' ? v : null), 120, 26, '#4cc9f0', true);
-    const K = [['营业额', wan(T.total), `环比 <span class="${cl(T.wow)}">${ps(T.wow)}</span> · 同比 <span class="${cl(T.yoy)}">${ps(T.yoy)}</span>`, spark(series('全部门店', day.date, 14), 120, 26, '#4cc9f0', true)],
+    const K = [['营业额', wan(T.total), `${cmpL} <span class="${cl(T.wow)}">${ps(T.wow)}</span> · 同比 <span class="${cl(T.yoy)}">${ps(T.yoy)}</span>`, spark(series('全部门店', day.to || day.date, 14), 120, 26, '#4cc9f0', true)],
       ['堂食', wan(T.dine), T.total ? '占 ' + Math.round(T.dine / T.total * 100) + '%' : '', ''], ['外卖', wan(T.takeout), T.total ? '占 ' + Math.round(T.takeout / T.total * 100) + '%' : '', ''],
       ['开台数', fmt(T.tables), T.tables ? '桌均 ' + fmt(T.dine / T.tables) + ' 元' : '', ''], ['用餐人数', fmt(T.guests), T.guests ? '人均 ' + fmt(T.dine / T.guests) + ' 元' : '', ''], ['差评', fmt(Math.max(T.bad || 0, T.badText || 0)), '门店日报 + 经营宝', '']];
     $('kpis').innerHTML = K.map(k => `<div class="kpi"><small>${k[0]}</small><b>${k[1]}</b><div class="c">${k[2]}</div>${k[3]}</div>`).join('');
@@ -182,8 +200,8 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
       const peer = r.jyb && r.jyb.viewPeer ? r.jyb.view / r.jyb.viewPeer : null;
       const flags = []; if (bad) flags.push(`<span class="flag">差评 ${bad}</span>`); if (peer != null) flags.push(`<span class="flag ${peer >= 8 ? 'ok' : peer >= 3 ? 'mid' : ''}">曝光是同行 ${peer.toFixed(1)} 倍</span>`); if (r.peak) flags.push(`<span class="flag mid">高峰 ${r.peak.hh}</span>`); if (r.src === '日报') flags.push('<span class="flag mid">门店日报数</span>');
       return `<button class="store ${k}" data-s="${esc(r.store)}"><div class="hd">${short(r.store)}<small>第 ${i + 1}</small></div>
-        <div class="big">${wan(r.total)}${chip('环比', w)}${chip('同比', r.c.total.yoy)}</div>
-        ${spark(series(short(r.store), day.date, 14), 240, 30, k === 'b' ? '#ff6b6b' : k === 'g' ? '#3ddc97' : '#4cc9f0', true)}
+        <div class="big">${wan(r.total)}${chip(cmpL, w)}${chip('同比', r.c.total.yoy)}</div>
+        ${spark(series(short(r.store), day.to || day.date, 14), 240, 30, k === 'b' ? '#ff6b6b' : k === 'g' ? '#3ddc97' : '#4cc9f0', true)}
         <div class="sub"><div>堂食<b>${wan(r.dine)}</b></div><div>外卖<b>${wan(r.takeout)}</b></div><div>开台<b>${fmt(r.tables)} <span class="${cl(r.c.tables.wow)}">${r.c.tables.wow != null ? ps(r.c.tables.wow) : ''}</span></b></div><div>人数<b>${fmt(r.guests)}</b></div><div>桌均<b>${fmt(r.tableAvg)}</b></div><div>人均<b>${fmt(r.perCap)} <span class="${cl(r.c.perCap.wow)}">${r.c.perCap.wow != null ? ps(r.c.perCap.wow) : ''}</span></b></div></div>
         ${flags.length ? `<div class="ft">${flags.join('')}</div>` : ''}</button>`;
     }).join('');
@@ -203,8 +221,8 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
     const cw0 = cu[0] && cu[0].r.cust; $('custSub').textContent = cw0 ? `${String(cw0.from).slice(4, 6)}/${String(cw0.from).slice(6)} 那周 · 按老客占比排` : '按周';
     $('cust').innerHTML = cu.length ? cu.map(z => `<div class="r" data-o="${esc(z.r.store)}"><span>${short(z.r.store)}</span><div class="t" style="width:${Math.max(18, (z.n + z.o) / cm * 100)}%"><i style="width:${z.n / Math.max(1, z.n + z.o) * 100}%;background:var(--cyan)"></i><i style="width:${z.o / Math.max(1, z.n + z.o) * 100}%;background:var(--amber)"></i></div><span class="v">老客 ${Math.round(z.o / Math.max(1, z.n + z.o) * 100)}%<small>${fmt(z.n + z.o)} 人</small></span></div>`).join('') : '<div class="empty">还没查到（美团只按周给）</div>';
     const agg = {}; live.forEach(r => (r.top || []).forEach(d => { const k = d.name.replace(/[（(].*?[)）]/g, '').replace(/[.。\s]+$/, ''); agg[k] = (agg[k] || 0) + (d.qty || 0); }));
-    const at = Object.entries(agg).sort((a, b) => b[1] - a[1]).slice(0, 5); const am = Math.max(1, ...at.map(z => z[1]));
-    $('dish').innerHTML = at.length ? `<div class="status" style="margin:0 0 6px;font-size:11px;color:var(--faint)">全品牌合计</div><div class="dtop">${at.map((z, i) => `<div class="d"><span class="n">${i + 1}</span><span>${esc(z[0].slice(0, 12))}</span><b>${fmt(z[1])}</b><div class="bar"><i style="width:${z[1] / am * 100}%"></i></div></div>`).join('')}</div>
+    const at = Object.entries(agg).sort((a, b) => b[1] - a[1]).slice(0, 15); const am = Math.max(1, ...at.map(z => z[1]));
+    $('dish').innerHTML = at.length ? `<div class="dtop">${at.map((z, i) => `<div class="d"><span class="n">${i + 1}</span><span>${esc(z[0].slice(0, 12))}</span><b>${fmt(z[1])}</b><div class="bar"><i style="width:${z[1] / am * 100}%"></i></div></div>`).join('')}</div>
       <div class="sig"><div style="cursor:default;color:var(--faint);font-size:11px"><span>各店卖得最好的</span><span></span></div>${live.filter(r => (r.top || []).length).map(r => `<div data-o="${esc(r.store)}"><span>${short(r.store)}</span><span>${esc(r.top[0].name.replace(/[（(].*?[)）]/g, '').slice(0, 10))} · ${fmt(r.top[0].qty)}</span></div>`).join('')}</div>` : '<div class="empty">管家这天的菜品数据还没查到</div>';
     document.querySelectorAll('#peer [data-o], #cust [data-o], #dish [data-o]').forEach(a => a.onclick = () => open(a.dataset.o));
     const cw = rows.find(r => r.cust); const notes = [];
@@ -219,7 +237,7 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
     if (!keys.includes(pick)) pick = '全部门店';
     $('pills').innerHTML = keys.map(k => `<button class="pill ${k === pick ? 'on' : ''}" data-k="${esc(k)}">${esc(k)}</button>`).join('');
     $('pills').querySelectorAll('.pill').forEach(b => b.onclick = () => { pick = b.dataset.k; try { localStorage.setItem('ops-pick', pick); } catch (e) { } chart(); });
-    const all = series(pick, T.length ? T[T.length - 1].date : '', T.length); const show = T.slice(-30), vals = all.slice(-30), prev = all.slice(-37, -7);
+    const all = series(pick, T.length ? T[T.length - 1].date : '', T.length); const nd = Math.max(30, Math.round((Date.parse(D.day.to) - Date.parse(D.day.from)) / 864e5) + 1); const show = T.slice(-nd), vals = all.slice(-nd), prev = all.slice(-nd - 7, -7);
     while (prev.length < vals.length) prev.unshift(null);
     const has = vals.filter(v => v != null); if (!has.length) { $('chart').innerHTML = '<div class="empty">还没有数据。插件第一次跑完以后，每 5 分钟补 6 天，大约一小时补齐近 30 天。</div>'; return; }
     const W = Math.max(300, $('chart').clientWidth || 640), H = 230, L = 44, R = 6, Tp = 10, B = 22; const n = show.length;
@@ -227,11 +245,11 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
     const X = i => L + i * bw, Y = v => Tp + (H - Tp - B) * (1 - v / mx);
     let s = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="${esc(pick)}营业额走势">`;
     for (let k = 0; k <= 3; k++) { const v = mx * k / 3; s += `<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#1e2c45"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end">${v >= 1e4 ? (v / 1e4).toFixed(v >= 1e5 ? 0 : 1) + '万' : Math.round(v)}</text>`; }
-    show.forEach((r, i) => { const wd = new Date(r.date + 'T00:00:00Z').getUTCDay(); const v = vals[i]; const sel = r.date === D.day.date; if (wd === 0 || wd === 6) s += `<rect x="${X(i)}" y="${Tp}" width="${bw}" height="${H - Tp - B}" fill="#ffffff06"/>`; if (v != null) s += `<rect x="${X(i) + bw * 0.18}" y="${Y(v)}" width="${bw * 0.64}" height="${H - B - Y(v)}" rx="2" fill="${sel ? '#4cc9f0' : '#4cc9f066'}"><title>${r.date} ${wan(v)}${prev[i] != null ? '（上周同日 ' + wan(prev[i]) + '）' : ''}</title></rect>`; const st8 = Math.ceil(n / 8), si = show.findIndex(z => z.date === D.day.date); if ((i % st8 === 0 && (si < 0 || Math.abs(i - si) >= st8 / 2)) || sel) s += `<text x="${X(i) + bw / 2}" y="${H - 6}" text-anchor="middle" ${sel ? 'style="fill:#e6edf7"' : ''}>${r.date.slice(5).replace('-', '/')}</text>`; });
+    show.forEach((r, i) => { const wd = new Date(r.date + 'T00:00:00Z').getUTCDay(); const v = vals[i]; const sel = r.date >= D.day.from && r.date <= D.day.to; if (wd === 0 || wd === 6) s += `<rect x="${X(i)}" y="${Tp}" width="${bw}" height="${H - Tp - B}" fill="#ffffff06"/>`; if (v != null) s += `<rect x="${X(i) + bw * 0.18}" y="${Y(v)}" width="${bw * 0.64}" height="${H - B - Y(v)}" rx="2" fill="${sel ? '#4cc9f0' : '#4cc9f066'}"><title>${r.date} ${wan(v)}${prev[i] != null ? '（上周同日 ' + wan(prev[i]) + '）' : ''}</title></rect>`; const st8 = Math.ceil(n / 8), si = show.findIndex(z => z.date === D.day.to); if ((i % st8 === 0 && (si < 0 || Math.abs(i - si) >= st8 / 2)) || r.date === D.day.to) s += `<text x="${X(i) + bw / 2}" y="${H - 6}" text-anchor="middle" ${sel ? 'style="fill:#e6edf7"' : ''}>${r.date.slice(5).replace('-', '/')}</text>`; });
     let d = ''; prev.forEach((v, i) => { if (v == null) return; d += (d && prev[i - 1] != null ? 'L' : 'M') + (X(i) + bw / 2).toFixed(1) + ' ' + Y(v).toFixed(1); }); if (d) s += `<path d="${d}" fill="none" stroke="#ffb547" stroke-width="1.6" stroke-dasharray="4 3"/>`;
     $('chart').innerHTML = s + '</svg>';
     const sum = a => a.filter(v => v != null).reduce((t, v) => t + v, 0); const a7 = sum(vals.slice(-7)), p7 = sum(prev.slice(-7));
-    $('chartSub').textContent = `近 30 天 · 含外卖${a7 && p7 ? ' · 近 7 天比前 7 天 ' + ps((a7 - p7) / p7) : ''}`;
+    $('chartSub').textContent = `近 ${nd} 天 · 含外卖 · 高亮的是选中时段${a7 && p7 ? ' · 近 7 天比前 7 天 ' + ps((a7 - p7) / p7) : ''}`;
   }
   function open(s) {
     const r = D.day.rows.find(x => x.store === s); if (!r) return; const w = r.c.total.wow; const hue = w == null ? 'var(--cyan)' : w > 0.005 ? 'var(--good)' : w < -0.1 ? 'var(--bad)' : 'var(--cyan)';
@@ -239,10 +257,10 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
     const kv = (k, v) => `<div class="kv"><span>${k}</span><b>${v}</b></div>`; const pc = (k, o) => `${o.wow != null ? `<span class="${cl(o.wow)}">${ps(o.wow)}</span>` : '—'} / ${o.yoy != null ? `<span class="${cl(o.yoy)}">${ps(o.yoy)}</span>` : '—'}`;
     const x = r.jyb;
     $('sheet').style.setProperty('--h', hue);
-    $('sheet').innerHTML = `<div class="mh"><h2>${short(r.store)}</h2><span>${D.day.date}（${D.day.week}）· 环比 / 同比</span><button class="xb" id="mx" aria-label="关闭">×</button></div><div class="mb">
+    $('sheet').innerHTML = `<div class="mh"><h2>${short(r.store)}</h2><span>${esc(D.day.label || D.day.date)} · 比${esc(D.day.prevName || '上周同一天')} / ${esc(D.day.lyName || '去年同期')}</span><button class="xb" id="mx" aria-label="关闭">×</button></div><div class="mb">
       <div class="blk"><h3>营业 <span>${r.src === '管家' ? '美团管家' : '门店日报'}</span></h3>${kv('营业额', wan(r.total) + '　' + pc('', r.c.total))}${kv('堂食', wan(r.dine) + '　' + pc('', r.c.dine))}${kv('外卖', wan(r.takeout) + '　' + pc('', r.c.takeout))}${kv('开台数', fmt(r.tables) + '　' + pc('', r.c.tables))}${kv('用餐人数', fmt(r.guests) + '　' + pc('', r.c.guests))}${kv('桌均 / 人均', fmt(r.tableAvg) + ' / ' + fmt(r.perCap))}${kv('翻台率 / 用餐时长', (r.flip ? (+r.flip).toFixed(2) : '—') + ' / ' + (r.mealMin ? r.mealMin + ' 分钟' : '—'))}${kv('优惠金额', wan(r.discount))}</div>
-      <div class="blk"><h3>每小时开台 <span>结账时间${pk ? ' · 高峰 ' + pk : ''}</span></h3>${hrs.length ? `<div class="hrs">${hrs.map(h => `<div class="${h.hh === pk ? 'pk' : ''}" style="height:${Math.max(5, h.tables / mx * 100)}%"><b>${h.tables}</b><span>${h.hh.slice(0, 2)}</span></div>`).join('')}</div><div style="height:20px"></div>` : '<div class="empty">没有时段数据</div>'}
-        <h3 style="margin-top:10px">销量前五 <span>不含饮料</span></h3>${(r.top || []).map((d, i) => kv(`${i + 1}. ${esc(d.name)}`, fmt(d.qty) + ' 份')).join('') || '<div class="empty">管家菜品数据没查到</div>'}</div>
+      <div class="blk"><h3>每小时开台 <span>${D.day.n > 1 ? '平均每天 · ' : ''}结账时间${pk ? ' · 高峰 ' + pk : ''}</span></h3>${hrs.length ? `<div class="hrs">${hrs.map(h => `<div class="${h.hh === pk ? 'pk' : ''}" style="height:${Math.max(5, h.tables / mx * 100)}%"><b>${h.tables}</b><span>${h.hh.slice(0, 2)}</span></div>`).join('')}</div><div style="height:20px"></div>` : '<div class="empty">没有时段数据</div>'}
+        <h3 style="margin-top:10px">菜品销量前 15 <span>不含饮料</span></h3>${(r.top || []).map((d, i) => kv(`${i + 1}. ${esc(d.name)}`, fmt(d.qty) + ' 份')).join('') || '<div class="empty">管家菜品数据没查到</div>'}</div>
       <div class="blk"><h3>口碑 <span>门店日报</span></h3>${[['大众点评', r.dp, r.dpBad], ['美团', r.mt, r.mtBad], ['抖音', r.dy, r.dyBad], ['美团外卖', r.wm, r.wmBad]].map(z => kv(z[0], (z[1] == null ? '—' : z[1]) + ' 分 · 差评 ' + (z[2] || 0))).join('')}
         ${r.cust && r.cust.newBuy != null ? `<h3 style="margin-top:10px">新客 / 老客 <span>${esc(String(r.cust.from || '').slice(4, 6))}/${esc(String(r.cust.from || '').slice(6))} 那周 · 团购和买单</span></h3>${kv('新客 / 老客', fmt(r.cust.newBuy) + ' / ' + fmt(r.cust.oldBuy))}${kv('老客占比', (r.cust.newBuy + r.cust.oldBuy) ? Math.round(r.cust.oldBuy / (r.cust.newBuy + r.cust.oldBuy) * 100) + '%' : '—')}${kv('复购率', r.cust.repurchase != null ? (r.cust.repurchase * 100).toFixed(1) + '%' + (r.cust.repurchasePeer ? '（比同行 ' + esc(r.cust.repurchasePeer) + '）' : '') : '—')}` : ''}</div>
       ${x ? `<div class="blk full"><h3>和商圈同行比 <span>美团经营宝「商圈同行店均」</span></h3><div style="overflow-x:auto"><table><thead><tr><th>指标</th><th>本店</th><th>同行店均</th><th>是同行的</th></tr></thead><tbody>${[['曝光人数', x.view, x.viewPeer], ['访问人数', x.visit, x.visitPeer], ['团购购买人数', x.buy, x.buyPeer], ['新增收藏', x.collect, x.collectPeer], ['打卡人数', x.checkin, x.checkinPeer], ['新增评价', x.review, x.reviewPeer]].filter(z => z[1] != null).map(z => `<tr><td>${z[0]}</td><td>${fmt(z[1])}</td><td>${z[2] != null ? (+z[2]).toFixed(z[2] < 100 ? 1 : 0) : '—'}</td><td class="${z[2] && z[1] / z[2] < 1 ? 'down' : ''}">${z[2] ? (z[1] / z[2]).toFixed(1) + ' 倍' : '—'}</td></tr>`).join('')}${x.cvr != null ? `<tr><td>访问→购买转化率</td><td>${(x.cvr * 100).toFixed(1)}%</td><td>${x.cvrPeer != null ? (x.cvrPeer * 100).toFixed(1) + '%' : '—'}</td><td class="${x.cvrPeer && x.cvr < x.cvrPeer ? 'down' : ''}">${x.cvrPeer ? (x.cvr / x.cvrPeer).toFixed(1) + ' 倍' : ''}</td></tr>` : ''}</tbody></table></div></div>` : ''}
@@ -261,6 +279,6 @@ table { width: 100%; border-collapse: collapse; font-size: 12px } td, th { paddi
     $('rep').textContent = (L[repKey].text || '') + (L[repKey].at ? '\n\n（推送时间 ' + new Date(L[repKey].at).toLocaleString('zh-CN', { hour12: false }) + '）' : '');
   }
   let rt; window.addEventListener('resize', () => { clearTimeout(rt); rt = setTimeout(() => D && chart(), 150); });
-  load();
+  if (mode !== 'day') setRange(mode, yday, yday); else { pickers(); load(); }
 })();
 </script>

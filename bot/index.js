@@ -481,7 +481,7 @@ async function setup() {
       if (m.chat_id === dailyChatNow() && atBot && /^(运营驾驶舱|驾驶舱账号|设置驾驶舱密码|重设运营驾驶舱密码)$/.test(t0) && sid !== boss) {
         const me = opsPeople().find(x => x.openId === sid); const url = (cfg.cockpitUrl || 'https://work.yesyueji.com/cockpit/').replace(/\/?$/, '/');
         if (!me) { await reply(m.message_id, '你还不在运营驾驶舱名单里，请林总在群里发「运营副总 你的飞书名字」把你加进来，再 @我 发一次「运营驾驶舱」。'); return; }
-        try { await dm(sid, `🔐 运营驾驶舱：点这个链接设置你自己的账号和密码（30 分钟内有效、只能用一次，别转发）：\n${web.opsSetupLink(30)}\n\n以后登录网址：${url}\n忘了密码就在经营日报群 @我 再发一次「运营驾驶舱」。`); await reply(m.message_id, '✅ 设置链接已私聊发给你，30 分钟内有效。'); log(`[运营驾驶舱] ${me.name} 自己要了设置链接`); }
+        try { await dm(sid, `🔐 粤迹运营驾驶舱：点这个链接设置你自己的账号和密码（30 分钟内有效、只能用一次，别转发）：\n${web.opsSetupLink(30)}\n\n以后登录网址：${url}\n忘了密码就在经营日报群 @我 再发一次「运营驾驶舱」。`); await reply(m.message_id, '✅ 设置链接已私聊发给你，30 分钟内有效。'); log(`[运营驾驶舱] ${me.name} 自己要了设置链接`); }
         catch (e) { if (/230013|availability/i.test(e.message) && boss) { try { await dm(boss, `🔐 ${me.name} 在群里要运营驾驶舱设置链接，机器人私聊不到对方，请你转发（30 分钟内有效、只能用一次）：\n${web.opsSetupLink(30)}\n登录网址：${url}`); await reply(m.message_id, '机器人没法私聊你（飞书限制），设置链接已私聊发给林总，请林总转给你。'); } catch (e2) { await reply(m.message_id, '⚠️ 发送失败：' + e2.message.slice(0, 80)); } } else await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 80)); }
         return; } }
     // 运营副总相关（只认老板在经营日报群发）：运营副总 名字 / 运营驾驶舱 / 删除运营驾驶舱账号 / 运营日报 运营周报 运营月报（预览，只私聊老板）
@@ -495,7 +495,7 @@ async function setup() {
       if (t === '运营日报接收人') { const P = opsPeople(); await reply(m.message_id, P.length ? '运营日报接收人：' + P.map(x => x.name).join('、') + '（另外抄送你）' : '还没有接收人，发「运营副总 名字」添加'); return; }
       if (/^删除运营日报接收人/.test(t)) { const name = t.replace(/^删除运营日报接收人\s*/, '').trim(); opsSt.people = opsPeople().filter(x => x.name.toLowerCase() !== name.toLowerCase()); saveOps(); await reply(m.message_id, `✅ 已去掉「${name}」。现在的接收人：${opsSt.people.map(x => x.name).join('、') || '没有'}`); return; }
       if (/^(运营驾驶舱|重设运营驾驶舱密码)/.test(t)) { const P = opsPeople(); const want = t.replace(/^(运营驾驶舱|重设运营驾驶舱密码)\s*/, '').trim(); const who = want ? P.find(x => x.name.toLowerCase() === want.toLowerCase()) : P[0]; if (!who) { await reply(m.message_id, want ? `「${want}」还不是运营日报接收人，先发「运营副总 ${want}」` : '还没设置运营副总，先发「运营副总 名字」'); return; } const url = (cfg.cockpitUrl || 'https://work.yesyueji.com/cockpit/').replace(/\/?$/, '/');
-        try { await dm(who.openId, `🔐 林总给你开了「运营驾驶舱」：\n先点这个链接设置你自己的账号和密码（30 分钟内有效、只能用一次，别转发）：\n${web.opsSetupLink(30)}\n\n以后登录网址：${url}\n每天早上 8 点我会私聊你一份运营日报。`); await reply(m.message_id, `✅ 设置链接已私聊发给${who.name}（30 分钟内有效）。过期了再发一次「运营驾驶舱 ${who.name}」。`); } catch (e) { if (/230013|availability/i.test(e.message)) { try { await dm(boss, `🔐 ${who.name} 的运营驾驶舱设置链接（机器人私聊不到对方，请你转发；30 分钟内有效、只能用一次）：\n${web.opsSetupLink(30)}\n登录网址：${url}`); await reply(m.message_id, `机器人私聊不到${who.name}（对方不在机器人所在的飞书企业里），设置链接已私聊发给你，请转发给${who.name}。`); } catch (e2) { await reply(m.message_id, '⚠️ 发送失败：' + e2.message.slice(0, 80)); } } else await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 80)); } return; }
+        try { await dm(who.openId, `🔐 林总给你开了「粤迹运营驾驶舱」：\n先点这个链接设置你自己的账号和密码（30 分钟内有效、只能用一次，别转发）：\n${web.opsSetupLink(30)}\n\n以后登录网址：${url}\n每天早上 8 点我会私聊你一份运营日报。`); await reply(m.message_id, `✅ 设置链接已私聊发给${who.name}（30 分钟内有效）。过期了再发一次「运营驾驶舱 ${who.name}」。`); } catch (e) { if (/230013|availability/i.test(e.message)) { try { await dm(boss, `🔐 ${who.name} 的运营驾驶舱设置链接（机器人私聊不到对方，请你转发；30 分钟内有效、只能用一次）：\n${web.opsSetupLink(30)}\n登录网址：${url}`); await reply(m.message_id, `机器人私聊不到${who.name}（对方不在机器人所在的飞书企业里），设置链接已私聊发给你，请转发给${who.name}。`); } catch (e2) { await reply(m.message_id, '⚠️ 发送失败：' + e2.message.slice(0, 80)); } } else await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 80)); } return; }
       if (t === '删除运营驾驶舱账号') { web.opsRemove(); await reply(m.message_id, '✅ 运营驾驶舱的账号已全部删除，他们现在都登录不了了。要重新开，发「运营驾驶舱 名字」。'); return; }
       const kind = t === '运营日报' ? 'daily' : t === '运营周报' ? 'week' : 'month';
       await reply(m.message_id, '好，正在生成，稍后私聊你（预览，只发给你）'); try { await sendOps(kind, { previewTo: boss }); } catch (e) { await reply(m.message_id, '⚠️ 没生成出来：' + e.message.slice(0, 100)); } return;
@@ -739,7 +739,7 @@ async function setup() {
     o = o || {}; const r = kind === 'daily' ? await opsR.daily(o.date) : await opsR.period(kind);
     opsSt.texts = opsSt.texts || {}; if (!o.previewTo) { opsSt.texts[kind] = { text: r.text, at: Date.now() }; saveOps(); }
     const link = (cfg.cockpitUrl || 'https://work.yesyueji.com/cockpit/').replace(/\/?$/, '/');
-    const txt = r.text + `\n\n🖥 运营驾驶舱：${link}`;
+    const txt = r.text + `\n\n🖥 粤迹运营驾驶舱：${link}ops`;
     if (o.previewTo) { await dm(o.previewTo, '（预览，只发给你）\n' + txt); return r; }
     const sent = [];
     const opsChat = opsSt.chatId || (opsSt.noGroup ? '' : dailyChatNow()); // 没单独设群就发到「经营日报」群（林总 2026-11-14 定）
