@@ -32,9 +32,9 @@ function createOpsReport({ gj, store, chat, log }) {
   function storeDay(G, R, s, d) { // 某店某天：管家优先，日报兜底
     const g = G && G.stores[s]; const r = rep(R, s, d);
     const o = { store: s, src: g ? '管家' : (r ? '日报' : '') };
-    if (g) Object.assign(o, { total: g.total, dine: g.dine != null ? g.dine : g.revenue, takeout: g.takeout, tables: g.tables, guests: g.guests, orders: g.orders, tableAvg: g.tableAvg, perCap: g.perCap, flip: g.flip, seatRate: g.seatRate, mealMin: g.mealMin, discount: g.discount, peak: g.peak, hours: g.hours, top: (g.top || []).filter(x => !DRINK.test(x.name)).slice(0, 5), topAll: g.top || [], drinks: (g.top || []).filter(x => DRINK.test(x.name)).slice(0, 3) });
+    if (g) Object.assign(o, { total: g.total, dine: g.dine != null ? g.dine : g.revenue, takeout: g.takeout, tables: g.tables, guests: g.guests, orders: g.orders, tableAvg: g.tableAvg, perCap: g.perCap, flip: g.flip, seats: g.seats, openRate: g.openRate, seg: g.seg, refund: g.refund, seatRate: g.seatRate, mealMin: g.mealMin, discount: g.discount, peak: g.peak, hours: g.hours, top: (g.top || []).filter(x => !DRINK.test(x.name)).slice(0, 5), topAll: g.top || [], drinks: (g.top || []).filter(x => DRINK.test(x.name)).slice(0, 3) });
     else if (r) Object.assign(o, { total: num(r['总营业额']), dine: num(r['到店消费']), takeout: num(r['外卖']) });
-    if (r) Object.assign(o, { rTotal: num(r['总营业额']), dp: num(r['点评评分']), mt: num(r['美团评分']), dy: num(r['抖音评分']), wm: num(r['外卖评分']), dpBad: num(r['点评差评']) || 0, mtBad: num(r['美团差评']) || 0, dyBad: num(r['抖音差评']) || 0, wmBad: num(r['外卖差评']) || 0, checkins: num(r['收藏打卡']) });
+    if (r) Object.assign(o, { rTotal: num(r['总营业额']), dp: num(r['点评评分']), mt: num(r['美团评分']), dy: num(r['抖音评分']), wm: num(r['外卖评分']), dpBad: num(r['点评差评']) || 0, mtBad: num(r['美团差评']) || 0, dyBad: num(r['抖音差评']) || 0, wmBad: num(r['外卖差评']) || 0, checkins: num(r['收藏打卡']), loss: num(r['报损']) });
     return o;
   }
 
@@ -50,6 +50,40 @@ function createOpsReport({ gj, store, chat, log }) {
     if (mode === 'week') return { prev: [addDays(from, -7), addDays(to, -7)], ly: [addDays(from, -364), addDays(to, -364)], prevName: '上一周', lyName: '去年同周' };
     return { prev: [addDays(from, -n), addDays(from, -1)], ly: [addDays(from, -364), addDays(to, -364)], prevName: `前 ${n} 天`, lyName: '去年同期' };
   }
+  // 合计 + 分市 + 全品牌每小时 + 「重点 / 异常」清单（驾驶舱顶部和日报开头共用）
+  function totals(has, rows, n) {
+    const sum = (L, f) => L.reduce((t, r) => t + (f(r) || 0), 0); const T = {};
+    T.ftables = sum(has, r => r.ftables); T.seatDays = sum(has, r => r.seatDays); T.flip = T.seatDays ? T.ftables / T.seatDays : null;
+    const pv = has.filter(r => r.prev && r.prev.seatDays); const pF = sum(pv, r => r.prev.seatDays) ? sum(pv, r => r.prev.ftables) / sum(pv, r => r.prev.seatDays) : null; T.flipPrev = pF; T.flipWow = pc(T.flip, pF);
+    T.seg = {}; for (const k of ['meal', 'lunch', 'dinner', 'night']) { const L = has.filter(r => r.seg && r.seg[k]); const z = { amt: sum(L, r => r.seg[k].amt), tables: sum(L, r => r.seg[k].tables), seatDays: sum(L, r => r.seg[k].seatDays) }; z.flip = z.seatDays ? z.tables / z.seatDays : null;
+      const P = L.filter(r => r.prev && r.prev.seg && r.prev.seg[k]); const pa = sum(P, r => r.prev.seg[k].amt), pt = sum(P, r => r.prev.seg[k].tables), ps_ = sum(P, r => r.prev.seg[k].seatDays); const ca = sum(P, r => r.seg[k].amt), ct = sum(P, r => r.seg[k].tables), cs = sum(P, r => r.seg[k].seatDays);
+      z.amtWow = pa ? pc(ca, pa) : null; z.flipWow = ps_ && cs && pt ? pc(ct / cs, pt / ps_) : null; if (L.length) T.seg[k] = z; }
+    const R = has.filter(r => r.refundAmt != null); T.refund = R.length ? sum(R, r => r.refundAmt) : null; T.refundCnt = R.length ? sum(R, r => r.refundCnt) : null; const RP = R.filter(r => r.prev && r.prev.refundAmt != null); T.refundWow = RP.length ? pc(sum(RP, r => r.refundAmt), sum(RP, r => r.prev.refundAmt)) : null;
+    const Ls = has.filter(r => r.loss != null); T.loss = Ls.length ? sum(Ls, r => r.loss) : null; T.lossN = Ls.length; const LP = Ls.filter(r => r.prev && r.prev.loss != null); T.lossWow = LP.length ? pc(sum(LP, r => r.loss), sum(LP, r => r.prev.loss)) : null;
+    const H = {}; let seats = 0; for (const r of has) { if (!(r.hoursCmp || []).length) continue; seats += r.seats || 0; for (const h of r.hoursCmp) { const q = H[h.hh] = H[h.hh] || { hh: h.hh, tables: 0, prev: null, amt: 0, prevAmt: null }; q.tables += h.tables || 0; q.amt += h.amt || 0; if (h.prev != null) q.prev = (q.prev || 0) + h.prev; if (h.prevAmt != null) q.prevAmt = (q.prevAmt || 0) + h.prevAmt; } }
+    const hk = hh => { const h = +String(hh).slice(0, 2); return h < 6 ? h + 24 : h; };
+    T.hours = Object.values(H).sort((a, b) => hk(a.hh) - hk(b.hh)).map(h => Object.assign(h, { flip: seats ? h.tables / seats : null }));
+    // 重点 / 异常
+    const A = []; const S = r => short(r.store).replace('蛇口招商花园城', '花园城（粤迹）').replace('华强北燕南', '华强北').replace('东城33小镇', '33小镇');
+    const down = has.filter(r => r.c.total.wow != null && r.c.total.wow < -0.1).sort((a, b) => a.c.total.wow - b.c.total.wow);
+    for (const r of down.slice(0, 4)) { const hd = (r.hoursCmp || []).filter(h => h.prev != null).map(h => Object.assign({ d: h.tables - h.prev }, h)).sort((a, b) => a.d - b.d)[0]; const why = []; if (r.c.tables.wow != null && r.c.tables.wow < -0.08) why.push(`开台 ${ps(r.c.tables.wow)}`); if (r.c.perCap.wow != null && r.c.perCap.wow < -0.08) why.push(`人均 ${ps(r.c.perCap.wow)}`); if (r.c.takeout.wow != null && r.c.takeout.wow < -0.2 && r.takeout > 2000) why.push(`外卖 ${ps(r.c.takeout.wow)}`); if (hd && hd.d <= -2) why.push(`${String(hd.hh).slice(0, 2)} 点少开 ${Math.round(-hd.d)} 桌`);
+      A.push({ lvl: 'bad', store: r.store, text: `${S(r)} 营业额 ${ps(r.c.total.wow)}${why.length ? '：' + why.join('，') : ''}` }); }
+    const fl = has.filter(r => r.flip != null).sort((a, b) => a.flip - b.flip);
+    if (fl.length >= 3) { const avg = T.flip; const b = fl[0]; A.push({ lvl: 'bad', store: b.store, text: `翻台垫底：${S(b)} ${dec(b.flip, 2)}（全品牌 ${dec(avg, 2)}）${b.c.flip.wow != null ? '，比上期 ' + ps(b.c.flip.wow) : ''}` }); }
+    const hdrop = T.hours.filter(h => h.prev != null && h.prev >= 3).map(h => Object.assign({ d: h.tables - h.prev, r: pc(h.tables, h.prev) }, h)).filter(h => h.d <= -3 && h.r <= -0.15).sort((a, b) => a.d - b.d).slice(0, 2);
+    for (const h of hdrop) A.push({ lvl: 'warn', text: `${String(h.hh).slice(0, 2)} 点时段全品牌少开 ${Math.round(-h.d)} 桌（${ps(h.r)}）` });
+    if (T.seg.night && T.seg.night.amtWow != null && T.seg.night.amtWow < -0.1) A.push({ lvl: 'warn', text: `宵夜营收 ${ps(T.seg.night.amtWow)}，翻台 ${dec(T.seg.night.flip, 2)}（${ps(T.seg.night.flipWow)}）` });
+    if (T.seg.meal && T.seg.meal.amtWow != null && T.seg.meal.amtWow < -0.1) A.push({ lvl: 'warn', text: `饭市营收 ${ps(T.seg.meal.amtWow)}，翻台 ${dec(T.seg.meal.flip, 2)}（${ps(T.seg.meal.flipWow)}）` });
+    const rf = has.filter(r => r.refundAmt && r.dine).map(r => ({ r, x: r.refundAmt / r.dine })).sort((a, b) => b.x - a.x)[0];
+    if (rf && rf.x >= 0.01) A.push({ lvl: 'warn', store: rf.r.store, text: `退菜最多：${S(rf.r)} 退 ${fmt(rf.r.refundAmt)} 元（占堂食 ${(rf.x * 100).toFixed(1)}%）${(rf.r.refundTop || [])[0] ? '，最多是 ' + rf.r.refundTop[0].name.replace(/[（(].*?[)）]/g, '').slice(0, 10) : ''}` });
+    const lo = has.filter(r => r.loss && r.dine).map(r => ({ r, x: r.loss / r.dine })).sort((a, b) => b.x - a.x)[0];
+    if (lo && lo.x >= 0.01) A.push({ lvl: 'warn', store: lo.r.store, text: `报损最高：${S(lo.r)} ${fmt(lo.r.loss)} 元（占堂食 ${(lo.x * 100).toFixed(1)}%）${lo.r.c.loss.wow != null ? '，比上期 ' + ps(lo.r.c.loss.wow) : ''}` });
+    const bad = has.map(r => ({ r, n: Math.max((r.dpBad || 0) + (r.mtBad || 0) + (r.dyBad || 0) + (r.wmBad || 0), (r.badText || []).length) })).filter(z => z.n).sort((a, b) => b.n - a.n);
+    if (bad.length) A.push({ lvl: 'warn', text: `差评：${bad.slice(0, 3).map(z => S(z.r) + ' ' + z.n + ' 条').join('、')}` });
+    const best = has.filter(r => r.c.total.wow != null).sort((a, b) => b.c.total.wow - a.c.total.wow)[0];
+    if (best && best.c.total.wow > 0.05) A.push({ lvl: 'good', store: best.store, text: `涨得最好：${S(best)} ${ps(best.c.total.wow)}${best.c.tables.wow != null ? '（开台 ' + ps(best.c.tables.wow) + '）' : ''}` });
+    T.alerts = A; return T;
+  }
   function rangeData(from, to, mode) {
     const yday = addDays(ymd(Date.now()), -1); if (to > yday) to = yday; if (from > to) from = to;
     const P = periods(mode, from, to); const n = span(from, to);
@@ -57,24 +91,33 @@ function createOpsReport({ gj, store, chat, log }) {
     const GC = new Map(); const gd = d => { if (!GC.has(d)) GC.set(d, gj.day(d)); return GC.get(d); };
     const days = (f, t) => { const a = []; for (let d = f; d <= t; d = addDays(d, 1)) a.push(d); return a; };
     function agg(s, f, t, full) {
-      const o = { store: s, src: '', total: 0, dine: 0, takeout: 0, tables: 0, guests: 0, orders: 0, discount: 0, n: 0, gjN: 0, tkN: 0 }; const dishes = {}, hrs = {}; let flip = [], meal = [], last = null;
+      const o = { store: s, src: '', total: 0, dine: 0, takeout: 0, tables: 0, guests: 0, orders: 0, discount: 0, n: 0, gjN: 0, tkN: 0, seatDays: 0, ftables: 0, refundAmt: null, refundCnt: null, loss: null, lossN: 0, seg: null }; const dishes = {}, hrs = {}; let flip = [], meal = [], open = [], last = null;
       for (const d of days(f, t)) {
         const x = storeDay(gd(d), R, s, d); if (!x.src) continue; o.n++; if (x.src === '管家') o.gjN++;
         for (const k of ['total', 'dine', 'takeout', 'tables', 'guests', 'orders', 'discount']) o[k] += x[k] || 0; if (x.takeout != null) o.tkN++;
+        if (x.seats && x.tables != null && x.src === '管家') { o.seatDays += x.seats; o.ftables += x.tables; o.seats = x.seats; }
+        if (x.refund) { o.refundAmt = (o.refundAmt || 0) + (x.refund.amt || 0); o.refundCnt = (o.refundCnt || 0) + (x.refund.cnt || 0); if (full) for (const z of x.refund.top || []) { const q = (o._rt = o._rt || {})[z.name] = (o._rt || {})[z.name] || { name: z.name, cnt: 0, amt: 0 }; q.cnt += z.cnt; q.amt += z.amt; } }
+        if (x.loss != null) { o.loss = (o.loss || 0) + x.loss; o.lossN++; }
+        if (x.seg) { o.seg = o.seg || {}; for (const [k, z] of Object.entries(x.seg)) { const q = o.seg[k] = o.seg[k] || { tables: 0, people: 0, amt: 0, seatDays: 0 }; q.tables += z.tables; q.people += z.people; q.amt += z.amt; q.seatDays += x.seats || 0; } }
+        for (const h of x.hours || []) { const q = hrs[h.hh] = hrs[h.hh] || { hh: h.hh, tables: 0, people: 0, amt: 0 }; q.tables += h.tables || 0; q.people += h.people || 0; q.amt += h.amt || 0; }
+        if (x.openRate != null) open.push(x.openRate);
         if (!full) continue;
         if (x.flip) flip.push(x.flip); if (x.mealMin) meal.push(x.mealMin);
         for (const z of x.topAll || []) { const q = dishes[z.name] = dishes[z.name] || { name: z.name, qty: 0, amt: 0 }; q.qty += z.qty || 0; q.amt += z.amt || 0; }
-        for (const h of x.hours || []) { const q = hrs[h.hh] = hrs[h.hh] || { hh: h.hh, tables: 0, people: 0, amt: 0 }; q.tables += h.tables || 0; q.people += h.people || 0; q.amt += h.amt || 0; }
         if (x.rTotal != null || x.dp != null || x.mt != null) last = x;
         for (const k of ['dpBad', 'mtBad', 'dyBad', 'wmBad']) o[k] = (o[k] || 0) + (x[k] || 0);
       }
       if (!o.n) return null;
       o.src = o.gjN ? '管家' : '日报'; o.tableAvg = o.tables ? o.dine / o.tables : null; o.perCap = o.guests ? o.dine / o.guests : null; if (!o.tables) o.tables = o.gjN ? 0 : null; if (!o.guests) o.guests = o.gjN ? 0 : null;
+      // 翻台率（实际桌数）：消费桌数 ÷（桌数 × 天数）；分市同理；每小时 = 平均每天该小时开台 ÷ 桌数
+      o.flip = o.seatDays ? o.ftables / o.seatDays : null; o.openRate = open.length ? open.reduce((a, b) => a + b, 0) / open.length : null;
+      if (o.seg) for (const z of Object.values(o.seg)) { z.flip = z.seatDays ? z.tables / z.seatDays : null; }
+      { const hk = hh => { const h = +String(hh).slice(0, 2); return h < 6 ? h + 24 : h; }; const nd = Math.max(1, o.gjN); o.hours = Object.values(hrs).sort((a, b) => hk(a.hh) - hk(b.hh)).map(h => ({ hh: h.hh, tables: h.tables / nd, people: h.people / nd, amt: h.amt / nd, flip: o.seats ? h.tables / nd / o.seats : null })); }
+      if (o._rt) { o.refundTop = Object.values(o._rt).sort((a, b) => b.amt - a.amt).slice(0, 5); delete o._rt; }
       if (full) {
         const all = Object.values(dishes).sort((a, b) => b.qty - a.qty); o.top = all.filter(z => !DRINK.test(z.name)).slice(0, 15); o.drinks = all.filter(z => DRINK.test(z.name)).slice(0, 3);
-        const hk = hh => { const h = +String(hh).slice(0, 2); return h < 6 ? h + 24 : h; }; o.hours = Object.values(hrs).sort((a, b) => hk(a.hh) - hk(b.hh)); o.peak = o.hours.filter(h => hk(h.hh) >= 16).sort((a, b) => b.tables - a.tables)[0] || null;
-        if (n > 1) o.hours.forEach(h => { h.tables = Math.round(h.tables / o.gjN || h.tables); }); // 多天时显示「平均每天」
-        o.flip = flip.length ? flip.reduce((a, b) => a + b, 0) / flip.length : null; o.mealMin = meal.length ? Math.round(meal.reduce((a, b) => a + b, 0) / meal.length) : null;
+        const hk = hh => { const h = +String(hh).slice(0, 2); return h < 6 ? h + 24 : h; }; o.peak = o.hours.filter(h => hk(h.hh) >= 16).sort((a, b) => b.tables - a.tables)[0] || null;
+        o.mealMin = meal.length ? Math.round(meal.reduce((a, b) => a + b, 0) / meal.length) : null;
         if (last) Object.assign(o, { dp: last.dp, mt: last.mt, dy: last.dy, wm: last.wm });
       }
       return o;
@@ -90,7 +133,13 @@ function createOpsReport({ gj, store, chat, log }) {
         a.jyb = { view: sumC('曝光人数', 'v'), viewPeer: sumC('曝光人数', 'peer'), visit: sumC('访问人数', 'v'), visitPeer: sumC('访问人数', 'peer'), buy: sumC('购买人数', 'v'), buyPeer: sumC('购买人数', 'peer'), cvr: avgC('访问-购买转化率', 'v'), cvrPeer: avgC('访问-购买转化率', 'peer'), collect: sumC('新增收藏', 'v'), collectPeer: sumC('新增收藏', 'peer'), checkin: sumC('打卡人数', 'v'), checkinPeer: sumC('打卡人数', 'peer'), review: sumC('新增评价数', 'v'), reviewPeer: sumC('新增评价数', 'peer'), days: js.length };
         a.badText = js.flatMap(x => x.bad || []); }
       const cw = CW && CW.stores[s]; if (cw) a.cust = Object.assign({ from: CW.from, to: CW.to }, cw);
-      rows.push(Object.assign(a, { c: { total: cmp('total'), dine: cmp('dine'), takeout: cmp('takeout'), tables: cmp('tables'), guests: cmp('guests'), perCap: cmp('perCap'), tableAvg: cmp('tableAvg') }, last: { wTotal: ok(w) ? w.total : null, yTotal: ok(y) ? y.total : null } }));
+      const segC = (k, f) => ({ wow: ok(w) && a.seg && w.seg && a.seg[k] && w.seg[k] ? pc(a.seg[k][f], w.seg[k][f]) : null, yoy: ok(y) && a.seg && y.seg && a.seg[k] && y.seg[k] ? pc(a.seg[k][f], y.seg[k][f]) : null });
+      const cmpN = (k) => ({ wow: ok(w) && w[k] != null ? pc(a[k], w[k]) : null, yoy: ok(y) && y[k] != null ? pc(a[k], y[k]) : null });
+      // 每小时：本期 vs 环比期（都按平均每天），看哪个时段掉了
+      const wH = {}; if (ok(w)) for (const h of w.hours || []) wH[h.hh] = h; a.hoursCmp = (a.hours || []).map(h => ({ hh: h.hh, tables: h.tables, prev: wH[h.hh] ? wH[h.hh].tables : (ok(w) && (w.hours || []).length ? 0 : null), amt: h.amt, prevAmt: wH[h.hh] ? wH[h.hh].amt : null, flip: h.flip }));
+      for (const h of (ok(w) ? w.hours || [] : [])) if (!a.hoursCmp.some(z => z.hh === h.hh)) a.hoursCmp.push({ hh: h.hh, tables: 0, prev: h.tables, amt: 0, prevAmt: h.amt, flip: 0 });
+      a.prev = ok(w) ? { flip: w.flip, refundAmt: w.refundAmt, loss: w.loss, seg: w.seg, tables: w.tables, total: w.total, ftables: w.ftables, seatDays: w.seatDays, dine: w.dine } : null;
+      rows.push(Object.assign(a, { c: { total: cmp('total'), dine: cmp('dine'), takeout: cmp('takeout'), tables: cmp('tables'), guests: cmp('guests'), perCap: cmp('perCap'), tableAvg: cmp('tableAvg'), flip: cmpN('flip'), openRate: cmpN('openRate'), refund: cmpN('refundAmt'), loss: cmpN('loss'), mealAmt: segC('meal', 'amt'), mealFlip: segC('meal', 'flip'), nightAmt: segC('night', 'amt'), nightFlip: segC('night', 'flip'), lunchAmt: segC('lunch', 'amt'), dinnerAmt: segC('dinner', 'amt') }, last: { wTotal: ok(w) ? w.total : null, yTotal: ok(y) ? y.total : null } }));
     }
     const has = rows.filter(r => !r.missing); const sum = (L, k) => L.reduce((t, r) => t + (r[k] || 0), 0);
     const T = { total: sum(has, 'total'), dine: sum(has, 'dine'), takeout: sum(has, 'takeout'), tables: sum(has, 'tables'), guests: sum(has, 'guests') };
@@ -98,6 +147,7 @@ function createOpsReport({ gj, store, chat, log }) {
     T.wow = wT ? pc(wA, wT) : null; T.yoy = yT ? pc(yA, yT) : null; T.yoyN = yHas.length;
     T.bad = has.reduce((t, r) => t + (r.dpBad || 0) + (r.mtBad || 0) + (r.dyBad || 0) + (r.wmBad || 0), 0);
     T.badText = has.reduce((t, r) => t + (r.badText || []).length, 0);
+    Object.assign(T, totals(has, rows, n));
     const brand = {}; has.forEach(r => (r.top || []).forEach(z => { const k = z.name.replace(/[（(].*?[)）]/g, '').replace(/[.。\s]+$/, ''); brand[k] = (brand[k] || 0) + z.qty; }));
     T.top = Object.entries(brand).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([name, qty]) => ({ name, qty }));
     const label = n === 1 ? `${from.slice(5).replace('-', '/')}（${wk(from)}）` : mode === 'month' ? `${from.slice(0, 4)} 年 ${+from.slice(5, 7)} 月${to < monthEnd(from) ? '（到 ' + to.slice(5).replace('-', '/') + '）' : ''}` : `${from.slice(5).replace('-', '/')}–${to.slice(5).replace('-', '/')}（${n} 天）`;
@@ -111,10 +161,13 @@ function createOpsReport({ gj, store, chat, log }) {
     L.push(`【${short(r.store)}】营业额 ${wan(r.total)}（环比 ${ps(r.c.total.wow)}，同比 ${ps(r.c.total.yoy)}）`);
     L.push(`  堂食 ${wan(r.dine)}（${ps(r.c.dine.wow)}）· 外卖 ${wan(r.takeout)}（${ps(r.c.takeout.wow)}）`);
     if (r.src === '管家') {
-      L.push(`  开台 ${fmt(r.tables)}（${ps(r.c.tables.wow)}）· 人数 ${fmt(r.guests)}（${ps(r.c.guests.wow)}）· 桌均 ${fmt(r.tableAvg)} · 人均 ${fmt(r.perCap)}（${ps(r.c.perCap.wow)}）${r.flip ? ' · 翻台 ' + dec(r.flip, 2) : ''}`);
-      if (r.peak) L.push(`  晚市高峰 ${r.peak.hh} 开台 ${r.peak.tables}${r.mealMin ? ' · 平均用餐 ' + r.mealMin + ' 分钟' : ''}`);
+      L.push(`  开台 ${fmt(r.tables)}（${ps(r.c.tables.wow)}）· 人数 ${fmt(r.guests)}（${ps(r.c.guests.wow)}）· 桌均 ${fmt(r.tableAvg)} · 人均 ${fmt(r.perCap)}（${ps(r.c.perCap.wow)}）`);
+      if (r.flip != null) L.push(`  翻台 ${dec(r.flip, 2)}（${ps(r.c.flip.wow)}）${r.openRate != null ? ' · 开台率 ' + Math.round(r.openRate * 100) + '%' : ''}${r.seg && r.seg.meal ? ` · 饭市 ${wan(r.seg.meal.amt)} 翻台 ${dec(r.seg.meal.flip, 2)}（${ps(r.c.mealAmt.wow)}）` : ''}${r.seg && r.seg.night ? ` · 宵夜 ${wan(r.seg.night.amt)} 翻台 ${dec(r.seg.night.flip, 2)}（${ps(r.c.nightAmt.wow)}）` : ''}`);
+      { const hd = (r.hoursCmp || []).filter(h => h.prev != null && h.prev > 0).map(h => ({ hh: h.hh, d: h.tables - h.prev, r: (h.tables - h.prev) / h.prev })).filter(h => h.d <= -2 && h.r <= -0.2).sort((a, b) => a.d - b.d).slice(0, 2); if (hd.length) L.push(`  掉的时段：${hd.map(h => `${String(h.hh).slice(0, 2)} 点少开 ${Math.round(-h.d)} 桌（${ps(h.r)}）`).join('、')}`); }
+      if (r.peak) L.push(`  晚市高峰 ${r.peak.hh} 开台 ${Math.round(r.peak.tables)}${r.mealMin ? ' · 平均用餐 ' + r.mealMin + ' 分钟' : ''}`);
       if (r.top && r.top.length) L.push(`  销量前五：${r.top.slice(0, 5).map(x => `${x.name.replace(/[（(].*?[)）]/g, '').slice(0, 10)} ${x.qty}`).join('、')}`);
     } else L.push('  （管家数据没查到，先用门店日报的数）');
+    if (r.refundAmt != null || r.loss != null) L.push(`  退菜 ${r.refundAmt != null ? fmt(r.refundAmt) + ' 元（' + ps(r.c.refund.wow) + '）' + ((r.refundTop || [])[0] ? '，最多 ' + r.refundTop[0].name.replace(/[（(].*?[)）]/g, '').slice(0, 10) : '') : '—'} · 报损 ${r.loss != null ? fmt(r.loss) + ' 元（' + ps(r.c.loss.wow) + '）' : '—'}`);
     const x = r.jyb; const times = (a, b) => a != null && b ? (a / b >= 10 ? Math.round(a / b) : (a / b).toFixed(1)) + '倍' : '—';
     if (x) L.push(`  同商圈：曝光 ${wan(x.view)}（同行均 ${fmt(x.viewPeer)}，${times(x.view, x.viewPeer)}）· 团购购买 ${fmt(x.buy)} 人（同行 ${fmt(x.buyPeer)}，${times(x.buy, x.buyPeer)}）· 访问→购买 ${x.cvr != null ? (x.cvr * 100).toFixed(1) + '%' : '—'}（同行 ${x.cvrPeer != null ? (x.cvrPeer * 100).toFixed(1) + '%' : '—'}）· 打卡 ${fmt(x.checkin)}（同行 ${fmt(x.checkinPeer)}）`);
     if (r.cust && (r.cust.newBuy != null)) { const tot = (r.cust.newBuy || 0) + (r.cust.oldBuy || 0); L.push(`  新客/老客（${String(r.cust.from || '').slice(4, 6)}/${String(r.cust.from || '').slice(6)}那周，美团+点评团购买单）：新客 ${fmt(r.cust.newBuy)} · 老客 ${fmt(r.cust.oldBuy)}${tot ? '（老客占 ' + Math.round((r.cust.oldBuy || 0) / tot * 100) + '%）' : ''}${r.cust.repurchase != null ? ' · 复购率 ' + (r.cust.repurchase * 100).toFixed(1) + '%' + (r.cust.repurchasePeer ? '（比同行 ' + r.cust.repurchasePeer + '）' : '') : ''}`); }
@@ -128,17 +181,19 @@ function createOpsReport({ gj, store, chat, log }) {
     const p = `你是连锁餐饮（海鲜大排档「YES也是大排档」+ 粤菜「粤迹」）的运营分析助手，给运营副总写${kind}点评。\n要求：只用下面给的数字，不许编数字；口语、具体；不超过 8 行；先说整体，再点名 2–3 家最需要关注的店（涨得好的也可以点一家），每家一句原因判断（从人数、人均、开台、外卖、差评里找）+ 一个今天能做的动作；数据缺的就说缺，不要猜。环比=上周同一天，同比=去年同星期几。\n数据：${JSON.stringify(facts).slice(0, 9000)}`;
     try { return String(await chat(p, 900) || '').trim(); } catch (e) { log('[运营日报] AI 分析失败：' + e.message); return ''; }
   }
-  const compact = D => D.rows.filter(r => !r.missing).map(r => ({ 店: short(r.store), 营业额: Math.round(r.total || 0), 环比: ps(r.c.total.wow), 同比: ps(r.c.total.yoy), 堂食: Math.round(r.dine || 0), 堂食环比: ps(r.c.dine.wow), 外卖: Math.round(r.takeout || 0), 外卖环比: ps(r.c.takeout.wow), 开台: r.tables, 开台环比: ps(r.c.tables.wow), 人数: r.guests, 人数环比: ps(r.c.guests.wow), 人均: r.perCap && Math.round(r.perCap), 人均环比: ps(r.c.perCap.wow), 差评: (r.dpBad || 0) + (r.mtBad || 0) + (r.dyBad || 0) + (r.wmBad || 0), 美团分: r.mt, 点评分: r.dp, 曝光是同行几倍: r.jyb && r.jyb.viewPeer ? +(r.jyb.view / r.jyb.viewPeer).toFixed(1) : null, 团购购买是同行几倍: r.jyb && r.jyb.buyPeer ? +(r.jyb.buy / r.jyb.buyPeer).toFixed(1) : null, 差评内容: (r.badText || []).slice(0, 3).map(b => b.text.slice(0, 80)) }));
+  const compact = D => D.rows.filter(r => !r.missing).map(r => ({ 店: short(r.store), 营业额: Math.round(r.total || 0), 环比: ps(r.c.total.wow), 同比: ps(r.c.total.yoy), 堂食: Math.round(r.dine || 0), 堂食环比: ps(r.c.dine.wow), 外卖: Math.round(r.takeout || 0), 外卖环比: ps(r.c.takeout.wow), 开台: r.tables, 开台环比: ps(r.c.tables.wow), 人数: r.guests, 人数环比: ps(r.c.guests.wow), 人均: r.perCap && Math.round(r.perCap), 人均环比: ps(r.c.perCap.wow), 差评: (r.dpBad || 0) + (r.mtBad || 0) + (r.dyBad || 0) + (r.wmBad || 0), 美团分: r.mt, 点评分: r.dp, 曝光是同行几倍: r.jyb && r.jyb.viewPeer ? +(r.jyb.view / r.jyb.viewPeer).toFixed(1) : null, 团购购买是同行几倍: r.jyb && r.jyb.buyPeer ? +(r.jyb.buy / r.jyb.buyPeer).toFixed(1) : null, 翻台: r.flip != null ? +r.flip.toFixed(2) : null, 翻台环比: ps(r.c.flip.wow), 宵夜环比: ps(r.c.nightAmt.wow), 饭市环比: ps(r.c.mealAmt.wow), 退菜: r.refundAmt, 报损: r.loss, 差评内容: (r.badText || []).slice(0, 3).map(b => b.text.slice(0, 80)) }));
   async function daily(d) {
     const D = dailyData(d); const T = D.T;
     const head = [`📊 运营日报 · ${D.date.slice(5).replace('-', '/')}（${D.week}）`, `全部门店营业额 ${wan(T.total)}（环比 ${ps(T.wow)}，同比 ${ps(T.yoy)}${T.yoyN && T.yoyN < D.rows.filter(r => !r.missing).length ? '，' + T.yoyN + ' 家有去年数据' : ''}）`, `堂食 ${wan(T.dine)} · 外卖 ${wan(T.takeout)} · 开台 ${fmt(T.tables)} · 人数 ${fmt(T.guests)} · 差评 ${T.bad} 条`];
+    { const sg = T.seg || {}; const L2 = []; if (T.flip != null) L2.push(`总翻台 ${dec(T.flip, 2)}（${ps(T.flipWow)}）`); if (sg.meal) L2.push(`饭市 ${wan(sg.meal.amt)}（${ps(sg.meal.amtWow)}）翻台 ${dec(sg.meal.flip, 2)}`); if (sg.night) L2.push(`宵夜 ${wan(sg.night.amt)}（${ps(sg.night.amtWow)}）翻台 ${dec(sg.night.flip, 2)}`); if (T.refund != null) L2.push(`退菜 ${fmt(T.refund)} 元（${ps(T.refundWow)}）`); if (T.loss != null) L2.push(`报损 ${fmt(T.loss)} 元`); if (L2.length) head.push(L2.join(' · ')); }
+    if ((T.alerts || []).length) head.push('\n🔎 今日重点\n' + T.alerts.map(a => `${a.lvl === 'good' ? '🟢' : a.lvl === 'bad' ? '🔴' : '🟠'} ${a.text}`).join('\n'));
     if (!D.gjOk) head.push('⚠️ 美团管家昨天的数据还没查到（插件可能没跑），下面先用门店日报的数；开台、人数、菜品等管家数据缺。');
     const rows = D.rows.filter(r => !r.missing).sort((a, b) => (b.total || 0) - (a.total || 0)).concat(D.rows.filter(r => r.missing));
     const body = rows.map(storeLine).join('\n\n');
     const badL = rows.filter(r => (r.badText || []).length).map(r => `【${short(r.store)}】\n` + r.badText.slice(0, 6).map(b => `  · ${b.p} ${b.star != null ? b.star + '星' : ''} ${b.t || ''}${b.replied === false ? '（未回复）' : ''}：${b.text.slice(0, 160)}`).join('\n')).join('\n');
     const badSec = D.jybOk ? (badL ? '\n\n📝 差评原文（美团经营宝，点评 + 美团）\n' + badL : '\n\n📝 差评原文：昨天点评、美团都没有新差评') : '';
-    const an = await ai('日报', { 日期: D.date + D.week, 合计: { 营业额: Math.round(T.total), 环比: ps(T.wow), 同比: ps(T.yoy), 堂食: Math.round(T.dine), 外卖: Math.round(T.takeout) }, 门店: compact(D) });
-    const tail = '\n\n说明：环比 = 和上周同一天比；同比 = 和去年同一个星期几比。营业额按实收（美团管家「营业收入」= 应收减优惠），含外卖；桌均、人均按堂食实收算；翻台率 = 消费桌数 ÷ 门店实际桌数。同商圈 = 美团经营宝「商圈同行店均」。新老客只有按周的数，按团购/买单顾客算。' + (D.jybOk ? '' : '\n⚠️ 美团经营宝昨天的数据还没查到，同商圈对比和差评原文晚点在驾驶舱里看。');
+    const an = await ai('日报', { 日期: D.date + D.week, 合计: { 营业额: Math.round(T.total), 环比: ps(T.wow), 同比: ps(T.yoy), 堂食: Math.round(T.dine), 外卖: Math.round(T.takeout) }, 重点: (T.alerts || []).map(a => a.text), 门店: compact(D) });
+    const tail = '\n\n说明：环比 = 和上周同一天比；同比 = 和去年同一个星期几比。营业额按实收（美团管家「营业收入」= 应收减优惠），含外卖；桌均、人均按堂食实收算；翻台率 = 消费桌数 ÷ 门店实际桌数；开台率也按实际桌数；饭市 = 22 点前结账，宵夜 = 22 点后。同商圈 = 美团经营宝「商圈同行店均」。新老客只有按周的数，按团购/买单顾客算。' + (D.jybOk ? '' : '\n⚠️ 美团经营宝昨天的数据还没查到，同商圈对比和差评原文晚点在驾驶舱里看。');
     return { data: D, text: head.join('\n') + '\n\n' + body + badSec + (an ? '\n\n🤖 分析\n' + an : '') + tail };
   }
 
@@ -163,18 +218,16 @@ function createOpsReport({ gj, store, chat, log }) {
   }
   async function period(kind) {
     const today = ymd(Date.now()); let D;
-    if (kind === 'week') { const end = addDays(today, -1); const back = new Date(end + 'T00:00:00Z').getUTCDay(); const sun = addDays(end, -back); const mon = addDays(sun, -6); D = periodData(mon, sun, addDays(mon, -7), addDays(sun, -7), addDays(mon, -364), addDays(sun, -364), '周报'); }
-    else { const t = new Date(Date.now() + 8 * 3600e3); const y = t.getUTCFullYear(), m = t.getUTCMonth(); const f = new Date(Date.UTC(y, m - 1, 1)).toISOString().slice(0, 10), e = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); const pf = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 10), pe = new Date(Date.UTC(y, m - 1, 0)).toISOString().slice(0, 10); const yf = new Date(Date.UTC(y - 1, m - 1, 1)).toISOString().slice(0, 10), ye = new Date(Date.UTC(y - 1, m, 0)).toISOString().slice(0, 10); D = periodData(f, e, pf, pe, yf, ye, '月报'); }
-    const T = D.T; const lbl = D.kind === '周报' ? ['上周', '去年同期'] : ['上个月', '去年同月'];
+    if (kind === 'week') { const end = addDays(today, -1); const back = new Date(end + 'T00:00:00Z').getUTCDay(); const sun = addDays(end, -back); const mon = addDays(sun, -6); D = rangeData(mon, sun, 'week'); D.kind = '周报'; }
+    else { const t = new Date(Date.now() + 8 * 3600e3); const y = t.getUTCFullYear(), m = t.getUTCMonth(); const f = new Date(Date.UTC(y, m - 1, 1)).toISOString().slice(0, 10), e = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10); D = rangeData(f, e, 'month'); D.kind = '月报'; }
+    const T = D.T; const lbl = [D.prevName, D.lyName]; const sg = T.seg || {};
     const head = [`📅 运营${D.kind} · ${D.from.slice(5).replace('-', '/')}–${D.to.slice(5).replace('-', '/')}`, `全部门店营业额 ${wan(T.total)}（比${lbl[0]} ${ps(T.wow)}，比${lbl[1]} ${ps(T.yoy)}）`, `堂食 ${wan(T.dine)} · 外卖 ${wan(T.takeout)} · 开台 ${fmt(T.tables)} · 人数 ${fmt(T.guests)}`];
-    const body = D.rows.filter(r => !r.missing).sort((a, b) => b.total - a.total).map(r => {
-      const L = [`【${short(r.store)}】${wan(r.total)}（比${lbl[0]} ${ps(r.wow)}，比${lbl[1]} ${ps(r.yoy)}）`];
-      if (r.gjDays) L.push(`  堂食 ${wan(r.dine)} · 外卖 ${wan(r.takeout)} · 开台 ${fmt(r.tables)}（${ps(pc(r.tables, r.pTables))}）· 人数 ${fmt(r.guests)}（${ps(pc(r.guests, r.pGuests))}）· 人均 ${fmt(r.perCap)}（${ps(pc(r.perCap, r.pPerCap))}）`);
-      if (r.top.length) L.push(`  销量前五：${r.top.map(x => `${x.name.replace(/[（(].*?[)）]/g, '').slice(0, 10)} ${x.qty}`).join('、')}`);
-      return L.join('\n');
-    }).join('\n\n');
-    const an = await ai(D.kind, { 期间: D.from + '~' + D.to, 合计: { 营业额: Math.round(T.total), 比上期: ps(T.wow), 同比: ps(T.yoy) }, 门店: D.rows.filter(r => !r.missing).map(r => ({ 店: short(r.store), 营业额: Math.round(r.total), 比上期: ps(r.wow), 同比: ps(r.yoy), 开台: r.tables, 开台变化: ps(pc(r.tables, r.pTables)), 人数变化: ps(pc(r.guests, r.pGuests)), 人均: r.perCap && Math.round(r.perCap), 人均变化: ps(pc(r.perCap, r.pPerCap)) })) });
-    return { data: D, text: head.join('\n') + '\n\n' + body + (an ? '\n\n🤖 分析\n' + an : '') + '\n\n说明：营业额按实收（美团管家「营业收入」）；管家数据没覆盖到的时段，用门店日报的营业额补；同比按去年同期。' };
+    { const L2 = []; if (T.flip != null) L2.push(`平均每天翻台 ${dec(T.flip, 2)}（${ps(T.flipWow)}）`); if (sg.meal) L2.push(`饭市 ${wan(sg.meal.amt)}（${ps(sg.meal.amtWow)}）`); if (sg.night) L2.push(`宵夜 ${wan(sg.night.amt)}（${ps(sg.night.amtWow)}）`); if (T.refund != null) L2.push(`退菜 ${fmt(T.refund)} 元（${ps(T.refundWow)}）`); if (T.loss != null) L2.push(`报损 ${fmt(T.loss)} 元（${ps(T.lossWow)}）`); if (L2.length) head.push(L2.join(' · ')); }
+    if ((T.alerts || []).length) head.push('\n🔎 重点\n' + T.alerts.map(a => `${a.lvl === 'good' ? '🟢' : a.lvl === 'bad' ? '🔴' : '🟠'} ${a.text}`).join('\n'));
+    const rows = D.rows.filter(r => !r.missing).sort((a, b) => (b.total || 0) - (a.total || 0));
+    const body = rows.map(r => storeLine(r).replace(/（环比 /, `（比${lbl[0]} `).replace(/，同比 /, `，比${lbl[1]} `)).join('\n\n');
+    const an = await ai(D.kind, { 期间: D.from + '~' + D.to, 合计: { 营业额: Math.round(T.total), 比上期: ps(T.wow), 同比: ps(T.yoy), 翻台: dec(T.flip, 2) }, 重点: (T.alerts || []).map(a => a.text), 门店: compact(D) });
+    return { data: D, text: head.join('\n') + '\n\n' + body + (an ? '\n\n🤖 分析\n' + an : '') + '\n\n说明：营业额按实收（美团管家「营业收入」）；翻台率按门店实际桌数；饭市 = 22 点前结账，宵夜 = 22 点后；括号里是比' + lbl[0] + '；管家数据没覆盖到的时段，用门店日报的营业额补。' };
   }
 
   // 驾驶舱用：近 N 天每店营业额走势

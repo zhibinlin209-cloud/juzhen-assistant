@@ -3,15 +3,15 @@
  * 这个函数会被整段注入到页面（world: MAIN）里执行，不能引用外部变量。
  */
 // eslint-disable-next-line no-unused-vars
-async function __rmGjRun(days, tplFromServer) {
+async function __rmGjRun(days, tplFromServer, refundDays) {
   const T = {};
-  for (const k of ['businessIndex', 'channel', 'dish', 'hourly']) {
+  for (const k of ['businessIndex', 'channel', 'dish', 'hourly', 'refund']) {
     let t = null; try { t = JSON.parse(localStorage.getItem('__rm_tpl_' + k) || 'null'); } catch (e) { }
     if (!t && tplFromServer && tplFromServer[k]) { t = tplFromServer[k]; try { localStorage.setItem('__rm_tpl_' + k, JSON.stringify(t)); } catch (e) { } }
     T[k] = t;
   }
   const missing = Object.keys(T).filter(k => !T[k]);
-  if (missing.length === 4) return { error: '这台电脑的美团管家里还没有报表查询模板（需要 Claude 先在这个浏览器里设置一次）' };
+  if (['businessIndex', 'channel', 'dish', 'hourly'].every(k => !T[k])) return { error: '这台电脑的美团管家里还没有报表查询模板（需要 Claude 先在这个浏览器里设置一次）' };
   const post = (t, body) => new Promise((res, rej) => {
     const x = new XMLHttpRequest(); x.open('POST', t.u); for (const [k, v] of Object.entries(t.h || {})) { try { x.setRequestHeader(k, v); } catch (e) { } }
     x.timeout = 60000; x.onload = () => { try { res(JSON.parse(x.responseText)); } catch (e) { rej(new Error('返回的不是数据（可能没登录美团管家）HTTP ' + x.status)); } };
@@ -22,6 +22,19 @@ async function __rmGjRun(days, tplFromServer) {
   const dayRange = d => { const s = Math.floor(new Date(d + 'T00:00:00+08:00').getTime() / 1000); return [s, s + 86399]; };
   const out = { days: [], errors: [], tpl: T, missing };
   if (!T.businessIndex || !T.businessIndex.u) { if (T.businessIndex) T.businessIndex.u = '/web/api/v2/bi/runtime/query/graphlist?yodaReady=h5&csecplatform=4&csecversion=4.3.0'; }
+  // 5) 退菜统计（按门店汇总：退菜金额、退菜份数、退菜单数、退得最多的菜）
+  const NOISE = /茶位|餐位|纸巾|白饭|米饭|打包|餐具|服务费|筷子|小碗/;
+  async function refundOf(s, e) {
+    const o = JSON.parse(T.refund.b); o.pageNo = 1; o.pageSize = 1000; (o.globalFilterList || []).forEach(f => { if (f.type === 'date') f.value = JSON.stringify({ startDate: s, endDate: e }); });
+    const j = await post(T.refund, JSON.stringify(o)); if (j.code !== 0) throw new Error('退菜统计：' + (j.msg || j.message || j.code));
+    const by = {}; for (const it of (j.data && j.data.items) || []) { const st = String(it.poiName || '').trim(); if (!st) continue; const z = by[st] = by[st] || { store: st, amt: 0, cnt: 0, orders: 0, top: [] }; const nm = String(it.spuName || ''); const c = num(it.skuRefundAllCnt) || 0, a = num(it.skuRefundAllAmt) || 0; if (NOISE.test(nm)) continue; z.amt += a; z.cnt += c; z.orders += num(it.refundOrderCnt) || 0; z.top.push([nm, c, a]); }
+    return Object.values(by).map(z => { z.top = z.top.sort((p, q) => q[2] - p[2]).slice(0, 8); return z; });
+  }
+  for (const d of refundDays || []) {
+    if (!T.refund) { out.errors.push('没有退菜统计模板'); break; }
+    try { const [s, e] = dayRange(d); out.days.push({ date: d, refundOnly: true, refund: await refundOf(s, e) }); } catch (er) { out.errors.push(d + ' ' + er.message); }
+    await sleep(1500);
+  }
   for (const d of days) {
     const [s, e] = dayRange(d); const day = { date: d, index: [], channel: [], dish: [], hourly: [] };
     // 1) 营业指标统计：营业额、开台数（消费桌数）、人数、桌均、人均、翻台率、上座率、用餐时长
@@ -65,6 +78,7 @@ async function __rmGjRun(days, tplFromServer) {
       for (const it of dd.items || []) { const st = String(it.poiName || '').trim(); if (!st) continue; (by[st] = by[st] || []).push([it.startTime, it.openTableCnt, it.mealPeopleCnt, (it.businessAmt || 0) / 100]); }
       for (const [store, h] of Object.entries(by)) day.hourly.push({ store, h });
     } catch (er) { out.errors.push(d + ' ' + er.message); }
+    if (T.refund) try { await sleep(1500); const [s5, e5] = dayRange(d); day.refund = await refundOf(s5, e5); } catch (er) { out.errors.push(d + ' ' + er.message); }
     out.days.push(day); await sleep(2000);
   }
   return out;

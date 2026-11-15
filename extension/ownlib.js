@@ -252,19 +252,19 @@
   const gjlog = t => { GJ.log.unshift(new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '  ' + t); GJ.log = GJ.log.slice(0, 12); forceRender(); };
   async function autoGj(force) {
     if (GJ.busy || TG.busy) return; let need; try { need = await srv('/lib/gj/need' + (force ? '?force=1' : '')); } catch (e) { if (force) gjlog('✗ ' + e.message); return; }
-    if (!need.need || !(need.days || []).length) { if (force) gjlog('今天的数据已经拿过了'); return; }
+    const rd = need.refundDays || []; if (!need.need || !((need.days || []).length || rd.length)) { if (force) gjlog('今天的数据已经拿过了'); return; }
     GJ.busy = true; forceRender(); let bt = null;
     try {
-      gjlog(`打开美团管家，查 ${need.days.join('、')} 的营业数据…`);
+      gjlog(need.days.length ? `打开美团管家，查 ${need.days.join('、')} 的营业数据…` : `打开美团管家，补 ${rd.length} 天的退菜数据…`);
       bt = await bgTab('https://pos.meituan.com/web/report/businessIndex#/rms-report/businessIndex', 'pos.meituan.com');
       await sleep(3000); const tb = await chrome.tabs.get(bt.tab).catch(() => ({}));
       if (!/^https:\/\/pos\.meituan\.com\/web\//.test(tb.url || '')) { const er = '没登录美团管家（页面跳到了登录页）：请在这个浏览器打开 pos.meituan.com 登录'; gjlog('✗ ' + er); try { await srv('/lib/gj/ingest', { err: er }); } catch (e) { } return; }
       await chrome.scripting.executeScript({ target: { tabId: bt.tab }, world: 'MAIN', files: ['gjrun.js'] });
-      const [r] = await chrome.scripting.executeScript({ target: { tabId: bt.tab }, world: 'MAIN', args: [need.days, need.tpl || null], func: async (days, tpl) => { try { return await window.__rmGjRun(days, tpl); } catch (e) { return { error: String(e && e.message || e) }; } } });
+      const [r] = await chrome.scripting.executeScript({ target: { tabId: bt.tab }, world: 'MAIN', args: [need.days, need.tpl || null, rd], func: async (days, tpl, rd) => { try { return await window.__rmGjRun(days, tpl, rd); } catch (e) { return { error: String(e && e.message || e) }; } } });
       const d = (r && r.result) || { error: '页面没响应' };
       if (d.error) { gjlog('✗ ' + d.error); try { await srv('/lib/gj/ingest', { err: d.error }); } catch (e) { } return; }
       const j = await srv('/lib/gj/ingest', { days: d.days, errors: d.errors, missing: d.missing, tpl: need.wantTpl ? d.tpl : undefined });
-      GJ.last = need.days[need.days.length - 1]; gjlog(`✓ 已交给机器人：${j.text || (d.days.length + ' 天')}${d.errors.length ? '；有 ' + d.errors.length + ' 项没查到：' + d.errors.slice(0, 2).join('；') : ''}`); if (force) toast('美团管家数据已入库');
+      GJ.last = need.days.length ? need.days[need.days.length - 1] : GJ.last; gjlog(`✓ 已交给机器人：${j.text || (d.days.length + ' 天')}${d.errors.length ? '；有 ' + d.errors.length + ' 项没查到：' + d.errors.slice(0, 2).join('；') : ''}`); if (force) toast('美团管家数据已入库');
     } catch (e) { gjlog('✗ ' + e.message); }
     finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } GJ.busy = false; forceRender(); }
   }
