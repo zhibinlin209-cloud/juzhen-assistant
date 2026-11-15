@@ -255,7 +255,7 @@
     const rd = need.refundDays || []; if (!need.need || !((need.days || []).length || rd.length)) { if (force) gjlog('今天的数据已经拿过了'); return; }
     GJ.busy = true; forceRender(); let bt = null;
     try {
-      gjlog(need.days.length ? `打开美团管家，查 ${need.days.join('、')} 的营业数据…` : `打开美团管家，补 ${rd.length} 天的退菜数据…`);
+      gjlog(need.days.length ? `打开美团管家，查 ${need.days.join('、')} 的营业数据…` : `打开美团管家，补 ${rd.length} 天的退菜、赠菜数据…`);
       bt = await bgTab('https://pos.meituan.com/web/report/businessIndex#/rms-report/businessIndex', 'pos.meituan.com');
       await sleep(3000); const tb = await chrome.tabs.get(bt.tab).catch(() => ({}));
       if (!/^https:\/\/pos\.meituan\.com\/web\//.test(tb.url || '')) { const er = '没登录美团管家（页面跳到了登录页）：请在这个浏览器打开 pos.meituan.com 登录'; gjlog('✗ ' + er); try { await srv('/lib/gj/ingest', { err: er }); } catch (e) { } return; }
@@ -277,12 +277,12 @@
     if (!need.need) { if (force) gjlog('经营宝：今天的数据已经拿过了'); return; }
     JY.busy = true; forceRender(); let w = null;
     try {
-      gjlog(`打开美团经营宝，查 ${need.day} 的流量、同商圈对比、差评${need.week ? '和上周新老客' : ''}…`);
+      gjlog((need.backfill || []).length ? `经营宝：补 ${need.backfill.join('、')} 的收藏打卡、同行数据…` : `打开美团经营宝，查 ${need.day} 的流量、同商圈对比、差评${need.week ? '和上周新老客' : ''}…`);
       w = await chrome.windows.create({ url: 'https://ecom.meituan.com/bizguide/flow-analysis/overview?commonParams=%7B%22acl_user_id%22%3A0%7D', focused: false, width: 1200, height: 860, type: 'normal' });
       const tab = w.tabs[0].id; await waitLoad(tab, 30000); await sleep(5000); const tb = await chrome.tabs.get(tab).catch(() => ({}));
       if (!/^https:\/\/ecom\.meituan\.com\/bizguide\//.test(tb.url || '')) { const er = '没登录美团经营宝（页面跳到了登录页）：请在这个浏览器打开 ecom.meituan.com 登录'; gjlog('✗ ' + er); try { await srv('/lib/jyb/ingest', { err: er }); } catch (e) { } return; }
       await chrome.scripting.executeScript({ target: { tabId: tab }, world: 'MAIN', files: ['jybrun.js'] });
-      const [r] = await chrome.scripting.executeScript({ target: { tabId: tab }, world: 'MAIN', args: [need.day, need.week || ''], func: async (day, week) => { try { return await window.__rmJybRun(day, week); } catch (e) { return { error: String(e && e.message || e) }; } } });
+      const [r] = await chrome.scripting.executeScript({ target: { tabId: tab }, world: 'MAIN', args: [need.day, need.week || '', need.backfill || null], func: async (day, week, bf) => { try { return await window.__rmJybRun(day, week, bf); } catch (e) { return { error: String(e && e.message || e) }; } } });
       const d = (r && r.result) || { error: '页面没响应' };
       if (d.error) { gjlog('✗ 经营宝：' + d.error); try { await srv('/lib/jyb/ingest', { err: d.error }); } catch (e) { } return; }
       const j = await srv('/lib/jyb/ingest', d); gjlog(j.ok ? `✓ 经营宝已交给机器人：${j.text}` : '经营宝昨天的数据还没出来，半小时后再查');

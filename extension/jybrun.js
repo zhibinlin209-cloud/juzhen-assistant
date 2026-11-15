@@ -6,7 +6,7 @@
  * 只取数字和差评文字回传服务器。这个函数会被整段注入页面（world: MAIN）执行，不能引用外部变量。
  */
 // eslint-disable-next-line no-unused-vars
-async function __rmJybRun(day, week) {
+async function __rmJybRun(day, week, backfill) {
   const H = { 'x-requested-with': 'XMLHttpRequest', 'Content-Type': 'application/json' };
   const post = (u, b) => new Promise((res, rej) => {
     const x = new XMLHttpRequest(); x.open('POST', u); for (const [k, v] of Object.entries(H)) x.setRequestHeader(k, v);
@@ -24,6 +24,17 @@ async function __rmJybRun(day, week) {
     list = ((j.data || {}).tPoiCompareDatas || []).map(r => ({ poiId: String(r.poiId), name: r.poiName, flow: { view: n(r.viewUv), visit: n(r.visitUv), collect: n(r.collectUserCnt), checkin: n(r.clockInUserCnt), dealCnt: n(r.groupPayCpnCnt), dealAmt: n(r.groupPayAmt), useCnt: n(r.groupOrderCnt), useAmt: n(r.groupAmount) } }));
     if (!list.length) throw new Error('门店列表是空的（可能没登录经营宝）');
   } catch (er) { return { error: er.message }; }
+  // 补历史：只查各店的核心指标（曝光、访问、购买、收藏、打卡 + 商圈同行店均），给驾驶舱做环比 / 同比
+  if (Array.isArray(backfill) && backfill.length) {
+    const walkM = j => { const M = {}; const walk = o => { if (Array.isArray(o)) return o.forEach(walk); if (o && typeof o === 'object') { if (Array.isArray(o.rows) && o.rows.length && Array.isArray(o.rows[0]) && o.rows[0][0] && o.rows[0][0].name) { const name = o.rows[0][0].name; const m = M[name] = M[name] || { v: n(o.rows[0][0].value), chg: o.rows[0][1] ? n(o.rows[0][1].value) : null }; for (const row of o.rows.slice(1)) { const c = row[0] || {}; if (c.name === '商圈同行店均') m.peer = n(c.value); if (c.name === '商圈标杆店均') m.bench = n(c.value); } } for (const v of Object.values(o)) walk(v); } }; walk(j.data); return M; };
+    const days = [];
+    for (const d of backfill) {
+      const t0 = new Date(d + 'T00:00:00+08:00').getTime(); const one = { day: d, stores: [] };
+      for (const st of list) { try { const j = await post('/emis/gw/TPcFlowAnalysisService/getCoreMetric', { startTime: t0, endTime: t0, granularity: 'DAY', condition: { poiId: st.poiId, platform: 2, tab: '0', cmpType: 'POP' } }); one.stores.push({ poiId: st.poiId, name: st.name, core: walkM(j) }); } catch (er) { out.errors.push(d + ' ' + st.name + '：' + er.message); } await sleep(900); }
+      days.push(one);
+    }
+    return { backfill: days, errors: out.errors };
+  }
   for (const st of list) {
     if (!st.flow.view && !st.flow.visit && !st.flow.dealCnt) { out.stores.push(st); continue; } // 已关店/没数据的不查细项
     // 2) 核心指标 + 商圈同行

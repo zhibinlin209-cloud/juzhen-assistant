@@ -41,9 +41,9 @@ function createGj({ dataDir, log }) {
     for (const d of want) { if (days.length >= 6) break; if (days.includes(d) || has(d)) continue; if (!force && tried[d] && tried[d] >= 3 && d !== y) continue; days.push(d); }
     // 退菜统计（2026-11-15 加）：已经有营业数据、但还没有退菜数的日子，单独补（近 35 天 + 它们的上周同日），每次最多 8 天
     const rt = st.rtried || {}; const refundDays = [];
-    if (!(st.noRefundTpl && now - st.noRefundTpl < DAY)) for (let k = 1; k <= 42 && refundDays.length < 8; k++) { const d = addDays(today, -k); if (days.includes(d) || !has(d) || (rt[d] || 0) >= 3) continue; const r = rawOf(d); if (r && !r.refund) refundDays.push(d); }
+    if (!(st.noRefundTpl && now - st.noRefundTpl < DAY)) for (let k = 1; k <= 42 && refundDays.length < 8; k++) { const d = addDays(today, -k); if (days.includes(d) || !has(d) || (rt[d] || 0) >= 3) continue; const r = rawOf(d); if (r && (!r.refund || !r.gift)) refundDays.push(d); }
     let tpl = null; try { tpl = JSON.parse(fs.readFileSync(TPL_F, 'utf8')); } catch (e) { }
-    return { ok: true, need: days.length > 0 || refundDays.length > 0, days, refundDays, tpl, wantTpl: !tpl || !tpl.refund || now - (tpl.at || 0) > 7 * DAY };
+    return { ok: true, need: days.length > 0 || refundDays.length > 0, days, refundDays, tpl, wantTpl: !tpl || !tpl.refund || !tpl.gift || now - (tpl.at || 0) > 7 * DAY };
   }
 
   function ingest(j) {
@@ -52,10 +52,10 @@ function createGj({ dataDir, log }) {
     let n = 0; const got = []; st.tried = st.tried || {};
     for (const day of j.days || []) {
       const d = String(day.date || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
-      if (day.refundOnly) { st.rtried = st.rtried || {}; const r = rawOf(d); if (r && Array.isArray(day.refund)) { r.refund = day.refund; try { fs.writeFileSync(fileOf(d), JSON.stringify(r)); got.push(d + '退菜'); delete st.rtried[d]; } catch (e) { } } else st.rtried[d] = (st.rtried[d] || 0) + 1; continue; }
+      if (day.refundOnly) { st.rtried = st.rtried || {}; const r = rawOf(d); if (r && (Array.isArray(day.refund) || Array.isArray(day.gift))) { if (Array.isArray(day.refund)) r.refund = day.refund; if (Array.isArray(day.gift)) r.gift = day.gift; try { fs.writeFileSync(fileOf(d), JSON.stringify(r)); got.push(d + '退菜'); delete st.rtried[d]; } catch (e) { } } else st.rtried[d] = (st.rtried[d] || 0) + 1; continue; }
       const okDay = (day.index || []).length || (day.channel || []).length;
       if (!okDay) { st.tried[d] = (st.tried[d] || 0) + 1; continue; }
-      const clean = { date: d, at: Date.now(), index: day.index || [], channel: day.channel || [], dish: day.dish || [], hourly: day.hourly || [] }; if (Array.isArray(day.refund)) clean.refund = day.refund;
+      const clean = { date: d, at: Date.now(), index: day.index || [], channel: day.channel || [], dish: day.dish || [], hourly: day.hourly || [] }; if (Array.isArray(day.refund)) clean.refund = day.refund; if (Array.isArray(day.gift)) clean.gift = day.gift;
       try { fs.writeFileSync(fileOf(d), JSON.stringify(clean)); n++; got.push(d); delete st.tried[d]; } catch (e) { log('[美团管家] 存文件失败：' + e.message); }
     }
     for (const e of j.errors || []) { const m = String(e).match(/^(\d{4}-\d{2}-\d{2}) 退菜/); if (m) { st.rtried = st.rtried || {}; st.rtried[m[1]] = (st.rtried[m[1]] || 0) + 1; } }
@@ -71,12 +71,14 @@ function createGj({ dataDir, log }) {
   // 某一天每家店的合并数据
   function day(d) {
     const raw = rawOf(d); if (!raw) return null; const S = {};
-    const get = name => { const k = norm(name); if (!k || CLOSED.test(k)) return null; return S[k] = S[k] || { store: k, revenue: 0, income: 0, discount: 0, orders: 0, guests: 0, tables: 0, _big: null, dine: null, takeout: null, ch: {}, chGross: {}, chOrders: {}, refund: null, dishes: {}, hourly: {} }; };
+    const get = name => { const k = norm(name); if (!k || CLOSED.test(k)) return null; return S[k] = S[k] || { store: k, revenue: 0, income: 0, discount: 0, orders: 0, guests: 0, tables: 0, _big: null, dine: null, takeout: null, ch: {}, chGross: {}, chOrders: {}, refund: null, gift: null, dishes: {}, hourly: {} }; };
     for (const r of raw.index || []) { const s = get(r.store); if (!s) continue; for (const k of ['revenue', 'income', 'discount', 'orders', 'guests', 'tables']) s[k] += r[k] || 0; if (!s._big || (r.tables || 0) > (s._big.tables || 0)) s._big = r; }
     for (const r of raw.channel || []) { const s = get(r.store); if (!s) continue; s.chRevenue = (s.chRevenue || 0) + (r.revenue || 0); for (const [c, v] of Object.entries(r.ch || {})) { const inc = v.ordIncomeAmt != null ? v.ordIncomeAmt : (v.bizAmt || 0); if (v.ordIncomeAmt != null) s.chHasInc = true; s.ch[c] = (s.ch[c] || 0) + inc; s.chGross[c] = (s.chGross[c] || 0) + (v.bizAmt || 0); s.chOrders[c] = (s.chOrders[c] || 0) + (v.orderCnt || 0); } }
     for (const r of raw.dish || []) { const s = get(r.store); if (!s) continue; for (const [n, q, a, t] of r.top || []) { const k = String(n).replace(/[.。\s]+$/, ''); const o = s.dishes[k] = s.dishes[k] || { name: k, qty: 0, amt: 0, type: t || '' }; o.qty += q || 0; o.amt += a || 0; } }
     for (const r of raw.hourly || []) { const s = get(r.store); if (!s) continue; for (const [hh, t, p, a] of r.h || []) { const o = s.hourly[hh] = s.hourly[hh] || [0, 0, 0]; o[0] += t || 0; o[1] += p || 0; o[2] += a || 0; } }
     for (const r of raw.refund || []) { const s = get(r.store); if (!s) continue; const z = s.refund = s.refund || { amt: 0, cnt: 0, orders: 0, top: {} }; z.amt += r.amt || 0; z.cnt += r.cnt || 0; z.orders += r.orders || 0; for (const [n, c, a] of r.top || []) { const q = z.top[n] = z.top[n] || [n, 0, 0]; q[1] += c || 0; q[2] += a || 0; } }
+    for (const r of raw.gift || []) { const s = get(r.store); if (!s) continue; const z = s.gift = s.gift || { manual: 0, promo: 0, types: {} }; z.manual += r.manual || 0; z.promo += r.promo || 0; for (const [n, a] of r.types || []) z.types[n] = (z.types[n] || 0) + (a || 0); }
+    const hasGift = Array.isArray(raw.gift);
     const hasRefund = Array.isArray(raw.refund);
     for (const s of Object.values(S)) {
       if (Object.keys(s.ch).length) { s.dine = Object.entries(s.ch).filter(([c]) => !TAKEOUT.test(c)).reduce((t, [, v]) => t + v, 0); s.takeout = Object.entries(s.ch).filter(([c]) => TAKEOUT.test(c)).reduce((t, [, v]) => t + v, 0); s.dineOrders = Object.entries(s.chOrders).filter(([c]) => !TAKEOUT.test(c)).reduce((t, [, v]) => t + v, 0); }
@@ -91,6 +93,7 @@ function createGj({ dataDir, log }) {
       // 开台率也按实际桌数：管家的开台率和翻台率用的是同一个（点单机）桌数，所以 新开台率 = 管家开台率 × 新翻台率 ÷ 管家翻台率
       s.openRatePos = s.openRate; if (s.seats && s.openRate != null && s.flipPos) s.openRate = Math.min(1, s.openRate * s.flip / s.flipPos);
       if (s.refund) s.refund.top = Object.values(s.refund.top).sort((p, q) => q[2] - p[2]).slice(0, 8).map(([name, cnt, amt]) => ({ name, cnt, amt })); else if (hasRefund) s.refund = { amt: 0, cnt: 0, orders: 0, top: [] };
+      if (s.gift) { s.gift.total = s.gift.manual + s.gift.promo; s.gift.types = Object.entries(s.gift.types).sort((p, q) => q[1] - p[1]).slice(0, 5).map(([name, amt]) => ({ name, amt })); } else if (hasGift) s.gift = { manual: 0, promo: 0, total: 0, types: [] };
       s.top = Object.values(s.dishes).sort((p, q) => q.qty - p.qty);
       const hrs = Object.entries(s.hourly).map(([hh, v]) => ({ hh, tables: v[0], people: v[1], amt: v[2] })).sort((p, q) => hk(p.hh) - hk(q.hh)); s.hours = hrs;
       if (s.seats) hrs.forEach(h => { h.flip = h.tables / s.seats; });
@@ -132,12 +135,22 @@ function createGj({ dataDir, log }) {
     const now = Date.now(), bj = new Date(now + 8 * 3600e3), y = addDays(ymd(now), -1);
     if (!force && bj.getUTCHours() * 60 + bj.getUTCMinutes() < 7 * 60) return { ok: true, need: false, why: '早上 7 点以后再查' };
     if (!force && st.jFailAt && now - st.jFailAt < 25 * 60e3) return { ok: true, need: false, why: '上次没查到，过一会再试' };
-    if (jHas(y) && !force) return { ok: true, need: false };
+    if (jHas(y) && !force) { // 昨天的拿到了：慢慢补历史（上周同日、去年同日、近 35 天、去年同期 35 天），每次 3 天，只查核心指标
+      const jt = st.jTried || {}; const want = [addDays(y, -7), addDays(y, -364)]; for (let k = 2; k <= 35; k++) want.push(addDays(y, -k)); for (let k = 1; k <= 35; k++) want.push(addDays(y, -364 - k));
+      const bf = []; for (const d of want) { if (bf.length >= 3) break; if (bf.includes(d) || jHas(d) || (jt[d] || 0) >= 2) continue; bf.push(d); }
+      if (st.jBfAt && now - st.jBfAt < 4 * 60e3) return { ok: true, need: false };
+      return bf.length ? { ok: true, need: true, day: y, week: '', backfill: bf } : { ok: true, need: false }; }
     const [mon, sun] = lastWeek(); const wk = mon.replace(/-/g, '/') + '-' + sun.replace(/-/g, '/');
     return { ok: true, need: true, day: y, week: st.jWeek === wk && !force ? '' : wk };
   }
   function jybIngest(j) {
     if (j.err) { st.jFailAt = Date.now(); st.jErr = String(j.err).slice(0, 200); save(); log('[经营宝] 插件没查到：' + st.jErr); return { ok: false, login: /登录/.test(j.err) }; }
+    if (Array.isArray(j.backfill)) { st.jTried = st.jTried || {}; st.jBfAt = Date.now(); const got = [];
+      for (const one of j.backfill) { const d = String(one.day || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue; const stores = {};
+        for (const x of one.stores || []) { const k = jName(x.name); if (!k || !x.core || !Object.keys(x.core).length) continue; stores[k] = { name: x.name, poiId: x.poiId, flow: {}, core: x.core, bad: [], cust: null }; }
+        if (!Object.keys(stores).length) { st.jTried[d] = (st.jTried[d] || 0) + 1; continue; }
+        try { fs.writeFileSync(jfile(d), JSON.stringify({ day: d, at: Date.now(), backfill: true, stores })); got.push(d); } catch (e) { } }
+      save(); if (got.length) log(`[经营宝] 补历史 ${got.join('、')}（核心指标）`); return { ok: true, text: `补了 ${got.length} 天历史` }; }
     const d = String(j.day || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return { ok: false, error: '日期不对' };
     const stores = {};
     for (const x of j.stores || []) { const k = jName(x.name); if (!k) continue; stores[k] = { name: x.name, poiId: x.poiId, flow: x.flow || {}, core: x.core || {}, bad: (x.bad || []).slice(0, 30), cust: x.cust || null }; }

@@ -5,7 +5,7 @@
 // eslint-disable-next-line no-unused-vars
 async function __rmGjRun(days, tplFromServer, refundDays) {
   const T = {};
-  for (const k of ['businessIndex', 'channel', 'dish', 'hourly', 'refund']) {
+  for (const k of ['businessIndex', 'channel', 'dish', 'hourly', 'refund', 'gift']) {
     let t = null; try { t = JSON.parse(localStorage.getItem('__rm_tpl_' + k) || 'null'); } catch (e) { }
     if (!t && tplFromServer && tplFromServer[k]) { t = tplFromServer[k]; try { localStorage.setItem('__rm_tpl_' + k, JSON.stringify(t)); } catch (e) { } }
     T[k] = t;
@@ -30,10 +30,24 @@ async function __rmGjRun(days, tplFromServer, refundDays) {
     const by = {}; for (const it of (j.data && j.data.items) || []) { const st = String(it.poiName || '').trim(); if (!st) continue; const z = by[st] = by[st] || { store: st, amt: 0, cnt: 0, orders: 0, top: [] }; const nm = String(it.spuName || ''); const c = num(it.skuRefundAllCnt) || 0, a = num(it.skuRefundAllAmt) || 0; if (NOISE.test(nm)) continue; z.amt += a; z.cnt += c; z.orders += num(it.refundOrderCnt) || 0; z.top.push([nm, c, a]); }
     return Object.values(by).map(z => { z.top = z.top.sort((p, q) => q[2] - p[2]).slice(0, 8); return z; });
   }
+  // 6) 赠菜（菜品优惠统计，按门店、按二级优惠方式）：手动赠菜 = 店里手动送的；券/活动赠送 = 赠券、积分兑换、买 X 送 Y、打卡送菜等
+  const GIFT = /赠|兑换|送一|送\d|买.送|打卡|收藏/;
+  async function giftOf(s, e) {
+    const o = JSON.parse(T.gift.b); o.pageNo = 1; o.pageSize = 200; (o.globalFilterList || []).forEach(f => { if (/date/i.test(f.type)) f.value = JSON.stringify({ startDate: s, endDate: e }); });
+    const j = await post(T.gift, JSON.stringify(o)); if (j.code !== 0) throw new Error('菜品优惠：' + (j.msg || j.message || j.code));
+    const out2 = [];
+    for (const it of (j.data && j.data.items) || []) { const st = String(it.poiName || '').trim(); if (!st) continue; const z = { store: st, manual: 0, promo: 0, discount: num(it.skuDiscountAmt) || 0, types: [] };
+      for (const [k, v] of Object.entries(it)) { const m = k.match(/^(.+?)_(.+)_skuCmpgnAmt_\d+$/); if (!m || /subtotal/.test(k)) continue; const a = num(v) || 0; if (!a) continue; const name = m[1] + '·' + m[2];
+        if (/手动赠菜/.test(m[2])) z.manual += a; else if (GIFT.test(m[2]) && !/余额/.test(m[2])) { z.promo += a; z.types.push([m[2], a]); } }
+      z.types = z.types.sort((p, q) => q[1] - p[1]).slice(0, 6); out2.push(z); }
+    return out2;
+  }
   for (const d of refundDays || []) {
-    if (!T.refund) { out.errors.push('没有退菜统计模板'); break; }
-    try { const [s, e] = dayRange(d); out.days.push({ date: d, refundOnly: true, refund: await refundOf(s, e) }); } catch (er) { out.errors.push(d + ' ' + er.message); }
-    await sleep(1500);
+    if (!T.refund && !T.gift) { out.errors.push('没有退菜统计模板'); break; }
+    const one = { date: d, refundOnly: true }; const [s, e] = dayRange(d);
+    if (T.refund) try { one.refund = await refundOf(s, e); } catch (er) { out.errors.push(d + ' ' + er.message); }
+    if (T.gift) try { await sleep(1000); one.gift = await giftOf(s, e); } catch (er) { out.errors.push(d + ' ' + er.message); }
+    out.days.push(one); await sleep(1500);
   }
   for (const d of days) {
     const [s, e] = dayRange(d); const day = { date: d, index: [], channel: [], dish: [], hourly: [] };
@@ -79,6 +93,7 @@ async function __rmGjRun(days, tplFromServer, refundDays) {
       for (const [store, h] of Object.entries(by)) day.hourly.push({ store, h });
     } catch (er) { out.errors.push(d + ' ' + er.message); }
     if (T.refund) try { await sleep(1500); const [s5, e5] = dayRange(d); day.refund = await refundOf(s5, e5); } catch (er) { out.errors.push(d + ' ' + er.message); }
+    if (T.gift) try { await sleep(1500); const [s6, e6] = dayRange(d); day.gift = await giftOf(s6, e6); } catch (er) { out.errors.push(d + ' ' + er.message); }
     out.days.push(day); await sleep(2000);
   }
   return out;
