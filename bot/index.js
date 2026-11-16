@@ -743,6 +743,14 @@ async function setup() {
   const saveOps = () => { try { fs.writeFileSync(OPS_STATE_F, JSON.stringify(opsSt), { mode: 0o600 }); } catch (e) { } };
   const opsPeople = () => { if (!opsSt.people && opsSt.openId) opsSt.people = [{ name: opsSt.name || '运营副总', openId: opsSt.openId }]; return opsSt.people || []; }; // 运营日报接收人（可以多个）
   const dm = (id, text) => call('POST', '/im/v1/messages', { receive_id: id, msg_type: 'text', content: JSON.stringify({ text: String(text).slice(0, 28000) }) }, { receive_id_type: 'open_id' });
+  // 6:50 美团管家昨天的数据还没进来（插件今天一次都没来）：私聊老板一次，多半是电脑睡了 / Chrome 关了
+  setInterval(async () => {
+    const bj = new Date(Date.now() + 8 * 3600e3), today = bjDay(Date.now()); if (!gj || !boss || bj.getUTCHours() !== 6 || bj.getUTCMinutes() < 50 || opsSt.gjMissWarn === today) return;
+    const y = gj.addDays(gj.ymd(Date.now()), -1); if (gj.has(y)) return; opsSt.gjMissWarn = today; saveOps();
+    const s = gj.status(); const tried = s.failAt && bjDay(s.failAt) === today;
+    log('[美团管家] 6:50 昨天的数据还没进来' + (tried ? '（插件试过，出错：' + s.lastErr + '）' : '（插件今天没来）'));
+    try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: tried ? `⚠️ 插件早上去查美团管家没成功：${String(s.lastErr || '').slice(0, 80)}。驾驶舱和 8 点的运营日报会先用门店日报的数。` : '⚠️ 早上 6 点到现在，插件一次都没来抓美团管家数据。多半是电脑睡眠了，或者 Chrome 关着。请打开电脑上的 Chrome（不用点别的，插件会自己在后台跑），8 点的运营日报会等到 8:30。' }) }, { receive_id_type: 'open_id' }); } catch (e) { }
+  }, 5 * 60e3);
   async function sendOps(kind, o) { // kind: daily / week / month；o.previewTo 只发给这个人（预览）
     o = o || {}; const r = kind === 'daily' ? await opsR.daily(o.date) : await opsR.period(kind);
     opsSt.texts = opsSt.texts || {}; if (!o.previewTo) { opsSt.texts[kind] = { text: r.text, at: Date.now() }; saveOps(); }

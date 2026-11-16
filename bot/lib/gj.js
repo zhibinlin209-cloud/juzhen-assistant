@@ -31,8 +31,8 @@ function createGj({ dataDir, log }) {
   // 要查哪几天：昨天 → 上周同日 → 去年同日（364 天前，同星期几）→ 近 35 天漏掉的 → 去年同期的近 35 天；每次最多 6 天
   function need(force) {
     const now = Date.now(), bj = new Date(now + 8 * 3600e3), today = ymd(now), y = addDays(today, -1);
-    const early = bj.getUTCHours() * 60 + bj.getUTCMinutes() < 6 * 60 + 30;
-    if (!force && early) return { ok: true, need: false, why: '早上 6:30 以后再查' };
+    const early = bj.getUTCHours() < 6; // 林总 2026-11-16 定：早上 6 点开始抓
+    if (!force && early) return { ok: true, need: false, why: '早上 6 点以后再查' };
     if (!force && st.failAt && now - st.failAt < 50 * 60e3) return { ok: true, need: false, why: '上次失败，过一会再试' };
     const want = [y, addDays(y, -7), addDays(y, -364)];
     for (let k = 2; k <= 35; k++) want.push(addDays(y, -k));
@@ -133,7 +133,7 @@ function createGj({ dataDir, log }) {
   const lastWeek = () => { const y = addDays(ymd(Date.now()), -1); const wd = new Date(y + 'T00:00:00Z').getUTCDay(); const sun = addDays(y, -wd); const mon = addDays(sun, -6); return [mon, sun]; };
   function jybNeed(force) {
     const now = Date.now(), bj = new Date(now + 8 * 3600e3), y = addDays(ymd(now), -1);
-    if (!force && bj.getUTCHours() * 60 + bj.getUTCMinutes() < 7 * 60) return { ok: true, need: false, why: '早上 7 点以后再查' };
+    if (!force && bj.getUTCHours() < 6) return { ok: true, need: false, why: '早上 6 点以后再查' };
     if (!force && st.jFailAt && now - st.jFailAt < 25 * 60e3) return { ok: true, need: false, why: '上次没查到，过一会再试' };
     if (jHas(y) && !force) { // 昨天的拿到了：慢慢补历史（上周同日、去年同日、近 35 天、去年同期 35 天），每次 3 天，只查核心指标
       const jt = st.jTried || {}; const want = [addDays(y, -7), addDays(y, -364)]; for (let k = 2; k <= 35; k++) want.push(addDays(y, -k)); for (let k = 1; k <= 35; k++) want.push(addDays(y, -364 - k));

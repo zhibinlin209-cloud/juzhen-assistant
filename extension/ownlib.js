@@ -268,7 +268,7 @@
     } catch (e) { gjlog('✗ ' + e.message); }
     finally { try { if (bt && bt.own) await chrome.windows.remove(bt.win); } catch (e) { } GJ.busy = false; forceRender(); }
   }
-  setTimeout(() => autoGj(), 2 * 60e3); setInterval(() => autoGj(), 5 * 60e3); // 服务器按北京时间早上 6:30 起放行
+  setTimeout(() => autoGj(), 2 * 60e3); setInterval(() => autoGj(), 5 * 60e3); // 服务器按北京时间早上 6 点起放行
 
   // ---------- 美团经营宝每日数据：早上 7 点后查昨天各店流量 + 商圈同行店均、差评原文；周一顺带查上周新老客 ----------
   const JY = { busy: false };
