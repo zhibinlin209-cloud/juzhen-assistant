@@ -297,14 +297,13 @@
         const c = clicks.get(el) || { n: 0, at: 0 }; if (c.n >= 40 || now - c.at < 2500) continue;
         try { el.click(); c.n++; c.at = now; clicks.set(el, c); k++; lastClick = now; } catch (e) { }
       } return k; };
-    const ROUNDS = all ? 900 : 45, STALL = all ? 8 : 4;
+    const ROUNDS = all ? 900 : 45, STALL = all ? 10 : 4; // 全部模式：连续 10 轮（约 15 秒）既没新评论、也没回复可展开，才算拉完
     for (let round = 0; round < ROUNDS; round++) {
       const n = bothComments(id).list.length;
       const ex = all ? expand() : 0; if (ex) await sleep(rand(900, 1500));
       if (n >= maxComments) break;
       if (!all && D.more[id] === false) break;
       if (!all && xhs && visible($('.end-container'))) break;
-      if (all && (D.more[id] === false || (xhs && visible($('.end-container')))) && !ex && Date.now() - lastClick > 6000 && n === last) break;
       if (n === last && !ex) { stall++; if (stall >= STALL) break; } else stall = 0;
       last = n;
       const sc = commentScroller(xhs, id);
