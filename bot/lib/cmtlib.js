@@ -7,7 +7,7 @@ const COLS = [['评论内容', 1], ['平台', 3, ['小红书', '抖音']], ['帖
 const TABLE = '评论采集', STABLE = '评论总结';
 const SCOLS = [['帖子标题', 1], ['平台', 3, ['小红书', '抖音']], ['帖子链接', 15], ['帖子作者', 1], ['评论数', 2], ['AI 总结', 1], ['模型', 1], ['总结时间', 5], ['帖子ID', 1]];
 
-function createCmtLib({ cfg, api, core, log }) {
+function createCmtLib({ cfg, api, core, log, notify }) {
   // DeepSeek：有 DeepSeek 官方 key 先用官方接口，否则用阿里百炼上的 DeepSeek 模型（和投放周报同一套）
   async function deepseek(prompt) {
     const tries = [];
@@ -96,11 +96,23 @@ ${lines.join('\n')}`;
         const st = await stable(t.app); const f = { '帖子标题': clean(post.title || postId).slice(0, 200), '平台': platform, '帖子链接': { link: url, text: clean(post.title || url).slice(0, 80) || url }, '帖子作者': clean(post.author || ''), '评论数': list.length, 'AI 总结': clean(summary).slice(0, 20000) || summary.slice(0, 20000), '模型': model, '总结时间': Date.now(), '帖子ID': postId };
         await api.call('POST', `/bitable/v1/apps/${t.app}/tables/${st}/records/batch_create`, { records: [{ fields: f }] });
         sumLink = (cfg.baseUrl || '').replace(/\?.*$/, '') + (cfg.baseUrl ? `?table=${st}` : '');
+        await tell(platform, post.title || postId, list.length, summary, sumLink, url);
       } catch (e) { sumErr = e.message.slice(0, 120); log('[评论采集] 总结失败：' + e.message); }
     }
     log(`[评论采集] ${platform}「${String(post.title || postId).slice(0, 20)}」${list.length} 条，新增 ${add.length}、更新 ${upd.length}`);
     return { ok: true, added: add.length, updated: upd.length, total: list.length, table: TABLE, link, summary, model, sumErr, sumLink };
   }
-  return { ingest };
+  // 总结做完私聊老板一份（飞书表格单元格里长文字不好读）
+  async function tell(platform, title, n, text, link, url) {
+    if (!notify) return; try { await notify(`📝 评论总结 · ${platform}「${String(title).slice(0, 40)}」（${n} 条评论）\n${url}\n\n${String(text).slice(0, 12000)}${link ? '\n\n全部总结在营销部表格「评论总结」表：' + link : ''}`); } catch (e) { log('[评论采集] 私聊总结失败：' + e.message); }
+  }
+  async function sendLatest() { // 把「评论总结」表最新一条私聊老板
+    const app = await core.appToken(); const st = await stable(app);
+    const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${st}/records/search`, { sort: [{ field_name: '总结时间', desc: true }] }, { page_size: 1 });
+    const r = (d.items || [])[0]; if (!r) return { ok: false, error: '还没有总结' }; const f = r.fields; const t = v => Array.isArray(v) ? v.map(x => x.text || '').join('') : (v && typeof v === 'object') ? (v.link || v.text || '') : String(v || '');
+    const link = (cfg.baseUrl || '').replace(/\?.*$/, '') + `?table=${st}`;
+    await tell(t(f['平台']), t(f['帖子标题']), f['评论数'] || 0, t(f['AI 总结']), link, t(f['帖子链接'])); return { ok: true, link };
+  }
+  return { ingest, sendLatest };
 }
 module.exports = { createCmtLib };
