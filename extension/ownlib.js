@@ -388,7 +388,7 @@
 
 
   // ---------- 评论采集：贴小红书 / 抖音链接，把全部评论（含楼中楼回复）拉出来，写进营销部表格「评论采集」 ----------
-  const CM = { busy: false, stop: false, links: lsGet('rm-cm-links') || '', log: [], link: lsGet('rm-cm-table') || '' };
+  const CM = { busy: false, stop: false, links: lsGet('rm-cm-links') || '', log: [], link: lsGet('rm-cm-table') || '', sums: [], sumLink: '' };
   const cmlog = t => { CM.log.unshift(new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '  ' + t); CM.log = CM.log.slice(0, 30); forceRender(); };
   function cmLinks(text) {
     const out = []; const re = /https?:\/\/[^\s，。、"'<>）)】]+/g; let m;
@@ -408,11 +408,12 @@
         if (!r || !r.ok) { cmlog('✗ ' + ((r && (r.error || r.blocked)) || '没读到') + (r && r.blocked ? '：请在弹出的窗口里完成验证/登录后再点一次' : '')); if (r && r.blocked) { try { await chrome.windows.update(win.id, { focused: true, state: 'normal' }); } catch (e) { } break; } continue; }
         const p = r.post || {}; const cs = r.comments || [];
         const tab = await chrome.tabs.get(win.tab).catch(() => ({})); const url = (tab.url || u).replace(/[?#].*$/, '') + (/xsec_token=/.test(tab.url || '') ? '?' + (tab.url.split('?')[1] || '') : '');
-        cmlog(`读到 ${cs.length} 条（帖子显示 ${p.comments || '?'} 条）${r.blocked ? '，中途被平台拦了一下，先存读到的' : ''}，写进飞书…`);
+        cmlog(`读到 ${cs.length} 条（帖子显示 ${p.comments || '?'} 条）${r.blocked ? '，中途被平台拦了一下，先存读到的' : ''}，写进飞书并让 DeepSeek 总结（要一两分钟）…`);
         const id = (r.diag && r.diag.id) || '';
         const j = await srv('/lib/comments/ingest', { url, postId: id, post: { title: p.title || '', desc: (p.desc || '').slice(0, 200), author: p.author || p.nickname || '', id }, comments: cs });
         if (j.link) { CM.link = j.link; lsSet('rm-cm-table', j.link); }
-        sum += j.added || 0; cmlog(`✓「${(p.title || id).slice(0, 18)}」新增 ${j.added || 0} 条${j.updated ? '，更新 ' + j.updated + ' 条' : ''}`);
+        sum += j.added || 0; cmlog(`✓「${(p.title || id).slice(0, 18)}」新增 ${j.added || 0} 条${j.updated ? '，更新 ' + j.updated + ' 条' : ''}${j.summary ? '；AI 总结已写进「评论总结」表' : j.sumErr ? '；AI 总结没做成：' + j.sumErr : ''}`);
+        if (j.summary) { CM.sums.unshift({ title: (p.title || id).slice(0, 30), text: j.summary }); CM.sums = CM.sums.slice(0, 5); if (j.sumLink) CM.sumLink = j.sumLink; forceRender(); }
         if (r.blocked) { cmlog('平台出现验证，先停下：请在弹出的窗口里处理后再点一次（已拉过的不会重复）'); try { await chrome.windows.update(win.id, { focused: true, state: 'normal' }); } catch (e) { } break; }
         if (i < links.length - 1) await sleep(rand(8000, 15000));
       }
@@ -422,11 +423,12 @@
   }
   function cmView() {
     const n = cmLinks(CM.links).length;
-    return `<div class="section-h"><h2>评论采集</h2><span class="hint">贴小红书笔记或抖音视频的链接（一行一个，直接粘分享文字也行），把下面全部评论连同楼中楼回复拉出来，写进飞书营销部表格的「评论采集」表：评论人、内容、点赞、时间、IP 属地、回复给谁。同一条评论再拉只更新点赞，不会重复。</span></div>
+    return `<div class="section-h"><h2>评论采集</h2><span class="hint">贴小红书笔记或抖音视频的链接（一行一个，直接粘分享文字也行），把下面全部评论连同楼中楼回复拉出来，写进飞书营销部表格的「评论采集」表（评论人、内容、点赞、时间、IP 属地、回复给谁），再用 DeepSeek 总结（夸什么、骂什么、问什么、该回哪条），总结写进「评论总结」表。同一条评论再拉只更新点赞，不会重复。</span></div>
     <div class="panel stack"><label class="f"><span>链接${n ? `（认出 ${n} 条）` : ''}</span><textarea data-own="cmLinks" rows="3" placeholder="https://www.xiaohongshu.com/explore/…  或  https://v.douyin.com/…">${h(CM.links)}</textarea></label>
-      <div class="row"><span class="hint grow">评论多的帖子要几分钟（模拟人慢慢往下翻、点开回复），窗口别关。用的是这个浏览器里登录的账号。${CM.link ? ` <a href="${h(CM.link)}" target="_blank" rel="noopener">打开「评论采集」表</a>` : ''}</span>
+      <div class="row"><span class="hint grow">评论多的帖子要几分钟（模拟人慢慢往下翻、点开回复），窗口别关。用的是这个浏览器里登录的账号。${CM.link ? ` <a href="${h(CM.link)}" target="_blank" rel="noopener">打开「评论采集」表</a>` : ''}${CM.sumLink ? ` · <a href="${h(CM.sumLink)}" target="_blank" rel="noopener">打开「评论总结」表</a>` : ''}</span>
         ${CM.busy ? '<button class="btn sm" data-action="fs-own-cmstop">停止</button>' : ''}<button class="btn primary" data-action="fs-own-cm" ${CM.busy ? 'disabled' : ''}>${CM.busy ? '拉取中…' : '拉全部评论'}</button></div>
-      ${CM.log.length ? `<pre class="small-pre">${h(CM.log.slice(0, 10).join('\n'))}</pre>` : ''}</div>
+      ${CM.log.length ? `<pre class="small-pre">${h(CM.log.slice(0, 10).join('\n'))}</pre>` : ''}
+      ${CM.sums.map(z => `<details ${z === CM.sums[0] ? 'open' : ''}><summary><b>AI 总结 · ${h(z.title)}</b></summary><pre class="small-pre" style="white-space:pre-wrap;max-height:420px">${h(z.text)}</pre></details>`).join('')}</div>
 `;
   }
   function view() {
