@@ -2,7 +2,7 @@
 
 > 这份文件每天晚上 12 点由 Claude 自动更新一次（看当天的代码改动补进来）。
 > 接手的人：先从头读完这份文件，再动代码。有冲突以代码为准，并顺手改正这份文件。
-> 最后更新：2026-11-17
+> 最后更新：2026-11-18
 
 ## 0. 老板和工作方式
 
@@ -43,7 +43,8 @@
 - `rawlib.js` 素材上传群收图：群名带「素材上传」的群，直接发图（说明可选）→ 写入「小红书内容工坊」多维表格（KYhJb5OvqaJnlYsdNEUc9kOMnmg）的「原图素材库」（tblKTzFWP26rj7e0）；SHA1 去重；通义看图自动填 菜品/用途/画面干净度（AI 初判，封面最终人工复验）；门店出品一样，不写店名就留空；写了说明以说明为准。需要机器人被加为该表格的文档应用（可编辑）。一张一张串行入库，碰到飞书限流/网络错误自动重试。每 30 分钟（和启动后 90 秒）给表里还没有「AI 初判」的图补识别（含表单上传的、改版前收的，同一张失败 2 次就不再试）。补漏：启动后 1 分钟、或在素材群发「补漏」两个字，回头翻今天群里的图，没存进去的补上（按图片内容去重）；不知道是哪个群时自动找名字带「素材上传」的群。
 - `movebase.js` 跨多维表格搬表（含附件，可断点续搬）。
 - `web.js` 驾驶舱和全部 `/lib/*` 接口。
-- `xlsx.js` / `xlsxwrite.js` 极简 xlsx 读写。
+- `xlsx.js` / `xlsxwrite.js` 极简 xlsx 读写；`docxwrite.js` 极简 Word(docx) 写出（复用 xlsxwrite 的 zip）。
+- `cmtlib.js` 评论采集：插件交来的小红书/抖音评论写进营销部表格「评论采集」表（帖子ID+评论ID 去重，单条最多 30000 条评论），DeepSeek 总结写「评论总结」表，总结做完自动私聊老板一份；`exportWord` 把某个帖子（默认最近总结的那条）的 AI 总结 + 全部评论原文（主评论按点赞排序，回复按「回复给」缩进挂在下面，挂不上的列在最后）导成 Word 私聊老板。目前没有功能开关（待确认要不要加）。
 - `gj.js` 美团管家每日数据：插件早上 6 点后在老板浏览器里查「营业指标统计 / 渠道营业统计 / 菜品销售统计 / 时段开台分析」，交到 `/lib/gj/need`、`/lib/gj/ingest`，每天一个文件 `data/gj/日期.json`；6:50 昨天的管家数据还没进来就私聊老板一次（`bot/index.js`）；双系统门店（名字带空格那套）读的时候合并。查询模板存在 pos.meituan.com 的本机存储（`__rm_tpl_*`），服务器备份 `data/gj-tpl.json`（不进仓库）。插件端代码 `extension/gjrun.js`（注入页面、走美团自己的请求签名）。另有美团经营宝（`extension/jybrun.js`，早上 6 点后、`/lib/jyb/need|ingest`，存 `data/jyb/`）：各店昨天流量 + 「商圈同行店均/标杆店均」、点评和美团差评原文、上周新老客（顾客分析只有按周/月）。
 - `opsreport.js` 运营日报/周报/月报（营业额按实收 = 管家「营业收入」ordIncomeAmt，堂食/外卖也按各渠道实收，应收留在 gross 字段；管家优先、门店日报兜底；环比=上周同日，同比=去年同星期几），每天 8:00 私聊运营副总并抄送老板（开关 26 opsDaily）。
 
@@ -90,7 +91,8 @@
 ## 5. 主要接口（都在 `/cockpit/lib/...`，要 `x-rm-key`）
 
 - 给 Codex 的营销数据：`mkt/tables`、`mkt/rows?name=&days=`（行里带 `_files` 图片链接）、`mkt/file?u=`、`mkt/snap?date=`、`mkt/candidates`（写 AI-投放候选）、`mkt/write`（只能写「AI-投放候选」「投放实验记录」，不能写 决定/审批人/追加金额/人工原因 这类审批字段）、`mkt/export?name=`（导 Excel 私聊老板）。私密表、敏感字段（密码、手机、银行、身份证、营收等）被服务器拦截。老板登录驾驶舱后，同一浏览器里 GET `mkt/tables`、`mkt/rows`、`mkt/file`、`mkt/snap`、`log`、`chatmsgs` 不带钥匙也能只读（其他接口仍要钥匙）。
-- 插件用：`tgt/need`、`tgt/ingest`、`official/need`、`official`、`dy/pending`、`dy/fill`、`xhs/noacct`、`xhs/acct`、`note`、`unreadable`、`ext/zip`、`gj/need`、`gj/ingest`（美团管家）、`jyb/need`、`jyb/ingest`（美团经营宝）。
+- 插件用：`tgt/need`、`tgt/ingest`、`official/need`、`official`、`dy/pending`、`dy/fill`、`xhs/noacct`、`xhs/acct`、`note`、`unreadable`、`ext/zip`、`gj/need`、`gj/ingest`（美团管家）、`jyb/need`、`jyb/ingest`（美团经营宝）、`comments/ingest`（评论采集，POST）。
+- 评论采集：`comments/send-latest`（POST，把「评论总结」表最新一条再私聊老板一次）、`comments/word?post=帖子ID`（POST，导 Word 私聊老板；不带 post 就是最近总结的那条）。插件里暂时没有按钮调这两个，待确认。都有副作用，别并发调。
 - 其他：`feedback`、`chatmsgs`、`chats`、`rereaddaily`、`movebase`、`camp/*`、`studio/*`、`dbcheck`、`log`。
 - 公开（不要钥匙）：`/about`、`/dy/callback`。
 - **有副作用的接口（导出、发消息、写表）不要并发调用**，曾经一次发了 4 份 Excel。
@@ -137,6 +139,7 @@
 
 ## 10. 更新记录
 
+- 2026-11-18：自动核对 11-17 的代码改动：评论采集补强（插件 2.24.4：单独窗口不和后台任务抢、碰到验证弹窗口等人点完自动接着拉、上限 30000 条）；总结做完私聊老板；新接口 comments/send-latest、comments/word（导 Word，新文件 docxwrite.js）。
 - 2026-11-17：插件 2.24.0 加「评论采集」（飞书页最上面）：贴小红书/抖音链接 → 后台窗口打开帖子，collector.js readPost 的 all 模式一直滚到底并点开「展开 N 条回复」，评论来自页面自己的接口返回（hook.js），带 IP 属地、回复给谁；交 /lib/comments/ingest（bot/lib/cmtlib.js）写进营销部表格「评论采集」表（不存在自动建），按 帖子ID+评论ID 去重，再拉只更新点赞。拉完用 DeepSeek（有 cfg.deepseekKey 走官方接口，否则走百炼上的 deepseek-v4-pro / v3.2）总结：态度、夸的点、吐槽、高频问题、竞品、选题、优先回复的评论；总结写进「评论总结」表并显示在插件里（2.24.1）。
 - 2026-11-10：建立本文件；新增功能开关（features.js）。
 - 2026-11-11：驾驶舱登录可只读营销表；插件 2.21.1 修复同类爆款调研与自动补账号抢窗口；新增小红书复盘（7.1 节）。
