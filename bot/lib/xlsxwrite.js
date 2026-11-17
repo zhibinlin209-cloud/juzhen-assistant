@@ -62,4 +62,4 @@ function writeXlsx(sheets) {
   return zip(files);
 }
 
-module.exports = { writeXlsx };
+module.exports = { writeXlsx, zip };

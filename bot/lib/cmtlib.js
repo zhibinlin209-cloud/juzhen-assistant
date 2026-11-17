@@ -7,7 +7,8 @@ const COLS = [['评论内容', 1], ['平台', 3, ['小红书', '抖音']], ['帖
 const TABLE = '评论采集', STABLE = '评论总结';
 const SCOLS = [['帖子标题', 1], ['平台', 3, ['小红书', '抖音']], ['帖子链接', 15], ['帖子作者', 1], ['评论数', 2], ['AI 总结', 1], ['模型', 1], ['总结时间', 5], ['帖子ID', 1]];
 
-function createCmtLib({ cfg, api, core, log, notify }) {
+const { writeDocx } = require('./docxwrite');
+function createCmtLib({ cfg, api, core, log, notify, sendFile }) {
   // DeepSeek：有 DeepSeek 官方 key 先用官方接口，否则用阿里百炼上的 DeepSeek 模型（和投放周报同一套）
   async function deepseek(prompt) {
     const tries = [];
@@ -113,6 +114,36 @@ ${lines.join('\n')}`;
     const link = (cfg.baseUrl || '').replace(/\?.*$/, '') + `?table=${st}`;
     await tell(t(f['平台']), t(f['帖子标题']), f['评论数'] || 0, t(f['AI 总结']), link, t(f['帖子链接'])); return { ok: true, link };
   }
-  return { ingest, sendLatest };
+  // 导出 Word：某个帖子（默认最近总结的那条）的总结 + 全部评论原文（楼中楼缩进在主评论下面，主评论按点赞从高到低）
+  async function exportWord(postId) {
+    const app = await core.appToken(); const t = await table(); const st = await stable(app);
+    const tx = v => Array.isArray(v) ? v.map(x => x.text || '').join('') : (v && typeof v === 'object') ? (v.text || v.link || '') : String(v ?? '');
+    let sumRow = null;
+    { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${st}/records/search`, Object.assign({ sort: [{ field_name: '总结时间', desc: true }] }, postId ? { filter: { conjunction: 'and', conditions: [{ field_name: '帖子ID', operator: 'is', value: [postId] }] } } : {}), { page_size: 1 }); sumRow = ((d.items || [])[0] || {}).fields || null; }
+    if (!postId) postId = sumRow ? tx(sumRow['帖子ID']) : ''; if (!postId) throw new Error('还没有拉过评论');
+    const rows = []; let pt = '';
+    do { const d = await api.call('POST', `/bitable/v1/apps/${app}/tables/${t.id}/records/search`, { filter: { conjunction: 'and', conditions: [{ field_name: '帖子ID', operator: 'is', value: [postId] }] } }, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {})); rows.push(...(d.items || []).map(r => r.fields)); pt = d.has_more ? d.page_token : ''; } while (pt);
+    if (!rows.length) throw new Error('这个帖子在「评论采集」表里没有评论');
+    const C = rows.map(f => ({ id: tx(f['评论ID']), name: tx(f['评论人']), text: tx(f['评论内容']), likes: +f['点赞'] || 0, ts: +f['评论时间'] || 0, ip: tx(f['IP属地']), reply: tx(f['类型']) === '回复', to: tx(f['回复给']), author: tx(f['作者回复']) === '是' }));
+    const f0 = rows[0]; const title = tx(f0['帖子标题']) || postId, platform = tx(f0['平台']), link = (f0['帖子链接'] || {}).link || tx(f0['帖子链接']), author = tx(f0['帖子作者']);
+    const day = ms => { if (!ms) return ''; const d = new Date(ms + 8 * 3600e3); return d.toISOString().slice(0, 16).replace('T', ' '); };
+    // 楼中楼：按「回复给」挂到同名主评论下面（接口没给父评论 ID 时的近似做法：挂到这个人最近的一条主评论）；挂不上的单独列在最后
+    const top = C.filter(c => !c.reply).sort((a, b) => b.likes - a.likes || a.ts - b.ts); const kids = new Map(top.map(c => [c, []]));
+    const byName = new Map(); for (const c of top) { if (!byName.has(c.name)) byName.set(c.name, []); byName.get(c.name).push(c); }
+    const orphan = []; for (const r of C.filter(c => c.reply)) { const L = byName.get(r.to); if (L && L.length) { const p = L.filter(x => x.ts <= (r.ts || Infinity)).sort((a, b) => b.ts - a.ts)[0] || L[0]; kids.get(p).push(r); } else orphan.push(r); }
+    const B = [{ h: 1, text: `${platform}评论原文 · ${title}` }, { p: `帖子：${link}`, small: true, color: '666666' }, { p: `作者：${author || '—'}　评论共 ${C.length} 条（主评论 ${top.length}、回复 ${C.length - top.length}）　导出时间：${day(Date.now())}`, small: true, color: '666666' }];
+    if (sumRow) { B.push({ h: 2, text: 'AI 总结（DeepSeek）' }); for (const line of tx(sumRow['AI 总结']).split('\n')) if (line.trim()) B.push({ p: line.replace(/\*\*/g, '') }); }
+    B.push({ h: 2, text: '全部评论（主评论按点赞从高到低，回复缩进在下面）' });
+    let i = 0; for (const c of top) { i++;
+      B.push({ runs: [{ text: `${i}. `, color: '999999' }, { text: c.name || '（无名）', bold: true }, { text: c.author ? '【作者】' : '', color: 'C0392B' }, { text: '：' + c.text }] });
+      B.push({ p: [c.likes ? `赞 ${c.likes}` : '', day(c.ts), c.ip].filter(Boolean).join(' · '), small: true, color: '999999' });
+      for (const r of kids.get(c).sort((a, b) => a.ts - b.ts)) B.push({ indent: 1, runs: [{ text: '↳ ' + (r.name || ''), bold: true }, { text: r.author ? '【作者】' : '', color: 'C0392B' }, { text: (r.to && r.to !== c.name ? ` 回复 ${r.to}` : '') + '：' + r.text }, { text: `　${[r.likes ? '赞 ' + r.likes : '', day(r.ts), r.ip].filter(Boolean).join(' · ')}`, small: true, color: '999999' }] }); }
+    if (orphan.length) { B.push({ h: 2, text: '其他回复（没对上主评论）' }); for (const r of orphan) B.push({ runs: [{ text: r.name, bold: true }, { text: (r.to ? ` 回复 ${r.to}` : '') + '：' + r.text }, { text: `　${[r.likes ? '赞 ' + r.likes : '', day(r.ts), r.ip].filter(Boolean).join(' · ')}`, small: true, color: '999999' }] }); }
+    const buf = writeDocx(B); const name = `评论原文-${platform}-${title.replace(/[\\/:*?"<>|#\s]+/g, '').slice(0, 24)}.docx`;
+    if (sendFile) await sendFile(buf, name);
+    log(`[评论采集] 导出 Word「${title.slice(0, 20)}」${C.length} 条，${Math.round(buf.length / 1024)} KB`);
+    return { ok: true, name, comments: C.length, kb: Math.round(buf.length / 1024) };
+  }
+  return { ingest, sendLatest, exportWord };
 }
 module.exports = { createCmtLib };
