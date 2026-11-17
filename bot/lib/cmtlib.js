@@ -72,7 +72,7 @@ ${lines.join('\n')}`;
   async function ingest(j) {
     const url = String(j.url || ''); const platform = /douyin/.test(url) ? '抖音' : '小红书';
     const post = j.post || {}; const postId = String(j.postId || post.id || '').slice(0, 64) || url.slice(-40);
-    const list = Array.isArray(j.comments) ? j.comments.slice(0, 20000) : [];
+    const list = Array.isArray(j.comments) ? j.comments.slice(0, 30000) : [];
     if (!list.length) return { ok: true, added: 0, updated: 0, total: 0, table: TABLE };
     const t = await table(); const have = await keysOf(t, postId);
     const batch = j.batch || new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 16).replace('T', ' ');

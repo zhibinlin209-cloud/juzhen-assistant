@@ -414,10 +414,10 @@
         const u = links[i]; cmlog(`(${i + 1}/${links.length}) 打开 ${u.slice(0, 60)}…`);
         await cmNav(u); const t0 = Date.now();
         const tab0 = await chrome.tabs.get(cw.tab).catch(() => ({})); cmlog('页面：' + String(tab0.url || '').replace(/\?.*$/, '').slice(0, 70) + '，开始往下翻评论…');
-        let r = await cmMsg({ type: 'rm:readPost', maxComments: 8000, all: true }, 45 * 60e3);
+        let r = await cmMsg({ type: 'rm:readPost', maxComments: 30000, all: true }, 45 * 60e3);
         if (r && !r.ok && r.blocked) { // 一打开就要验证：弹窗口等人点完，再读一次
           cmlog('⚠️ ' + r.blocked + '：已把窗口弹到前面，请点完验证，点完自动接着拉（最多等 20 分钟）'); try { await chrome.windows.update(cw.id, { focused: true, state: 'normal' }); } catch (e) { }
-          r = await cmMsg({ type: 'rm:readPost', maxComments: 8000, all: true }, 45 * 60e3); }
+          r = await cmMsg({ type: 'rm:readPost', maxComments: 30000, all: true }, 45 * 60e3); }
         if (!r || !r.ok) { cmlog('✗ ' + ((r && (r.error || r.blocked)) || '没读到') + '，跳过这条'); continue; }
         cmlog(`翻完了，用时 ${Math.round((Date.now() - t0) / 1000)} 秒（来源 ${(r.diag && r.diag.src) || '?'}：接口 ${(r.diag && r.diag.api) ?? '?'} 条 / 页面 ${(r.diag && r.diag.dom) ?? '?'} 条）`);
         const p = r.post || {}; const cs = r.comments || [];
