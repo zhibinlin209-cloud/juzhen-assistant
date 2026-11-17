@@ -397,29 +397,35 @@
   }
   async function cmRun() {
     if (CM.busy) return; const links = cmLinks(CM.links); if (!links.length) { toast('没认出小红书或抖音链接：把分享链接贴进框里（一行一个，带文字也行）'); return; }
-    if (O.busy || TG.busy || GJ.busy || (typeof A !== 'undefined' && A.busy)) { toast('后台正在跑别的任务，等它跑完（一两分钟）再点'); return; }
-    CM.busy = true; CM.stop = false; forceRender(); let sum = 0;
+    CM.busy = true; CM.stop = false; forceRender(); let sum = 0; let cw = null; // 用自己单独的窗口，不和后台其他任务抢
+    const cmNav = async url => { if (cw) { try { await chrome.tabs.get(cw.tab); } catch (e) { cw = null; } }
+      if (!cw) { const w = await chrome.windows.create({ url, focused: false, width: 1200, height: 900, type: 'normal' }); cw = { id: w.id, tab: w.tabs[0].id }; } else await chrome.tabs.update(cw.tab, { url });
+      await waitLoad(cw.tab, 30000); await sleep(rand(3500, 5000)); };
+    const cmMsg = async (m, timeout) => { const go = () => Promise.race([chrome.tabs.sendMessage(cw.tab, m), sleep(timeout).then(() => ({ ok: false, error: '页面没有响应（超时）' }))]);
+      try { return await go(); } catch (e) { try { await chrome.scripting.executeScript({ target: { tabId: cw.tab }, files: ['content.js', 'collector.js'] }); } catch (er) { return { ok: false, error: '窗口被关闭了' }; } await sleep(1000); try { return await go(); } catch (e2) { return { ok: false, error: '页面脚本没装上：' + e2.message }; } } };
     try {
       for (let i = 0; i < links.length; i++) {
         if (CM.stop) { cmlog('已停止'); break; }
         const u = links[i]; cmlog(`(${i + 1}/${links.length}) 打开 ${u.slice(0, 60)}…`);
-        await nav(u);
-        const r = await msg({ type: 'rm:readPost', maxComments: 8000, all: true }, 30 * 60e3);
-        if (!r || !r.ok) { cmlog('✗ ' + ((r && (r.error || r.blocked)) || '没读到') + (r && r.blocked ? '：请在弹出的窗口里完成验证/登录后再点一次' : '')); if (r && r.blocked) { try { await chrome.windows.update(win.id, { focused: true, state: 'normal' }); } catch (e) { } break; } continue; }
+        await cmNav(u); const t0 = Date.now();
+        const tab0 = await chrome.tabs.get(cw.tab).catch(() => ({})); cmlog('页面：' + String(tab0.url || '').replace(/\?.*$/, '').slice(0, 70) + '，开始往下翻评论…');
+        const r = await cmMsg({ type: 'rm:readPost', maxComments: 8000, all: true }, 30 * 60e3);
+        if (!r || !r.ok) { cmlog('✗ ' + ((r && (r.error || r.blocked)) || '没读到') + (r && r.blocked ? '：请在弹出的窗口里完成验证/登录后再点一次' : '')); if (r && r.blocked) { try { await chrome.windows.update(cw.id, { focused: true, state: 'normal' }); } catch (e) { } break; } continue; }
+        cmlog(`翻完了，用时 ${Math.round((Date.now() - t0) / 1000)} 秒（来源 ${(r.diag && r.diag.src) || '?'}：接口 ${(r.diag && r.diag.api) ?? '?'} 条 / 页面 ${(r.diag && r.diag.dom) ?? '?'} 条）`);
         const p = r.post || {}; const cs = r.comments || [];
-        const tab = await chrome.tabs.get(win.tab).catch(() => ({})); const url = (tab.url || u).replace(/[?#].*$/, '') + (/xsec_token=/.test(tab.url || '') ? '?' + (tab.url.split('?')[1] || '') : '');
+        const tab = await chrome.tabs.get(cw.tab).catch(() => ({})); const url = (tab.url || u).replace(/[?#].*$/, '') + (/xsec_token=/.test(tab.url || '') ? '?' + (tab.url.split('?')[1] || '') : '');
         cmlog(`读到 ${cs.length} 条（帖子显示 ${p.comments || '?'} 条）${r.blocked ? '，中途被平台拦了一下，先存读到的' : ''}，写进飞书并让 DeepSeek 总结（要一两分钟）…`);
         const id = (r.diag && r.diag.id) || '';
         const j = await srv('/lib/comments/ingest', { url, postId: id, post: { title: p.title || '', desc: (p.desc || '').slice(0, 200), author: p.author || p.nickname || '', id }, comments: cs });
         if (j.link) { CM.link = j.link; lsSet('rm-cm-table', j.link); }
         sum += j.added || 0; cmlog(`✓「${(p.title || id).slice(0, 18)}」新增 ${j.added || 0} 条${j.updated ? '，更新 ' + j.updated + ' 条' : ''}${j.summary ? '；AI 总结已写进「评论总结」表' : j.sumErr ? '；AI 总结没做成：' + j.sumErr : ''}`);
         if (j.summary) { CM.sums.unshift({ title: (p.title || id).slice(0, 30), text: j.summary }); CM.sums = CM.sums.slice(0, 5); if (j.sumLink) CM.sumLink = j.sumLink; forceRender(); }
-        if (r.blocked) { cmlog('平台出现验证，先停下：请在弹出的窗口里处理后再点一次（已拉过的不会重复）'); try { await chrome.windows.update(win.id, { focused: true, state: 'normal' }); } catch (e) { } break; }
+        if (r.blocked) { cmlog('平台出现验证，先停下：请在弹出的窗口里处理后再点一次（已拉过的不会重复）'); try { await chrome.windows.update(cw.id, { focused: true, state: 'normal' }); } catch (e) { } cw = null; break; }
         if (i < links.length - 1) await sleep(rand(8000, 15000));
       }
       if (sum) toast(`评论已写进飞书「评论采集」表：新增 ${sum} 条`);
     } catch (e) { cmlog('✗ ' + e.message); }
-    finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; CM.busy = false; forceRender(); }
+    finally { try { if (cw) await chrome.windows.remove(cw.id); } catch (e) { } CM.busy = false; forceRender(); }
   }
   function cmView() {
     const n = cmLinks(CM.links).length;

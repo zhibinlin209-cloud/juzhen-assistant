@@ -313,7 +313,11 @@
       await sleep(rand(1000, 1800));
       if (blocked()) break;
     }
-    const got = bothComments(id);
+    let got = bothComments(id);
+    if (all) { // 全部模式：接口拿到的为主，页面上有、接口里没有的（比如第一页）也补进来
+      const api = apiComments(id), dom = (isXhs() ? xhsDomComments : douyinDomComments)(); const nt = t => String(t || '').replace(/\s+/g, '').slice(0, 40);
+      const have = new Set(api.map(c => nt(c.text))); got = { list: api.concat(dom.filter(c => !have.has(nt(c.text)))), src: 'api+dom', a: api.length, d: dom.length };
+    }
     const seen = new Set();
     const comments = got.list.filter(c => { const k = c.cid || (c.name + '|' + c.text); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, maxComments)
       .map(c => ({ cid: c.cid || '', parent: c.parent || '', author: !!c.author, name: c.name, text: c.text, likes: c.likes, date: c.date, ts: c.ts || parseTime(c.date) || null, reply: !!c.reply, ip: c.ip || '', uid: c.uid || '', to: c.to || '', subN: c.subN || 0 }));
