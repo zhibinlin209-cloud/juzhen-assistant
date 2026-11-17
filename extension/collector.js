@@ -271,7 +271,8 @@
   async function readPost(maxComments, all) {
     const xhs = isXhs();
     await waitFor(() => xhs ? ($('#detail-title') || $('#detail-desc') || $('.note-content') || /无法浏览|不存在|已删除/.test(document.body.innerText)) : ($('[data-e2e="detail-video-info"]') || $('[data-e2e="comment-list"]') || $('#RENDER_DATA') || Object.keys(D.detail).length), 10000);
-    const b = blocked(); if (b) return { ok: false, blocked: b };
+    const b = blocked(); if (b && !all) return { ok: false, blocked: b };
+    if (b && all) { try { chrome.runtime.sendMessage({ type: 'rm:verify', on: true, why: b, url: location.href }); } catch (e) { } const t0 = Date.now(); while (blocked() && Date.now() - t0 < 20 * 60e3) await sleep(3000); try { chrome.runtime.sendMessage({ type: 'rm:verify', on: false, ok: !blocked() }); } catch (e) { } if (blocked()) return { ok: false, blocked: blocked() }; await sleep(2000); }
     if (xhs && /笔记不存在|无法浏览|已被删除|内容已删除/.test((document.body.innerText || '').slice(0, 2000)) && !$('#detail-title')) return { ok: false, error: '笔记已删除或无法查看' };
     const id = postId();
     const base = window.__rmRead ? window.__rmRead() : { ok: false };
@@ -287,6 +288,7 @@
       if (btn) { btn.click(); await waitFor(() => bothComments(id).list.length > 0, 5000); }
     }
 
+    if (all && blocked()) { try { chrome.runtime.sendMessage({ type: 'rm:verify', on: true, why: blocked(), url: location.href }); } catch (e) { } const t0 = Date.now(); while (blocked() && Date.now() - t0 < 20 * 60e3) await sleep(3000); try { chrome.runtime.sendMessage({ type: 'rm:verify', on: false, ok: !blocked() }); } catch (e) { } }
     // 滚动评论区，直到够数、没有更多或不再增加
     let stall = 0, last = 0; const clicks = new WeakMap(); let lastClick = 0;
     // 「拉全部评论」模式：一直滚到底，顺手点开每条评论下面的「展开 N 条回复 / 展开更多回复」
@@ -310,7 +312,14 @@
       sc.scrollBy({ top: rand(500, 900) });
       if (sc !== document.scrollingElement) window.scrollBy({ top: 200 });
       await sleep(rand(1000, 1800));
-      if (blocked()) break;
+      if (blocked()) {
+        if (!all) break;
+        // 全部模式：碰到验证不停，叫插件把窗口弹到前面，等人点完验证（最多 20 分钟）再接着翻
+        const why = blocked(); try { chrome.runtime.sendMessage({ type: 'rm:verify', on: true, why, url: location.href }); } catch (e) { }
+        const t0 = Date.now(); while (blocked() && Date.now() - t0 < 20 * 60e3) await sleep(3000);
+        try { chrome.runtime.sendMessage({ type: 'rm:verify', on: false, ok: !blocked() }); } catch (e) { }
+        if (blocked()) break; stall = 0; await sleep(rand(1500, 2500));
+      }
     }
     let got = bothComments(id);
     if (all) { // 全部模式：接口拿到的为主，页面上有、接口里没有的（比如第一页）也补进来

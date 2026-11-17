@@ -395,11 +395,16 @@
     while ((m = re.exec(String(text || '')))) { const u = m[0].replace(/[.,;:!?]+$/, ''); if (/xiaohongshu\.com|xhslink\.com|xhslink\.cn|douyin\.com/.test(u) && !out.includes(u)) out.push(u); }
     return out;
   }
+  chrome.runtime.onMessage.addListener(m => {
+    if (!m || m.type !== 'rm:verify' || !CM.busy) return;
+    if (m.on) { cmlog('⚠️ ' + (m.why || '平台要验证') + '：窗口已弹到前面，请点完验证，点完自动接着拉'); toast('抖音/小红书要验证：请在弹出的窗口里点完，插件会自己接着拉'); if (CM.win) chrome.windows.update(CM.win, { focused: true, state: 'normal' }).catch(() => { }); }
+    else cmlog(m.ok ? '✓ 验证通过，接着拉' : '验证等了 20 分钟没点完，先存读到的');
+  });
   async function cmRun() {
     if (CM.busy) return; const links = cmLinks(CM.links); if (!links.length) { toast('没认出小红书或抖音链接：把分享链接贴进框里（一行一个，带文字也行）'); return; }
     CM.busy = true; CM.stop = false; forceRender(); let sum = 0; let cw = null; // 用自己单独的窗口，不和后台其他任务抢
     const cmNav = async url => { if (cw) { try { await chrome.tabs.get(cw.tab); } catch (e) { cw = null; } }
-      if (!cw) { const w = await chrome.windows.create({ url, focused: false, width: 1200, height: 900, type: 'normal' }); cw = { id: w.id, tab: w.tabs[0].id }; } else await chrome.tabs.update(cw.tab, { url });
+      if (!cw) { const w = await chrome.windows.create({ url, focused: false, width: 1200, height: 900, type: 'normal' }); cw = { id: w.id, tab: w.tabs[0].id }; CM.win = w.id; } else await chrome.tabs.update(cw.tab, { url });
       await waitLoad(cw.tab, 30000); await sleep(rand(3500, 5000)); };
     const cmMsg = async (m, timeout) => { const go = () => Promise.race([chrome.tabs.sendMessage(cw.tab, m), sleep(timeout).then(() => ({ ok: false, error: '页面没有响应（超时）' }))]);
       try { return await go(); } catch (e) { try { await chrome.scripting.executeScript({ target: { tabId: cw.tab }, files: ['content.js', 'collector.js'] }); } catch (er) { return { ok: false, error: '窗口被关闭了' }; } await sleep(1000); try { return await go(); } catch (e2) { return { ok: false, error: '页面脚本没装上：' + e2.message }; } } };
@@ -409,29 +414,32 @@
         const u = links[i]; cmlog(`(${i + 1}/${links.length}) 打开 ${u.slice(0, 60)}…`);
         await cmNav(u); const t0 = Date.now();
         const tab0 = await chrome.tabs.get(cw.tab).catch(() => ({})); cmlog('页面：' + String(tab0.url || '').replace(/\?.*$/, '').slice(0, 70) + '，开始往下翻评论…');
-        const r = await cmMsg({ type: 'rm:readPost', maxComments: 8000, all: true }, 30 * 60e3);
-        if (!r || !r.ok) { cmlog('✗ ' + ((r && (r.error || r.blocked)) || '没读到') + (r && r.blocked ? '：请在弹出的窗口里完成验证/登录后再点一次' : '')); if (r && r.blocked) { try { await chrome.windows.update(cw.id, { focused: true, state: 'normal' }); } catch (e) { } break; } continue; }
+        let r = await cmMsg({ type: 'rm:readPost', maxComments: 8000, all: true }, 45 * 60e3);
+        if (r && !r.ok && r.blocked) { // 一打开就要验证：弹窗口等人点完，再读一次
+          cmlog('⚠️ ' + r.blocked + '：已把窗口弹到前面，请点完验证，点完自动接着拉（最多等 20 分钟）'); try { await chrome.windows.update(cw.id, { focused: true, state: 'normal' }); } catch (e) { }
+          r = await cmMsg({ type: 'rm:readPost', maxComments: 8000, all: true }, 45 * 60e3); }
+        if (!r || !r.ok) { cmlog('✗ ' + ((r && (r.error || r.blocked)) || '没读到') + '，跳过这条'); continue; }
         cmlog(`翻完了，用时 ${Math.round((Date.now() - t0) / 1000)} 秒（来源 ${(r.diag && r.diag.src) || '?'}：接口 ${(r.diag && r.diag.api) ?? '?'} 条 / 页面 ${(r.diag && r.diag.dom) ?? '?'} 条）`);
         const p = r.post || {}; const cs = r.comments || [];
         const tab = await chrome.tabs.get(cw.tab).catch(() => ({})); const url = (tab.url || u).replace(/[?#].*$/, '') + (/xsec_token=/.test(tab.url || '') ? '?' + (tab.url.split('?')[1] || '') : '');
-        cmlog(`读到 ${cs.length} 条（帖子显示 ${p.comments || '?'} 条）${r.blocked ? '，中途被平台拦了一下，先存读到的' : ''}，写进飞书并让 DeepSeek 总结（要一两分钟）…`);
+        cmlog(`读到 ${cs.length} 条（帖子显示 ${p.comments || '?'} 条）${r.blocked ? '，验证没点完，先存读到的' : ''}，写进飞书并让 DeepSeek 总结（要一两分钟）…`);
         const id = (r.diag && r.diag.id) || '';
         const j = await srv('/lib/comments/ingest', { url, postId: id, post: { title: p.title || '', desc: (p.desc || '').slice(0, 200), author: p.author || p.nickname || '', id }, comments: cs });
         if (j.link) { CM.link = j.link; lsSet('rm-cm-table', j.link); }
         sum += j.added || 0; cmlog(`✓「${(p.title || id).slice(0, 18)}」新增 ${j.added || 0} 条${j.updated ? '，更新 ' + j.updated + ' 条' : ''}${j.summary ? '；AI 总结已写进「评论总结」表' : j.sumErr ? '；AI 总结没做成：' + j.sumErr : ''}`);
         if (j.summary) { CM.sums.unshift({ title: (p.title || id).slice(0, 30), text: j.summary }); CM.sums = CM.sums.slice(0, 5); if (j.sumLink) CM.sumLink = j.sumLink; forceRender(); }
-        if (r.blocked) { cmlog('平台出现验证，先停下：请在弹出的窗口里处理后再点一次（已拉过的不会重复）'); try { await chrome.windows.update(cw.id, { focused: true, state: 'normal' }); } catch (e) { } cw = null; break; }
+        if (r.blocked) cmlog('这条等验证超时（20 分钟没人点），先存了读到的，接着拉下一条');
         if (i < links.length - 1) await sleep(rand(8000, 15000));
       }
       if (sum) toast(`评论已写进飞书「评论采集」表：新增 ${sum} 条`);
     } catch (e) { cmlog('✗ ' + e.message); }
-    finally { try { if (cw) await chrome.windows.remove(cw.id); } catch (e) { } CM.busy = false; forceRender(); }
+    finally { try { if (cw) await chrome.windows.remove(cw.id); } catch (e) { } CM.win = null; CM.busy = false; forceRender(); }
   }
   function cmView() {
     const n = cmLinks(CM.links).length;
     return `<div class="section-h"><h2>评论采集</h2><span class="hint">贴小红书笔记或抖音视频的链接（一行一个，直接粘分享文字也行），把下面全部评论连同楼中楼回复拉出来，写进飞书营销部表格的「评论采集」表（评论人、内容、点赞、时间、IP 属地、回复给谁），再用 DeepSeek 总结（夸什么、骂什么、问什么、该回哪条），总结写进「评论总结」表。同一条评论再拉只更新点赞，不会重复。</span></div>
     <div class="panel stack"><label class="f"><span>链接${n ? `（认出 ${n} 条）` : ''}</span><textarea data-own="cmLinks" rows="3" placeholder="https://www.xiaohongshu.com/explore/…  或  https://v.douyin.com/…">${h(CM.links)}</textarea></label>
-      <div class="row"><span class="hint grow">评论多的帖子要几分钟（模拟人慢慢往下翻、点开回复），窗口别关。用的是这个浏览器里登录的账号。${CM.link ? ` <a href="${h(CM.link)}" target="_blank" rel="noopener">打开「评论采集」表</a>` : ''}${CM.sumLink ? ` · <a href="${h(CM.sumLink)}" target="_blank" rel="noopener">打开「评论总结」表</a>` : ''}</span>
+      <div class="row"><span class="hint grow">评论多的帖子要几分钟（模拟人慢慢往下翻、点开回复），窗口别关。碰到抖音/小红书的验证，窗口会弹到前面，你点完验证它自己接着拉。用的是这个浏览器里登录的账号。${CM.link ? ` <a href="${h(CM.link)}" target="_blank" rel="noopener">打开「评论采集」表</a>` : ''}${CM.sumLink ? ` · <a href="${h(CM.sumLink)}" target="_blank" rel="noopener">打开「评论总结」表</a>` : ''}</span>
         ${CM.busy ? '<button class="btn sm" data-action="fs-own-cmstop">停止</button>' : ''}<button class="btn primary" data-action="fs-own-cm" ${CM.busy ? 'disabled' : ''}>${CM.busy ? '拉取中…' : '拉全部评论'}</button></div>
       ${CM.log.length ? `<pre class="small-pre">${h(CM.log.slice(0, 10).join('\n'))}</pre>` : ''}
       ${CM.sums.map(z => `<details ${z === CM.sums[0] ? 'open' : ''}><summary><b>AI 总结 · ${h(z.title)}</b></summary><pre class="small-pre" style="white-space:pre-wrap;max-height:420px">${h(z.text)}</pre></details>`).join('')}</div>
