@@ -64,9 +64,9 @@
     if (/\/api\/sns\/web\/v\d+\/comment\/(sub\/)?page/.test(url)) {
       const noteId = qp(url, 'note_id'); const data = j.data || {}; const rootId = qp(url, 'root_comment_id');
       (data.comments || []).forEach(c => {
-        if (rootId) { addComment(noteId, { cid: c.id, name: (c.user_info || {}).nickname || '', text: c.content || '', likes: toNum(c.like_count) || 0, date: fmtTime(c.create_time, c.ip_location), ts: ms(c.create_time), reply: true, parent: rootId, author: (c.show_tags || []).includes('is_author') }); return; }
-        addComment(noteId, { cid: c.id, name: (c.user_info || {}).nickname || '', text: c.content || '', likes: toNum(c.like_count) || 0, date: fmtTime(c.create_time, c.ip_location), ts: ms(c.create_time), author: (c.show_tags || []).includes('is_author') });
-        (c.sub_comments || []).forEach(s => addComment(noteId, { cid: s.id, name: (s.user_info || {}).nickname || '', text: s.content || '', likes: toNum(s.like_count) || 0, date: fmtTime(s.create_time, s.ip_location), ts: ms(s.create_time), reply: true, parent: c.id, author: (s.show_tags || []).includes('is_author') }));
+        if (rootId) { addComment(noteId, { cid: c.id, name: (c.user_info || {}).nickname || '', text: c.content || '', likes: toNum(c.like_count) || 0, date: fmtTime(c.create_time, c.ip_location), ip: c.ip_location || '', uid: (c.user_info || {}).user_id || '', to: ((c.target_comment || {}).user_info || {}).nickname || '', ts: ms(c.create_time), reply: true, parent: rootId, author: (c.show_tags || []).includes('is_author') }); return; }
+        addComment(noteId, { cid: c.id, name: (c.user_info || {}).nickname || '', text: c.content || '', likes: toNum(c.like_count) || 0, date: fmtTime(c.create_time, c.ip_location), ip: c.ip_location || '', uid: (c.user_info || {}).user_id || '', subN: toNum(c.sub_comment_count) || 0, ts: ms(c.create_time), author: (c.show_tags || []).includes('is_author') });
+        (c.sub_comments || []).forEach(s => addComment(noteId, { cid: s.id, name: (s.user_info || {}).nickname || '', text: s.content || '', likes: toNum(s.like_count) || 0, date: fmtTime(s.create_time, s.ip_location), ip: s.ip_location || '', uid: (s.user_info || {}).user_id || '', to: ((s.target_comment || {}).user_info || {}).nickname || '', ts: ms(s.create_time), reply: true, parent: c.id, author: (s.show_tags || []).includes('is_author') }));
       });
       if (!/sub/.test(url)) D.more[noteId] = data.has_more !== false;
       return;
@@ -75,8 +75,8 @@
     if (/\/aweme\/v\d+\/web\/comment\/list/.test(url)) {
       const aid = qp(url, 'aweme_id') || qp(url, 'item_id');
       (j.comments || []).forEach(c => {
-        addComment(aid, { cid: c.cid, name: (c.user || {}).nickname || '', text: c.text || '', likes: toNum(c.digg_count) || 0, date: fmtTime(c.create_time, c.ip_label), ts: ms(c.create_time), reply: !!(c.reply_id && c.reply_id !== '0'), parent: c.reply_id && c.reply_id !== '0' ? c.reply_id : '', author: /作者/.test(c.label_text || '') });
-        (c.reply_comment || []).forEach(s => addComment(aid, { cid: s.cid, name: (s.user || {}).nickname || '', text: s.text || '', likes: toNum(s.digg_count) || 0, date: fmtTime(s.create_time, s.ip_label), ts: ms(s.create_time), reply: true, parent: c.cid, author: /作者/.test(s.label_text || '') }));
+        addComment(aid, { cid: c.cid, name: (c.user || {}).nickname || '', text: c.text || '', likes: toNum(c.digg_count) || 0, date: fmtTime(c.create_time, c.ip_label), ip: c.ip_label || '', uid: (c.user || {}).sec_uid || (c.user || {}).uid || '', subN: toNum(c.reply_comment_total) || 0, to: c.reply_to_username || '', ts: ms(c.create_time), reply: !!(c.reply_id && c.reply_id !== '0'), parent: c.reply_id && c.reply_id !== '0' ? c.reply_id : '', author: /作者/.test(c.label_text || '') });
+        (c.reply_comment || []).forEach(s => addComment(aid, { cid: s.cid, name: (s.user || {}).nickname || '', text: s.text || '', likes: toNum(s.digg_count) || 0, date: fmtTime(s.create_time, s.ip_label), ip: s.ip_label || '', uid: (s.user || {}).sec_uid || '', to: s.reply_to_username || '', ts: ms(s.create_time), reply: true, parent: c.cid, author: /作者/.test(s.label_text || '') }));
       });
       if (!/reply/.test(url)) D.more[aid] = !!j.has_more;
       return;
@@ -268,7 +268,7 @@
     return Array.from(s).slice(0, 30);
   }
 
-  async function readPost(maxComments) {
+  async function readPost(maxComments, all) {
     const xhs = isXhs();
     await waitFor(() => xhs ? ($('#detail-title') || $('#detail-desc') || $('.note-content') || /无法浏览|不存在|已删除/.test(document.body.innerText)) : ($('[data-e2e="detail-video-info"]') || $('[data-e2e="comment-list"]') || $('#RENDER_DATA') || Object.keys(D.detail).length), 10000);
     const b = blocked(); if (b) return { ok: false, blocked: b };
@@ -288,12 +288,24 @@
     }
 
     // 滚动评论区，直到够数、没有更多或不再增加
-    let stall = 0, last = 0;
-    for (let round = 0; round < 45; round++) {
+    let stall = 0, last = 0; const clicks = new WeakMap(); let lastClick = 0;
+    // 「拉全部评论」模式：一直滚到底，顺手点开每条评论下面的「展开 N 条回复 / 展开更多回复」
+    const expand = () => { let k = 0; const now = Date.now();
+      for (const el of $$('.show-more, [class*="show-more"], [class*="ShowMore"], [class*="reply-expand"], span, button, div, p')) {
+        if (k >= 4) break; if (el.children.length > 2) continue; const t = (el.innerText || '').trim();
+        if (!/^(展开|查看)(全部)?\s*\d*\s*条?回复|^展开更多(回复)?$|^展开\d+条回复|^查看更多回复/.test(t) || t.length > 16) continue;
+        const c = clicks.get(el) || { n: 0, at: 0 }; if (c.n >= 40 || now - c.at < 2500) continue;
+        try { el.click(); c.n++; c.at = now; clicks.set(el, c); k++; lastClick = now; } catch (e) { }
+      } return k; };
+    const ROUNDS = all ? 900 : 45, STALL = all ? 8 : 4;
+    for (let round = 0; round < ROUNDS; round++) {
       const n = bothComments(id).list.length;
-      if (n >= maxComments || D.more[id] === false) break;
-      if (xhs && visible($('.end-container'))) break;
-      if (n === last) { stall++; if (stall >= 4) break; } else stall = 0;
+      const ex = all ? expand() : 0; if (ex) await sleep(rand(900, 1500));
+      if (n >= maxComments) break;
+      if (!all && D.more[id] === false) break;
+      if (!all && xhs && visible($('.end-container'))) break;
+      if (all && (D.more[id] === false || (xhs && visible($('.end-container')))) && !ex && Date.now() - lastClick > 6000 && n === last) break;
+      if (n === last && !ex) { stall++; if (stall >= STALL) break; } else stall = 0;
       last = n;
       const sc = commentScroller(xhs, id);
       sc.scrollBy({ top: rand(500, 900) });
@@ -303,8 +315,8 @@
     }
     const got = bothComments(id);
     const seen = new Set();
-    const comments = got.list.filter(c => { const k = c.name + '|' + c.text; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, maxComments)
-      .map(c => ({ cid: c.cid || '', parent: c.parent || '', author: !!c.author, name: c.name, text: c.text, likes: c.likes, date: c.date, ts: c.ts || parseTime(c.date) || null, reply: !!c.reply }));
+    const comments = got.list.filter(c => { const k = c.cid || (c.name + '|' + c.text); if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, maxComments)
+      .map(c => ({ cid: c.cid || '', parent: c.parent || '', author: !!c.author, name: c.name, text: c.text, likes: c.likes, date: c.date, ts: c.ts || parseTime(c.date) || null, reply: !!c.reply, ip: c.ip || '', uid: c.uid || '', to: c.to || '', subN: c.subN || 0 }));
     const diag = { id, src: got.src, api: got.a, dom: got.d, shown: toNum(post.comments), urls: D.seenUrls.slice(-12), classes: comments.length ? [] : classSample(), href: location.href.slice(0, 120) };
     return { ok: true, post, comments, blocked: blocked(), diag };
   }
@@ -381,7 +393,7 @@
       return true;
     }
     if (msg.type === 'rm:readPost') {
-      readPost(msg.maxComments === 0 ? 0 : (msg.maxComments || 30)).then(reply).catch(e => reply({ ok: false, error: e.message }));
+      readPost(msg.maxComments === 0 ? 0 : (msg.maxComments || 30), !!msg.all).then(reply).catch(e => reply({ ok: false, error: e.message }));
       return true;
     }
     return false;

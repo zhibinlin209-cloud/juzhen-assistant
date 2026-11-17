@@ -386,9 +386,52 @@
     finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; T.busy = false; forceRender(); }
   }
 
+
+  // ---------- 评论采集：贴小红书 / 抖音链接，把全部评论（含楼中楼回复）拉出来，写进营销部表格「评论采集」 ----------
+  const CM = { busy: false, stop: false, links: lsGet('rm-cm-links') || '', log: [], link: lsGet('rm-cm-table') || '' };
+  const cmlog = t => { CM.log.unshift(new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '  ' + t); CM.log = CM.log.slice(0, 30); forceRender(); };
+  function cmLinks(text) {
+    const out = []; const re = /https?:\/\/[^\s，。、"'<>）)】]+/g; let m;
+    while ((m = re.exec(String(text || '')))) { const u = m[0].replace(/[.,;:!?]+$/, ''); if (/xiaohongshu\.com|xhslink\.com|xhslink\.cn|douyin\.com/.test(u) && !out.includes(u)) out.push(u); }
+    return out;
+  }
+  async function cmRun() {
+    if (CM.busy) return; const links = cmLinks(CM.links); if (!links.length) { toast('没认出小红书或抖音链接：把分享链接贴进框里（一行一个，带文字也行）'); return; }
+    if (O.busy || TG.busy || GJ.busy || (typeof A !== 'undefined' && A.busy)) { toast('后台正在跑别的任务，等它跑完（一两分钟）再点'); return; }
+    CM.busy = true; CM.stop = false; forceRender(); let sum = 0;
+    try {
+      for (let i = 0; i < links.length; i++) {
+        if (CM.stop) { cmlog('已停止'); break; }
+        const u = links[i]; cmlog(`(${i + 1}/${links.length}) 打开 ${u.slice(0, 60)}…`);
+        await nav(u);
+        const r = await msg({ type: 'rm:readPost', maxComments: 8000, all: true }, 30 * 60e3);
+        if (!r || !r.ok) { cmlog('✗ ' + ((r && (r.error || r.blocked)) || '没读到') + (r && r.blocked ? '：请在弹出的窗口里完成验证/登录后再点一次' : '')); if (r && r.blocked) { try { await chrome.windows.update(win.id, { focused: true, state: 'normal' }); } catch (e) { } break; } continue; }
+        const p = r.post || {}; const cs = r.comments || [];
+        const tab = await chrome.tabs.get(win.tab).catch(() => ({})); const url = (tab.url || u).replace(/[?#].*$/, '') + (/xsec_token=/.test(tab.url || '') ? '?' + (tab.url.split('?')[1] || '') : '');
+        cmlog(`读到 ${cs.length} 条（帖子显示 ${p.comments || '?'} 条）${r.blocked ? '，中途被平台拦了一下，先存读到的' : ''}，写进飞书…`);
+        const id = (r.diag && r.diag.id) || '';
+        const j = await srv('/lib/comments/ingest', { url, postId: id, post: { title: p.title || '', desc: (p.desc || '').slice(0, 200), author: p.author || p.nickname || '', id }, comments: cs });
+        if (j.link) { CM.link = j.link; lsSet('rm-cm-table', j.link); }
+        sum += j.added || 0; cmlog(`✓「${(p.title || id).slice(0, 18)}」新增 ${j.added || 0} 条${j.updated ? '，更新 ' + j.updated + ' 条' : ''}`);
+        if (r.blocked) { cmlog('平台出现验证，先停下：请在弹出的窗口里处理后再点一次（已拉过的不会重复）'); try { await chrome.windows.update(win.id, { focused: true, state: 'normal' }); } catch (e) { } break; }
+        if (i < links.length - 1) await sleep(rand(8000, 15000));
+      }
+      if (sum) toast(`评论已写进飞书「评论采集」表：新增 ${sum} 条`);
+    } catch (e) { cmlog('✗ ' + e.message); }
+    finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; CM.busy = false; forceRender(); }
+  }
+  function cmView() {
+    const n = cmLinks(CM.links).length;
+    return `<div class="section-h"><h2>评论采集</h2><span class="hint">贴小红书笔记或抖音视频的链接（一行一个，直接粘分享文字也行），把下面全部评论连同楼中楼回复拉出来，写进飞书营销部表格的「评论采集」表：评论人、内容、点赞、时间、IP 属地、回复给谁。同一条评论再拉只更新点赞，不会重复。</span></div>
+    <div class="panel stack"><label class="f"><span>链接${n ? `（认出 ${n} 条）` : ''}</span><textarea data-own="cmLinks" rows="3" placeholder="https://www.xiaohongshu.com/explore/…  或  https://v.douyin.com/…">${h(CM.links)}</textarea></label>
+      <div class="row"><span class="hint grow">评论多的帖子要几分钟（模拟人慢慢往下翻、点开回复），窗口别关。用的是这个浏览器里登录的账号。${CM.link ? ` <a href="${h(CM.link)}" target="_blank" rel="noopener">打开「评论采集」表</a>` : ''}</span>
+        ${CM.busy ? '<button class="btn sm" data-action="fs-own-cmstop">停止</button>' : ''}<button class="btn primary" data-action="fs-own-cm" ${CM.busy ? 'disabled' : ''}>${CM.busy ? '拉取中…' : '拉全部评论'}</button></div>
+      ${CM.log.length ? `<pre class="small-pre">${h(CM.log.slice(0, 10).join('\n'))}</pre>` : ''}</div>
+`;
+  }
   function view() {
     const I = S.info; const has = CFG().key;
-    return `<div class="section-h"><h2>自家内容入库</h2><span class="hint">把我们自己发过的小红书笔记一条条读进「自家内容库」（标题、正文、话题、全部图片、赞藏评、热门评论），机器人再用通义千问分析封面和图片，升级爆款公式</span></div>
+    return cmView() + `<div class="section-h"><h2>自家内容入库</h2><span class="hint">把我们自己发过的小红书笔记一条条读进「自家内容库」（标题、正文、话题、全部图片、赞藏评、热门评论），机器人再用通义千问分析封面和图片，升级爆款公式</span></div>
     <div class="panel stack" id="fs-own">
       ${!has ? '<div class="hint" style="color:#c52b1b">这个插件版本没有入库口令，请换用机器人发来的最新插件文件。</div>' : ''}
       <div class="hint">${I ? (I.error ? `连接机器人失败：${h(I.error)}` : `飞书里共 <b>${I.total}</b> 条小红书笔记，已入库 <b>${I.done}</b> 条，还没读 <b>${I.left}</b> 条` + (I.unreadable ? `，<b style="color:#c52b1b">读不了 ${I.unreadable} 条</b> <button class="btn ghost sm" data-action="fs-own-bad">${S.bad ? '收起' : '看是哪些'}</button>` : '') + '。') : '正在读取进度…'}
@@ -428,11 +471,11 @@
     </div>
 `;
   }
-  async function act(action) { if (action === 'fs-own-tgt') autoTgt(true); if (action === 'fs-own-gj') { autoGj(true).then(() => autoJyb(true)); } if (action === 'fs-own-dy') syncDouyin(false); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-bad') { if (S.bad) { S.bad = null; forceRender(); } else { try { S.bad = (await srv('/lib/unreadable')).items || []; } catch (e) { toast(e.message); } forceRender(); } } if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
+  async function act(action) { if (action === 'fs-own-cm') cmRun(); if (action === 'fs-own-cmstop') { CM.stop = true; cmlog('读完这一条就停'); } if (action === 'fs-own-tgt') autoTgt(true); if (action === 'fs-own-gj') { autoGj(true).then(() => autoJyb(true)); } if (action === 'fs-own-dy') syncDouyin(false); if (action === 'fs-own-tnew') campRun(false); if (action === 'fs-own-tall') campRun(true); if (action === 'fs-own-tstop') { T.stop = true; tlog('读完这一条就停'); } if (action === 'fs-own-rs') research(); if (action === 'fs-own-rstop') { R.stop = true; rlog('读完这一篇就停'); } if (action === 'fs-own-sph') syncChannels(); if (action === 'fs-own-run') run(); if (action === 'fs-own-bad') { if (S.bad) { S.bad = null; forceRender(); } else { try { S.bad = (await srv('/lib/unreadable')).items || []; } catch (e) { toast(e.message); } forceRender(); } } if (action === 'fs-own-stop') { S.stop = true; log('收到，读完这一条就停'); } }
   function attach(root) {
     if (!S.info && CFG().key) refresh();
     root.addEventListener('change', e => { const t = e.target; const k = t.dataset && t.dataset.own; if (k === 'batch') S.batch = +t.value || 100; if (k === 'per' || k === 'minLike' || k === 'days') R[k] = +t.value; if (k === 'work' || k === 'rest') { R[k] = +t.value; saveRS(); forceRender(); } if (k === 'camp') T.cur = t.value; });
-    root.addEventListener('input', e => { const t = e.target; if (t.dataset && t.dataset.own === 'kw') R.kw = t.value; });
+    root.addEventListener('input', e => { const t = e.target; if (t.dataset && t.dataset.own === 'kw') R.kw = t.value; if (t.dataset && t.dataset.own === 'cmLinks') { CM.links = t.value; lsSet('rm-cm-links', t.value); } });
   }
   window.OwnLib = { view, researchView, act, attach, _s: S };
 })();
