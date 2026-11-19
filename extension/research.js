@@ -288,7 +288,7 @@
   // ---------- 视图 ----------
   function view() {
     if (st.openRun) return report();
-    const sw = `<div class="seg-top" role="tablist">${[['content', '平台内容调研', '小红书 / 抖音：竞对、同城、爆款、顾客需求'], ['stores', '门店评价调研', '大众点评：指定门店近一年评价，按模板归纳']].map(([k, l, d]) => `<button role="tab" data-action="rs-section" data-v="${k}" aria-selected="${st.section === k}"><b>${l}</b><span>${d}</span></button>`).join('')}</div>`;
+    const sw = !window.Reviews ? '' : `<div class="seg-top" role="tablist">${[['content', '平台内容调研', '小红书 / 抖音：竞对、同城、爆款、顾客需求'], ['stores', '门店评价调研', '大众点评：指定门店近一年评价，按模板归纳']].map(([k, l, d]) => `<button role="tab" data-action="rs-section" data-v="${k}" aria-selected="${st.section === k}"><b>${l}</b><span>${d}</span></button>`).join('')}</div>`;
     if (st.section === 'stores' && window.Reviews) return sw + window.Reviews.view();
     return sw + form() + progress() + history();
   }
@@ -325,7 +325,7 @@
       <label class="f"><span>抓取顺序</span><select id="rs-order" data-rs="order" ${dis}>${[['hot', '互动最多的先抓（点赞+收藏+评论）'], ['comments', '评论最多的先抓（需求更集中）'], ['new', '最新发布的先抓'], ['default', '按平台搜索默认顺序']].map(([k, l]) => `<option value="${k}" ${f.order === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       <label class="toggle"><input type="checkbox" id="rs-strict" data-rs="strict" ${f.strict ? 'checked' : ''} ${dis}>只要提到关键对象的帖子（过滤搜索带出来的无关内容）</label>
       <div class="row"><button class="btn primary" data-action="rs-start" ${dis}>开始调研</button><span class="hint" id="rs-est">${estText(kws)}</span></div>
-      <span class="hint">大众点评按门店抓评价，在上面的「门店评价调研」里做。</span>
+      ${window.Reviews ? '<span class="hint">大众点评按门店抓评价，在上面的「门店评价调研」里做。</span>' : ''}
       <span class="hint">开始前请先在这个浏览器里登录${pfName(formPlatforms())}。平台弹出验证时会自动暂停，完成后点"继续"。同一账号一天别跑太多，避免被限制。</span>
     </div>`;
   }
