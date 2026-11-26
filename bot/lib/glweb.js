@@ -41,8 +41,8 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm }) {
   setInterval(async () => { try { const d = new Date(Date.now() + 8 * 3600e3); const today = d.toISOString().slice(0, 10); const b = ensureBoss(); if (b.hash || META.setupSent === today || d.getUTCHours() < 8) return; META.setupSent = today; saveMeta(); await bossDm(`🧭 攻略平台已经上线，先设置你的账号密码（6 小时内有效、只能用一次，别转发）：\n${setupLink(b.id, 6)}\n\n以后登录网址：${base}\n员工账号在平台「账号」页里开，员工看不到驾驶舱和经营数据。`); log('[攻略平台] 已私聊老板设置链接'); } catch (e) { log('[攻略平台] 发设置链接出错：' + e.message); } }, 60e3);
   const usedTok = new Set(); const fails = new Map();
   const shell = (title, inner) => `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(1200px 600px at 50% -10%,#12234080,transparent 70%),#070d18;color:#e6edf7;font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif}form{background:#0d1626;border:1px solid #1e2c45;border-radius:12px;padding:28px 26px;width:min(340px,90vw)}h1{font-size:18px;margin:0 0 4px}p{color:#8b9bb4;font-size:13px;margin:0 0 18px}input{width:100%;box-sizing:border-box;margin:6px 0 12px;padding:10px 12px;border-radius:8px;border:1px solid #1e2c45;background:#070d18;color:#e6edf7;font:inherit}button{width:100%;padding:10px;border:0;border-radius:8px;background:#4cc9f0;color:#04121c;font-weight:700;font:inherit;cursor:pointer}.e{color:#ff6b6b;font-size:13px;margin-bottom:10px}</style></head><body>${inner}</body></html>`;
-  const loginPage = (msg) => shell('攻略平台 · 登录', `<form method="post" action="${base}login"><h1>粤迹 · 攻略平台</h1><p>爆款库 · AI 出稿 · 审稿派单</p>${msg ? `<div class="e">${esc(msg)}</div>` : ''}<label>账号<input name="u" autocomplete="username" required></label><label>密码<input name="p" type="password" autocomplete="current-password" required></label><button>登录</button></form>`);
-  const setPage = (t, name, msg) => shell('攻略平台 · 设置账号', `<form method="post" action="${base}setpass"><h1>设置账号密码</h1><p>${esc(name)}，设置你登录攻略平台用的账号和密码</p>${msg ? `<div class="e">${esc(msg)}</div>` : ''}<input type="hidden" name="t" value="${esc(t)}"><label>账号（字母或数字）<input name="u" pattern="[A-Za-z0-9_]{3,20}" required></label><label>密码（至少 8 位）<input name="p" type="password" minlength="8" required></label><button>保存并登录</button></form>`);
+  const loginPage = (msg) => shell('攻略平台 · 登录', `<form method="post" action="/cockpit/gl/login"><h1>粤迹 · 攻略平台</h1><p>爆款库 · AI 出稿 · 审稿派单</p>${msg ? `<div class="e">${esc(msg)}</div>` : ''}<label>账号<input name="u" autocomplete="username" required></label><label>密码<input name="p" type="password" autocomplete="current-password" required></label><button>登录</button></form>`);
+  const setPage = (t, name, msg) => shell('攻略平台 · 设置账号', `<form method="post" action="/cockpit/gl/setpass"><h1>设置账号密码</h1><p>${esc(name)}，设置你登录攻略平台用的账号和密码</p>${msg ? `<div class="e">${esc(msg)}</div>` : ''}<input type="hidden" name="t" value="${esc(t)}"><label>账号（字母或数字）<input name="u" pattern="[A-Za-z0-9_]{3,20}" required></label><label>密码（至少 8 位）<input name="p" type="password" minlength="8" required></label><button>保存并登录</button></form>`);
   const sess = uid => `xgl=${sign(`S|${uid}|${Date.now() + 7 * DAY}`)}; Path=/cockpit/gl/; Max-Age=${7 * 86400}; HttpOnly; Secure; SameSite=Lax`;
   const page = () => { try { return fs.readFileSync(path.join(__dirname, '..', 'cockpit', 'gl.html')); } catch (e) { return null; } };
 
@@ -165,9 +165,9 @@ ${shopLines}
       const ip = ipOf(req); const fl = fails.get(ip) || { n: 0, at: 0 }; if (fl.n >= 5 && Date.now() - fl.at < 15 * 60e3) return send(res, 429, loginPage('输错太多次，15 分钟后再试'), 'text/html; charset=utf-8');
       const f = Object.fromEntries(new URLSearchParams(await body(req, 4096))); const x = U.users.find(z => z.login === String(f.u || '').trim() && !z.off && z.hash);
       if (!x || hashPw(f.p || '', x.salt) !== x.hash) { fails.set(ip, { n: fl.n + 1, at: Date.now() }); return send(res, 200, loginPage('账号或密码不对'), 'text/html; charset=utf-8'); }
-      fails.delete(ip); x.last = Date.now(); saveU(); return send(res, 303, '', 'text/plain', { location: base, 'set-cookie': sess(x.id) });
+      fails.delete(ip); x.last = Date.now(); saveU(); return send(res, 303, '', 'text/plain', { location: '/cockpit/gl/', 'set-cookie': sess(x.id) });
     }
-    if (p === '/logout') return send(res, 303, '', 'text/plain', { location: base, 'set-cookie': 'xgl=; Path=/cockpit/gl/; Max-Age=0; HttpOnly; Secure; SameSite=Lax' });
+    if (p === '/logout') return send(res, 303, '', 'text/plain', { location: '/cockpit/gl/', 'set-cookie': 'xgl=; Path=/cockpit/gl/; Max-Age=0; HttpOnly; Secure; SameSite=Lax' });
     if (p === '/setpass') {
       if (req.method === 'GET') { const t = u.searchParams.get('t') || ''; const uid = verify(t, 'P'); const x = uid && U.users.find(z => z.id === uid); if (!x || usedTok.has(t)) return send(res, 200, shell('链接失效', '<form><h1>链接已失效</h1><p>请让老板在攻略平台「账号」页重新生成。</p></form>'), 'text/html; charset=utf-8'); return send(res, 200, setPage(t, x.name), 'text/html; charset=utf-8'); }
       const f = Object.fromEntries(new URLSearchParams(await body(req, 4096))); const uid = verify(f.t, 'P'); const x = uid && U.users.find(z => z.id === uid);
@@ -176,7 +176,7 @@ ${shopLines}
       if (String(f.p || '').length < 8) return send(res, 200, setPage(f.t, x.name, '密码至少 8 位'), 'text/html; charset=utf-8');
       if (U.users.some(z => z.login === login && z.id !== x.id)) return send(res, 200, setPage(f.t, x.name, '这个账号名已被占用'), 'text/html; charset=utf-8');
       x.login = login; x.salt = crypto.randomBytes(16).toString('hex'); x.hash = hashPw(f.p, x.salt); x.setAt = Date.now(); usedTok.add(f.t); saveU(); log(`[攻略平台] ${x.name} 设置了账号`);
-      return send(res, 303, '', 'text/plain', { location: base, 'set-cookie': sess(x.id) });
+      return send(res, 303, '', 'text/plain', { location: '/cockpit/gl/', 'set-cookie': sess(x.id) });
     }
     // 商家/店长审稿链接（不用登录，只能看这一批、点没问题/要改）
     let m = p.match(/^\/r\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)(\/.*)?$/);
