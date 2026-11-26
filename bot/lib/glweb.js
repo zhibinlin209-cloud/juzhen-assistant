@@ -21,6 +21,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm }) {
   let U = rj(UF, { users: [] }), META = rj(MF, {});
   if (!fs.existsSync(SF) || !fs.existsSync(BF)) { const seed = require('./glseed'); if (!fs.existsSync(SF)) wj(SF, seed.shops); if (!fs.existsSync(BF)) wj(BF, [seed.brief]); log('[攻略平台] 导入初始门店池和白石洲任务书'); }
   const stores = () => rj(SF, []), briefs = () => rj(BF, []);
+  { const L = briefs(); let ch = false; L.forEach(b => { if ((b.banned || []).includes('第一')) { b.banned = b.banned.filter(w => w !== '第一').concat(['全网第一', '深圳第一', '第一名']); ch = true; } }); if (ch) wj(BF, L); } // 「第一」会误伤「第一站」「第一天」
   const key = crypto.createHash('sha256').update('xiju-gl:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (body) => b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url');
@@ -219,7 +220,7 @@ ${shopLines}
       if (p === '/api/briefs' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const L = briefs(); const b = j.brief || {}; const i = L.findIndex(x => x.id === b.id); if (i >= 0) L[i] = Object.assign(L[i], b); else L.push(Object.assign({}, L[0] || {}, b, { id: 'b' + Date.now().toString(36) })); wj(BF, L); return J(res, { ok: true }); }
       if (p === '/api/gen' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const n = Math.max(1, Math.min(10, +j.n || 3)); return J(res, { ok: true, batch: await generate(j.brief, j.layout, n, me.name) }); }
       if (p === '/api/batches') return J(res, { ok: true, batches: batches().map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.n, got: b.notes.length, status: b.status, err: b.err, ok: b.notes.filter(x => /ok/.test(x.status)).length, fix: b.notes.filter(x => /fix/.test(x.status)).length, errs: b.notes.filter(x => x.check.some(c => c[0] === 'err')).length })) });
-      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)$/); if (m) { const b = getBatch(m[1]); return J(res, b ? { ok: true, batch: b, layouts: LAYOUTS } : { ok: false, error: '没有这个批次' }); }
+      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)$/); if (m) { const b = getBatch(m[1]); if (b) { const B = briefs().find(x => x.id === b.brief); if (B) b.notes.forEach(n => { n.check = check(n, B, b); }); } return J(res, b ? { ok: true, batch: b, layouts: LAYOUTS } : { ok: false, error: '没有这个批次' }); } // 按最新任务书重新核对
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/mark$/); if (m && req.method === 'POST') { const j = JSON.parse(await body(req, 20000)); return J(res, { ok: true, note: mark(m[1], j.no, ['ok', 'fix', 'todo'].includes(j.status) ? j.status : '', j.note, me.name) }); }
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/share$/); if (m && req.method === 'POST' && canWork) { if (!getBatch(m[1])) throw new Error('没有这个批次'); return J(res, { ok: true, url: `${base}r/${sign(`R|${m[1]}|${Date.now() + 14 * DAY}`)}` }); }
       if (p === '/api/users' && isBoss) return J(res, { ok: true, users: U.users.map(x => ({ id: x.id, name: x.name, role: x.role, roleName: ROLE[x.role], login: x.login || '', set: !!x.hash, off: !!x.off, last: x.last || null })) });
