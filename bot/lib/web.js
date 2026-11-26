@@ -5,7 +5,7 @@
 const http = require('http'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 
-function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, adsWeekly, lastXlsx, reingestLast, chatMsgs, onDyAuth, onJgAuth, jgStatus, exportTable, mktSnap, rereadDaily, feedbackList, moveLibs, moveStatus, dbCheck, archivable, chats, core, tableMeta, gj, ops, onGj, cmtlib }) {
+function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, tgtLive, adsWeekly, lastXlsx, reingestLast, chatMsgs, onDyAuth, onJgAuth, jgStatus, exportTable, mktSnap, rereadDaily, feedbackList, moveLibs, moveStatus, dbCheck, archivable, chats, core, tableMeta, gj, ops, onGj, cmtlib }) {
   const key = crypto.createHash('sha256').update('xiju-cockpit:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (who, exp, kind) => { const body = `${kind}.${who}.${exp}`; return b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url'); };
@@ -158,6 +158,9 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
         if (p === '/lib/draft' && req.method === 'GET' && drafts) { const k = u.searchParams.get('kind'); const r = await (k === 'deep' ? drafts.deep() : drafts.annual()); return sendc(res, 200, JSON.stringify({ text: r.text, by: r.by, raw: r.raw, bad: r.bad })); }
         if (p === '/lib/annualfacts' && req.method === 'GET' && annualFacts) return sendc(res, 200, JSON.stringify(await annualFacts()));
         if (p === '/lib/rows' && req.method === 'GET' && rows) { try { return sendc(res, 200, JSON.stringify(await rows(String(u.searchParams.get('table') || ''), +u.searchParams.get('days') || 45))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
+        if (p === '/lib/tgt/live/need' && tgtLive) return sendc(res, 200, JSON.stringify(tgtLive.need()));
+        if (p === '/lib/tgt/live/ingest' && req.method === 'POST' && tgtLive) { let b = ''; for await (const c of req) { b += c; if (b.length > 8e6) break; } try { return sendc(res, 200, JSON.stringify(await tgtLive.ingest(JSON.parse(b || '{}')))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
+        if (p === '/lib/tgt/live' && req.method === 'GET' && tgtLive) return sendc(res, 200, JSON.stringify(Object.assign({ ok: true, digest: tgtLive.digest() }, tgtLive.today())));
         if (p === '/lib/tgt/need' && tgtNeed) return sendc(res, 200, JSON.stringify(tgtNeed()));
         if (p === '/lib/tgt/ingest' && req.method === 'POST' && tgtIngest) { let b = ''; for await (const c of req) { b += c; if (b.length > 8e6) break; } try { const j = JSON.parse(b); return (j.url || j.err) && tgtAuto ? sendc(res, 200, JSON.stringify(await tgtAuto(j))) : sendc(res, 200, JSON.stringify(await tgtIngest(Buffer.from(j.b64, 'base64')))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         if (p === '/lib/adsweekly' && req.method === 'POST' && adsWeekly) { try { return sendc(res, 200, JSON.stringify(await adsWeekly())); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }

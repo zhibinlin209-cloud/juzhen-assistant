@@ -48,6 +48,7 @@
 - `cmtlib.js` 评论采集：插件交来的小红书/抖音评论写进营销部表格「评论采集」表（帖子ID+评论ID 去重，单条最多 30000 条评论），DeepSeek 总结写「评论总结」表，总结做完自动私聊老板一份；`exportWord` 把某个帖子（默认最近总结的那条）的 AI 总结 + 全部评论原文（主评论按点赞排序，回复按「回复给」缩进挂在下面，挂不上的列在最后）导成 Word 私聊老板。目前没有功能开关（待确认要不要加）。
 - `gj.js` 美团管家每日数据：插件早上 6 点后在老板浏览器里查「营业指标统计 / 渠道营业统计 / 菜品销售统计 / 时段开台分析」，交到 `/lib/gj/need`、`/lib/gj/ingest`，每天一个文件 `data/gj/日期.json`；6:50 昨天的管家数据还没进来就私聊老板一次（`bot/index.js`）；双系统门店（名字带空格那套）读的时候合并。查询模板存在 pos.meituan.com 的本机存储（`__rm_tpl_*`），服务器备份 `data/gj-tpl.json`（不进仓库）。插件端代码 `extension/gjrun.js`（注入页面、走美团自己的请求签名）。另有美团经营宝（`extension/jybrun.js`，早上 6 点后、`/lib/jyb/need|ingest`，存 `data/jyb/`）：各店昨天流量 + 「商圈同行店均/标杆店均」、点评和美团差评原文、上周新老客（顾客分析只有按周/月）。
 - `jg.js` 小红书聚光 Marketing API 授权：老板在经营日报群发「聚光密钥 应用ID 密钥」→ 存 `data/jg-app.json`（600 权限）；聚光品牌主账号打开授权链接点确认 → `/cockpit/xhs/callback?auth_code=…&state=应用ID` 换 access_token（1 天）/refresh_token（30 天）存 `data/jg-tokens.json`，每小时检查、2 小时内过期就自动续，refresh 过期私聊老板重新授权。`jg.token()` 给后面拉报表/建计划用（优先品牌开发者应用）。授权链接 scope：report_service、ad_query、ad_manage、account_manage。
+- `tgtlive.js` 推广通小时监测（开关 27 tgtLive）：插件（extension/ownlib.js 的 autoTgtLive，2.26.0 起）北京时间 9:00–24:00 每 55 分钟开一次推广列表页（midas.dianping.com …promo-list.html），从页面资源记录里拿 clientKey，POST `/shopdiy/promotion/cpc/ajax/paginateQueryPlanAndLaunch` 读「今日」各计划实时数据（花费/商户浏览量/点击/点击均价/团购订单量/曝光，平台 5 分钟更新）+ 日预算、状态、时段、人群溢价，再读 `queryCpcDataOverview`（今日花费/预算）→ `/lib/tgt/live/ingest`。服务器存 `data/tgtlive/日期.json`，算和上一次的增量；提醒发「投放数据」群（tgtState.chat，没有就私聊老板），同一计划同类提醒一天一次：可考虑加预算（花到 80% 且 20 点前、均价不高于基准）、点击变贵（比基准高 30%）、这一小时偏贵、花了 100 元浏览和团购都为 0。基准=该计划近 7 天收盘均价（至少 3 天、30 次点击），不够就用当天全账户均价。每天第一次快照列出计划设置变化；22:30 发当日小结。只建议，不改计划。出价不在这个接口里，暂未读（待做）。`/lib/tgt/live`（GET）看今天的快照和小结。
 - `opsreport.js` 运营日报/周报/月报（营业额按实收 = 管家「营业收入」ordIncomeAmt，堂食/外卖也按各渠道实收，应收留在 gross 字段；管家优先、门店日报兜底；环比=上周同日，同比=去年同星期几），每天 8:00 私聊运营副总并抄送老板（开关 26 opsDaily）。
 
 ## 2. 怎么改、怎么上线
@@ -82,7 +83,7 @@
 
 群消息（后加）：25 素材群收图(rawUpload)，素材群里发「补漏」也受这个开关控制
 
-群消息/定时（后加）：26 运营日报 08:00(opsDaily)
+群消息/定时（后加）：26 运营日报 08:00(opsDaily) 27 推广通小时监测 9–24 点每小时(tgtLive)
 
 定时：11 每日简报 09:00(brief) 12 推广通提醒 9/10 点 @刘泽荣(tgtRemind) 13 推广通插件自动拉取 8 点后(tgtAuto) 14 投放周报 周一(adsWeekly) 15 官方号同步 8 点后(officialAuto) 16 插件自动补账号/数据(pluginFill) 17 每日 AI 写稿 08:20(drafts) 18 周一 AI 写稿 10:40(creatorWeekly) 19 周一深度分析(deep) 20 发布进度提醒 20:00/21:30(progress) 21 月度结算草稿 1 号 10:30(settle) 22 链接追踪重读 11:00(campaign) 23 AI 工作台素材(studio) 24 每日数据快照 03:30(snapshot)
 
@@ -93,7 +94,7 @@
 ## 5. 主要接口（都在 `/cockpit/lib/...`，要 `x-rm-key`）
 
 - 给 Codex 的营销数据：`mkt/tables`、`mkt/rows?name=&days=`（行里带 `_files` 图片链接）、`mkt/file?u=`、`mkt/snap?date=`、`mkt/candidates`（写 AI-投放候选）、`mkt/write`（只能写「AI-投放候选」「投放实验记录」，不能写 决定/审批人/追加金额/人工原因 这类审批字段）、`mkt/export?name=`（导 Excel 私聊老板）。私密表、敏感字段（密码、手机、银行、身份证、营收等）被服务器拦截。老板登录驾驶舱后，同一浏览器里 GET `mkt/tables`、`mkt/rows`、`mkt/file`、`mkt/snap`、`log`、`chatmsgs` 不带钥匙也能只读（其他接口仍要钥匙）。
-- 插件用：`tgt/need`、`tgt/ingest`、`official/need`、`official`、`dy/pending`、`dy/fill`、`xhs/noacct`、`xhs/acct`、`note`、`unreadable`、`ext/zip`、`gj/need`、`gj/ingest`（美团管家）、`jyb/need`、`jyb/ingest`（美团经营宝）、`comments/ingest`（评论采集，POST）。
+- 插件用：`tgt/need`、`tgt/ingest`、`official/need`、`official`、`dy/pending`、`dy/fill`、`xhs/noacct`、`xhs/acct`、`note`、`unreadable`、`ext/zip`、`gj/need`、`gj/ingest`（美团管家）、`jyb/need`、`jyb/ingest`（美团经营宝）、`tgt/live/need`、`tgt/live/ingest`（推广通小时监测）、`comments/ingest`（评论采集，POST）。
 - 评论采集：`comments/send-latest`（POST，把「评论总结」表最新一条再私聊老板一次）、`comments/word?post=帖子ID`（POST，导 Word 私聊老板；不带 post 就是最近总结的那条）。插件里暂时没有按钮调这两个，待确认。都有副作用，别并发调。
 - 聚光：`jg/status`（GET，授权状态，不含令牌）。
 - 其他：`feedback`、`chatmsgs`、`chats`、`rereaddaily`、`movebase`、`camp/*`、`studio/*`、`dbcheck`、`log`。
@@ -144,6 +145,8 @@
 - 门店目标待老板确认；派稿原稿回填自家内容库（可选）。
 
 ## 10. 更新记录
+
+- 2026-11-26（傍晚）：推广通小时监测上线（bot/lib/tgtlive.js + 插件 2.26.0 autoTgtLive，开关 27）。推广通下载中心只有按日/周/月、指标「次日更新」；推广列表页才有实时数据（5 分钟更新），所以走列表页接口。
 
 - 2026-11-26：换新 Claude 账号接手（旧账号数据导出已核对）；重建每晚交接说明定时任务。新增 bot/lib/jg.js 聚光授权（群指令「聚光密钥」「聚光授权」、回调 /xhs/callback、接口 /lib/jg/status、令牌自动续期）。第 8 节更新小红书商业开放平台、巨量引擎的进度。派稿「发布人员下拉」同步一直报飞书 99991672（缺 base:field:update），已在飞书开放平台权限页打开，等林总点开通并发布版本。
 

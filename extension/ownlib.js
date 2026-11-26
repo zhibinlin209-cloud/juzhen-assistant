@@ -246,6 +246,43 @@
   }
   setTimeout(() => autoTgt(), 3 * 60e3); setInterval(() => autoTgt(), 5 * 60e3); // 服务器按北京时间早上 8 点起放行
 
+  // ---------- 推广通小时监测：每小时在推广列表页读「今日」各计划实时数据（平台 5 分钟更新），交给机器人算增量和提醒 ----------
+  const TL = { busy: false };
+  async function autoTgtLive(force) {
+    if (TL.busy || TG.busy || GJ.busy || JY.busy) return; let need; try { need = await srv('/lib/tgt/live/need'); } catch (e) { return; }
+    if (!need.need && !force) return; TL.busy = true; let w = null;
+    try {
+      w = await chrome.windows.create({ url: 'https://midas.dianping.com/shopdiy/account/pcCpcEntry?continueUrl=/app/peon-hornet-promo/html/promo-list.html', focused: false, width: 1300, height: 900, type: 'normal' });
+      const tab = w.tabs[0].id; await waitLoad(tab, 30000); await sleep(9000);
+      const tb = await chrome.tabs.get(tab).catch(() => ({}));
+      if (!/^https:\/\/midas\.dianping\.com\//.test(tb.url || '')) { const er = '没登录推广通后台（页面跳到了登录页）'; tglog('✗ 小时监测：' + er); try { await srv('/lib/tgt/live/ingest', { err: er }); } catch (e) { } return; }
+      const res = await chrome.scripting.executeScript({ target: { tabId: tab, allFrames: true }, world: 'MAIN', func: async () => {
+        // 推广列表页自己发请求时带的 clientKey，从页面的资源记录里拿（只在列表页那个框架里有）
+        const ent = performance.getEntriesByType('resource').map(e => e.name).find(n => /clientKey=/.test(n)); if (!ent) return null;
+        const ck = new URL(ent).searchParams.get('clientKey'); if (!ck) return null;
+        const d = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+        const post = (u, b) => new Promise((ok, no) => { const x = new XMLHttpRequest(); x.open('POST', u); x.withCredentials = true; x.setRequestHeader('content-type', 'application/x-www-form-urlencoded'); x.onload = () => { try { ok(JSON.parse(x.responseText)); } catch (e) { no(new Error('返回的不是数据（可能没登录）')); } }; x.onerror = () => no(new Error('网络错误')); x.send(b); });
+        const rows = []; let total = 0;
+        for (let pn = 1; pn <= 10; pn++) {
+          const b = new URLSearchParams({ searchContent: '', shopIdList: '', statusList: '', beginDate: d, endDate: d, pageSize: '50', pageNum: String(pn), promoTypeList: '', launchAimList: '', planIdList: '', launchIdList: '', premiumFilter: '', clientKey: ck, filterInnerAccountList: '', tabIds: 'T30001,T30005,T30003,T30004,T30020,T30002', tabType: '2' }).toString();
+          const r = await post('/shopdiy/promotion/cpc/ajax/paginateQueryPlanAndLaunch', b);
+          if (r.code !== 200 || !r.msg) return { error: '读推广列表失败：' + JSON.stringify(r).slice(0, 120) };
+          total = r.msg.total || 0;
+          for (const p of r.msg.planList || []) for (const L of p.launchList || []) { const m = {}; (L.reportData || []).forEach(t => { m[t.name] = t.originVal; }); rows.push({ planId: p.campaignId, launchId: L.launchId, shop: L.shopName, launch: L.launchName, st: L.launchStatus, budget: p.budgetBasic, slot: L.todayTimeSlot || '', crowd: !!L.crowdPremiumFlag, period: !!L.timePeriodPremiumFlag, m }); }
+          if (pn * 50 >= total) break;
+        }
+        let overview = {}; try { overview = (await fetch('/shopdiy/promotion/cpc/ajax/queryCpcDataOverview?smartShopFlag=1', { credentials: 'include' }).then(r => r.json())).msg || {}; } catch (e) { }
+        return { rows, total, overview };
+      } });
+      const d = (res || []).map(x => x && x.result).find(x => x) || { error: '没找到推广列表（页面没加载完或改版了）' };
+      if (d.error) { tglog('✗ 小时监测：' + d.error); try { await srv('/lib/tgt/live/ingest', { err: d.error }); } catch (e) { } return; }
+      const j = await srv('/lib/tgt/live/ingest', d);
+      tglog(`✓ 小时监测：${j.plans || 0} 个计划已交给机器人${j.alerts ? '，提醒 ' + j.alerts + ' 条' : ''}`);
+    } catch (e) { tglog('✗ 小时监测：' + e.message); }
+    finally { try { if (w) await chrome.windows.remove(w.id); } catch (e) { } TL.busy = false; }
+  }
+  setTimeout(() => autoTgtLive(), 5 * 60e3); setInterval(() => autoTgtLive(), 5 * 60e3); // 服务器按北京时间 9:00–24:00、每 55 分钟放行一次
+
   // ---------- 美团管家每日数据：早上 6:30 后在已登录的美团管家页面里查昨天（及漏掉的日子）的营业指标、渠道、菜品、时段开台，交给机器人 ----------
   // 查询用页面自己的请求通道（带美团安全签名），查询模板存在 pos.meituan.com 本机存储里，服务器有备份
   const GJ = { busy: false, log: [], last: '' };
