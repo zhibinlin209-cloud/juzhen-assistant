@@ -1,9 +1,9 @@
 /* 推广通小时监测（开关 27 tgtLive）
  * 插件每小时在老板已登录的推广通后台（midas.dianping.com 推广列表页）读一次「今日」各计划的实时数据（平台 5 分钟更新）：
  *   花费、点击、曝光、点击均价、商户浏览量、团购订单 + 日预算、点评/美团出价、状态、投放时段、人群溢价；账户今日花费/预算
- * 服务器：存快照 data/tgtlive/日期.json → 算每小时增量 → 只在要动的时候推「投放数据」群（同一计划同一类提醒一天一次）
- *        每天第一次快照：和昨天最后一次比，列出计划设置变化（预算/出价/状态/时段）
- *        每天 22:30：当天各店小结 + 明天建议（只建议，不改任何计划）
+ * 服务器：存快照 data/tgtlive/日期.json（每小时的数据先只存不发，林总 2026-11-26 定：试几天看有没有用）
+ *        只私聊林总两件事：① 每天第一次快照和昨天最后一次比，计划设置有变化才发；② 17 点后第一次快照：晚市前预算快花完（≥70%）的计划
+ *        当日小结只在 /lib/tgt/live 里看，不主动发
  * 基准：每个计划最近 7 天收盘（当天最后一次快照）的点击均价；没攒够天数时用当天全账户均价，并说明「基准还在积累」
  */
 'use strict';
@@ -78,29 +78,16 @@ function createTgtLive({ dataDir, log, on, send }) {
       }
     }
 
-    // 小时提醒
-    const live = rows.filter(r => r.status === 1);
-    const tc = rows.reduce((s, r) => s + r.charge, 0), tk = rows.reduce((s, r) => s + r.click, 0); const acctCpc = tk ? tc / tk : 0;
-    st.sent = st.sent && st.sent.day === day ? st.sent : { day, k: {} };
-    const once = (k, text) => { if (st.sent.k[k]) return; st.sent.k[k] = 1; alerts.push(text); };
-    const alerts = [];
-    for (const r of live) {
-      const b = baseline(r.id); const ref = b ? b.cpc : acctCpc; const refTxt = b ? `近${b.days}天均价 ${money(b.cpc)}` : `今天全账户均价 ${money(acctCpc)}（基准还在积累）`;
-      const ratio = r.budget ? r.charge / r.budget : 0;
-      const p = prev && prev.rows.find(x => x.id === r.id); const dC = p ? r.charge - p.charge : r.charge, dK = p ? r.click - p.click : r.click;
-      if (r.budget && ratio >= 0.8 && hh < 20 && r.click >= 30 && ref && r.cpc <= ref * 1.05)
-        once(r.id + ':up', `🟢 可考虑加预算｜${r.shop} · ${r.name}：已花 ${money(r.charge)}/${r.budget} 元（${Math.round(ratio * 100)}%），点击 ${r.click}，均价 ${money(r.cpc)}，不高于${refTxt}。现在才 ${hh} 点，预算快花完了，晚市可能断档。`);
-      if (r.click >= 30 && ref && r.cpc > ref * 1.3)
-        once(r.id + ':cpc', `🟠 点击变贵｜${r.shop} · ${r.name}：今天均价 ${money(r.cpc)}，比${refTxt}高 ${Math.round((r.cpc / ref - 1) * 100)}%。看下是不是出价被抬、竞争变激烈，或者人群/时段溢价太高。`);
-      if (p && dK >= 20 && dC > 0 && (dC / dK) > (ref || acctCpc) * 1.5)
-        once(r.id + ':hour' + hh, `🟠 这一小时偏贵｜${r.shop} · ${r.name}：${hh - 1}–${hh} 点花 ${money(dC)} 元、点击 ${dK}，单价 ${money(dC / dK)}。`);
-      if (r.charge >= 100 && r.pv === 0 && r.tg === 0)
-        once(r.id + ':noconv', `🔴 花了钱没动静｜${r.shop} · ${r.name}：今天已花 ${money(r.charge)} 元，商户浏览和团购订单都是 0。建议看一眼计划是否异常（转化有延迟，先别急着停）。`);
+    // 17 点后第一次：晚市前预算快花完的计划（只私聊林总，一天一次）
+    let alerts = [];
+    if (hh >= 17 && st.eve !== day) {
+      st.eve = day;
+      alerts = rows.filter(r => r.status === 1 && r.budget && r.charge / r.budget >= 0.7).map(r => `• ${r.shop.replace('YES也是大排档', '').replace(/[()（）]/g, '')} · ${r.name}：已花 ${money(r.charge)} / 日预算 ${r.budget}（${Math.round(r.charge / r.budget * 100)}%），点击 ${r.click}，均价 ${money(r.cpc)}`);
+      if (alerts.length) msgs.push(`🌆 推广通晚市前检查（${hh} 点）：这些计划今天的预算快花完了，晚市/宵夜可能没得投：\n${alerts.join('\n')}\n要不要加预算你定（注意各店月上限）。`);
     }
-    if (alerts.length) msgs.push(`⏱ 推广通 ${hh} 点检查（今天已花 ${money(snap.ov.charge || tc)} / 预算 ${money(snap.ov.budget)} 元）\n` + alerts.slice(0, 8).join('\n') + '\n\n只是建议，改不改由林总定。');
     save();
-    for (const t of msgs) await send('ads', t);
-    log(`[推广通小时] ${day} ${hh} 点：${rows.length} 个计划，今日花费 ${money(snap.ov.charge || tc)}，提醒 ${alerts.length} 条`);
+    for (const t of msgs) await send('boss', t);
+    log(`[推广通小时] ${day} ${hh} 点：${rows.length} 个计划，今日花费 ${money(snap.ov.charge || tc)}，晚市前提醒 ${alerts.length} 条`);
     return { ok: true, plans: rows.length, alerts: alerts.length };
   }
 
@@ -114,7 +101,7 @@ function createTgtLive({ dataDir, log, on, send }) {
     const lines = Object.entries(by).filter(([, a]) => a.c > 0).sort((a, b) => b[1].c - a[1].c).map(([k, a]) => `• ${k}：花 ${money(a.c)}，点击 ${a.k}，均价 ${a.k ? money(a.c / a.k) : '-'}，浏览 ${a.pv}，团购 ${a.tg}`);
     return `📊 推广通今日小结（${o.day}，${o.snaps.length} 次快照）\n${lines.join('\n') || '今天没有花费'}${top ? `\n花钱最多的时段：${top}` : ''}\n团购订单有延迟，明早的日报表会更准。`;
   }
-  setInterval(async () => { const t = bj(); const d = dayOf(t); if (!on('tgtLive') || t.getUTCHours() !== 22 || t.getUTCMinutes() < 30 || st.digest === d) return; st.digest = d; save(); try { const m = digest(d); if (m) await send('ads', m); } catch (e) { log('[推广通小时] 小结出错：' + e.message); } }, 5 * 60e3);
+  // 22:30 小结先不主动发（林总 2026-11-26：先攒几天看有没有用），需要时看 /lib/tgt/live
 
   function today() { const o = rd(dayOf(bj())); return { day: o.day, snaps: o.snaps.map(s => ({ t: s.t, hh: s.hh, ov: s.ov, n: s.rows.length })), last: (o.snaps[o.snaps.length - 1] || {}).rows || [] }; }
   return { need, ingest, digest, today };

@@ -30,6 +30,7 @@ const { createOwnLib } = require('./lib/ownlib');
 const { createOfficial } = require('./lib/official');
 const { createJg } = require('./lib/jg');
 const { createTgtLive } = require('./lib/tgtlive');
+const { createTgtBudget } = require('./lib/tgtbudget');
 const HIST = require('./lib/dailyimport');
 const { createAnnual } = require('./lib/annual');
 const { createCampaign } = require('./lib/campaign');
@@ -681,6 +682,22 @@ async function setup() {
     const wk = on('adsWeekly') && new Date(Date.now() + 8 * 3600e3).getUTCDay() === 1 && (r.days || 0) >= 20 && tgtState.weekly !== bjDay(Date.now());
     if (wk) { if (say) await say('📅 收到近 30 天报表，正在出本周投放周报（按 30 日归因算每单成本），几分钟后私聊林总'); sendAdsWeekly({ weekly: true }); }
     else brief.ads().catch(e => log('[投放分析] 出错 ' + e.message));
+    tgtBudgetCheck().catch(e => log('[推广通预算] 出错 ' + e.message));
+  }
+  // 推广通预算对照（bot/lib/tgtbudget.js）：每天对月上限、周一周对比（每单成本预警规则）、1 号上月复盘；只私聊林总，每天没事不发
+  const tgtBudget = createTgtBudget({ dataDir: DATA_DIR, log });
+  async function tgtBudgetCheck() {
+    if (!on('tgtBudget') || !boss) return; const now = new Date(Date.now() + 8 * 3600e3), today = bjDay(Date.now());
+    const wantD = tgtState.budgetDay !== today, wantW = now.getUTCDay() === 1 && tgtState.budgetWeek !== today, wantM = now.getUTCDate() === 1 && tgtState.budgetMonth !== today;
+    if (!wantD && !wantW && !wantM) return;
+    const v = x => Array.isArray(x) ? x.map(y => y.text || '').join('') : (x ?? '');
+    const rows = (await tgt.existing()).map(x => ({ ts: x.f['日期'], store: v(x.f['门店']), 花费: +x.f['花费'] || 0, 团购订单量: +x.f['团购订单量'] || 0, '7日团购订单数': +x.f['7日团购订单数'] || 0 })).filter(o => o.ts);
+    const out = [];
+    if (wantD) { tgtState.budgetDay = today; const t = tgtBudget.daily(rows); if (t) out.push(t); }
+    if (wantW) { tgtState.budgetWeek = today; const t = tgtBudget.weekly(rows); if (t) out.push(t); }
+    if (wantM) { tgtState.budgetMonth = today; const t = tgtBudget.monthly(rows); if (t) out.push(t); }
+    saveTS(); for (const t of out) await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: t }) }, { receive_id_type: 'open_id' });
+    log(`[推广通预算] 检查完：发了 ${out.length} 条`);
   }
   // 插件自动拉推广通报表：每天 8 点后拉一次「近 30 天、按门店按日」（顺带更新 15/30 日归因）；昨天的还没进来就每小时再试
   const fmtYmd = t => new Date(t + 8 * 3600e3).toISOString().slice(0, 10);
