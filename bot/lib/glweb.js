@@ -53,8 +53,8 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm }) {
     if (cfg.qwenKey) for (const m of cfg.glModels || ['deepseek-v4-pro', 'deepseek-v3.2', 'qwen-plus']) tries.push(['https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', cfg.qwenKey, m]);
     let last = '没有配置大模型';
     for (const [u, k, model] of tries) {
-      try { const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + k }, signal: AbortSignal.timeout(240000), body: JSON.stringify({ model, temperature: 0.85, max_tokens: 3500, messages: [{ role: 'user', content: prompt }] }) });
-        const j = await r.json().catch(() => ({})); if (r.ok) { const t = (((j.choices || [])[0] || {}).message || {}).content || ''; if (t) return { text: t, model }; }
+      try { const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + k }, signal: AbortSignal.timeout(240000), body: JSON.stringify({ model, temperature: 0.85, max_tokens: 8000, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }) });
+        const j = await r.json().catch(() => ({})); if (r.ok) { const t = (((j.choices || [])[0] || {}).message || {}).content || ''; if (t) return { text: t, model }; last = '返回空内容（' + (((j.choices || [])[0] || {}).finish_reason || '') + '）'; log(`[攻略平台] 模型 ${model} ${last}`); continue; }
         last = (j.error && (j.error.message || j.error.code)) || ('HTTP ' + r.status); log(`[攻略平台] 模型 ${model} 不可用：${last}`);
       } catch (e) { last = e.message; }
     }
@@ -127,6 +127,14 @@ ${shopLines}
       route: (j.route || []).slice(0, 6).map(r => ({ t: String(r.t || ''), place: String(r.place || ''), do: String(r.do || '') })), spots: (j.spots || []).slice(0, 3).map(s => ({ place: String(s.place || ''), tip: String(s.tip || '') })),
       yes: { dishes: dishes.slice(0, 5), order: (yes.order || []).map(String).slice(0, 3), when: String(yes.when || ''), fit: String(yes.fit || '') }, main: { name: B.storeTitle, address: B.address, price: B.price, hours: B.hours } };
   }
+  function parseJ(t) { // 模型偶尔多一个逗号、少一个括号：先原样解析，不行就修一下再试
+    const m = String(t || '').replace(/```(json)?/g, '').match(/\{[\s\S]*\}/); if (!m) throw new Error('没返回 JSON'); let s = m[0];
+    try { return JSON.parse(s); } catch (e) { }
+    s = s.replace(/,\s*([\]}])/g, '$1').replace(/[“”]/g, '"').replace(/\}\s*\{/g, '},{').replace(/\]\s*\[/g, '],[').replace(/"\s*\n\s*"/g, '","');
+    try { return JSON.parse(s); } catch (e) { }
+    let o = 0, a = 0; for (const ch of s) { if (ch === '{') o++; if (ch === '}') o--; if (ch === '[') a++; if (ch === ']') a--; } s = s + ']'.repeat(Math.max(0, a)) + '}'.repeat(Math.max(0, o));
+    return JSON.parse(s);
+  }
   const jobs = new Map();
   async function generate(briefId, layout, n, by) {
     const B = briefs().find(b => b.id === briefId); if (!B) throw new Error('没找到任务书'); if (!LAYOUTS[layout]) throw new Error('没有这个版式');
@@ -140,8 +148,8 @@ ${shopLines}
         const shuffled = pool.slice().sort(() => Math.random() - 0.5).slice(0, 14);
         const spots = [...B.mustSpots, ...B.optSpots.slice().sort(() => Math.random() - 0.5).slice(0, 2)];
         let got = null, err = '';
-        for (let t = 0; t < 2 && !got; t++) {
-          try { const r = await llm(promptFor(B, layout, dir, shuffled, spots, batch.notes.map(x => ({ title: x.title, ending: x.ending })), k)); const m = String(r.text).match(/\{[\s\S]*\}/); if (!m) throw new Error('没返回 JSON'); got = build(JSON.parse(m[0]), B, pool, main); got.model = r.model; }
+        for (let t = 0; t < 3 && !got; t++) {
+          try { const r = await llm(promptFor(B, layout, dir, shuffled, spots, batch.notes.map(x => ({ title: x.title, ending: x.ending })), k)); got = build(parseJ(r.text), B, pool, main); got.model = r.model; }
           catch (e) { err = e.message; }
         }
         if (!got) { batch.err = `第 ${k} 篇失败：${err}`; log('[攻略平台] 出稿失败：' + err); continue; }
@@ -218,6 +226,8 @@ ${shopLines}
   }
   ensureBoss();
   // 第一次上线：没有任何出稿就自动用白石洲任务书出一批样稿（每个版式 2 篇），老板早上直接验收
+  // 第一次出样稿有几篇失败（模型 JSON 不规范，已修）：把没出满的系统样稿重出一次
+  setTimeout(() => { try { if (META.sampled2 || !META.sampled) return; META.sampled2 = Date.now(); saveMeta(); let i = 0; for (const b of batches()) { if (b.by !== '系统样稿' || b.status === 'running' || b.notes.length >= b.n) continue; try { fs.unlinkSync(path.join(BD, b.id + '.json')); } catch (e) { } const l = b.layout; setTimeout(() => generate(b.brief, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), (i++) * 20e3); } } catch (e) { log('[攻略平台] 补样稿出错：' + e.message); } }, 60e3);
   setTimeout(() => { try { if (batches().length || !(cfg.qwenKey || cfg.deepseekKey) || META.sampled) return; META.sampled = Date.now(); saveMeta(); const b = briefs()[0]; if (!b) return; ['memo', 'hand', 'star', 'route'].forEach((l, i) => setTimeout(() => generate(b.id, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), i * 20e3)); log('[攻略平台] 开始出样稿'); } catch (e) { log('[攻略平台] 样稿出错：' + e.message); } }, 90e3);
   return { handle, generate, LAYOUTS, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
 }
