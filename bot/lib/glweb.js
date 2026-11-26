@@ -217,6 +217,8 @@ ${shopLines}
     } catch (e) { return J(res, { ok: false, error: e.message.slice(0, 200) }); }
   }
   ensureBoss();
+  // 第一次上线：没有任何出稿就自动用白石洲任务书出一批样稿（每个版式 2 篇），老板早上直接验收
+  setTimeout(() => { try { if (batches().length || !(cfg.qwenKey || cfg.deepseekKey) || META.sampled) return; META.sampled = Date.now(); saveMeta(); const b = briefs()[0]; if (!b) return; ['memo', 'hand', 'star', 'route'].forEach((l, i) => setTimeout(() => generate(b.id, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), i * 20e3)); log('[攻略平台] 开始出样稿'); } catch (e) { log('[攻略平台] 样稿出错：' + e.message); } }, 90e3);
   return { handle, generate, LAYOUTS, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
 }
 module.exports = { createGlweb };
