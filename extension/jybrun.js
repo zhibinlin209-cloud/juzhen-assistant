@@ -22,6 +22,7 @@ async function __rmJybRun(day, week, backfill) {
   try {
     const j = await post('/emis/gw/TEcomBusinessAnalysisService/getTPagePoiCompareDataV3', { optionType: 1, page: { currPage: 0, pageSize: 50, totalNum: 0 }, sortOrder: 'desc', startTime: 0, endTime: 0, sortKey: 'viewUv' });
     list = ((j.data || {}).tPoiCompareDatas || []).map(r => ({ poiId: String(r.poiId), name: r.poiName, flow: { view: n(r.viewUv), visit: n(r.visitUv), collect: n(r.collectUserCnt), checkin: n(r.clockInUserCnt), dealCnt: n(r.groupPayCpnCnt), dealAmt: n(r.groupPayAmt), useCnt: n(r.groupOrderCnt), useAmt: n(r.groupAmount) } }));
+    list = list.filter(s => !/陈家祠|百信|33小镇|创意产业园|创产/.test(s.name || '')); // 已闭店的不查（林总 2026-11-26）
     if (!list.length) throw new Error('门店列表是空的（可能没登录经营宝）');
   } catch (er) { return { error: er.message }; }
   // 补历史：只查各店的核心指标（曝光、访问、购买、收藏、打卡 + 商圈同行店均），给驾驶舱做环比 / 同比

@@ -7,7 +7,7 @@
 const fs = require('fs'), path = require('path');
 const DAY = 864e5;
 const ALIAS = { '深圳招商花园城店': '深圳蛇口招商花园城店', '深圳宝安HOP天地店': '深圳前海HOP店' };
-const CLOSED = /陈家祠|百信/;
+const CLOSED = /陈家祠|百信|33小镇|创意产业园|创产/; // 已闭店，管家/经营宝数据不再入库（林总 2026-11-26）
 const norm = s => { s = String(s || '').replace(/\s+/g, '').trim(); return ALIAS[s] || s; };
 const ymd = t => new Date(t + 8 * 3600e3).toISOString().slice(0, 10);
 const addDays = (d, n) => ymd(Date.parse(d + 'T00:00:00+08:00') + n * DAY);

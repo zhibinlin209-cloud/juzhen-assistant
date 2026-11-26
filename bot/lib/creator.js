@@ -13,8 +13,6 @@ const STORES = [
   { s: '广州江南西店', b: 'YES也是大排档', city: '广州', area: '广州市海珠区', dp: '也是大排档（江南西店）', key: '江南西' },
   { s: '珠海玖洲道店', b: 'YES也是大排档', city: '珠海', area: '珠海市香洲区', dp: '也是大排档（玖洲道店）', key: '玖洲道' },
   { s: '佛山保利西街店', b: 'YES也是大排档', city: '佛山', area: '佛山市南海区', dp: '也是大排档（千灯湖店）', key: '千灯湖' },
-  { s: '佛山创意产业园店', b: 'YES也是大排档', city: '佛山', area: '佛山市禅城区', dp: '也是大排档（创意产业园店）', key: '创意产业园' },
-  { s: '东莞东城33小镇店', b: 'YES也是大排档', city: '东莞', area: '东莞市东城区', dp: '也是大排档（33小镇店）', key: '33小镇' },
   { s: '粤迹·岭南家宴', b: '粤迹·岭南家宴', city: '深圳', area: '深圳市南山区', dp: '粤迹·岭南家宴', key: '花园城' }
 ];
 const BRAND = {
@@ -66,7 +64,7 @@ function createCreator({ cfg, api, core, deep, brief, studio, log, dataDir }) {
     const since = Date.now() - 60 * DAY;
     const titles = PG.rows.map(r => val(r.fields['标题'])).concat(XHS.rows.filter(r => (r.fields['发布日期'] || 0) > since).map(r => val(r.fields['标题(供AI读取)'] || r.fields['标题']).split('\n')[0])).filter(Boolean).slice(-150);
     const recent = {}; PG.rows.concat(XHS.rows).filter(r => ((r.fields['派稿日期'] || r.fields['发布日期'] || 0) > Date.now() - 14 * DAY)).forEach(r => { const s = val(r.fields['门店'] || r.fields['笔记门店']); STORES.forEach(x => { if (s.includes(x.key) || s === x.s) recent[x.s] = (recent[x.s] || 0) + 1; }); });
-    const weak = ['东莞东城33小镇店', '佛山创意产业园店', '广州江南西店', '珠海玖洲道店']; // 经营复盘：到店客流同比下滑
+    const weak = ['广州江南西店', '珠海玖洲道店']; // 33小镇、创意产业园已闭店 // 经营复盘：到店客流同比下滑
     const stores = pickStores(n, opt.store, recent, weak);
     let F = null; try { F = await deep().xhs(); } catch (e) { }
     const formula = await brief().latestKind('内容分析').catch(() => null);

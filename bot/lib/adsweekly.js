@@ -39,7 +39,7 @@ function createAdsWeekly({ cfg, api, core, log, canon, bossId, saveKind, store }
     const lastSun = today - dow - 1; // 上周日
     const first = Math.min(...T.map(r => r.d)); const weeks = [];
     for (let end = lastSun; end - 6 >= first - 6 && weeks.length < 30; end -= 7) weeks.unshift(end);
-    const CLOSED = new RegExp((cfg.adsClosed || ['陈家祠', '百信广场']).join('|'));
+    const CLOSED = new RegExp((cfg.adsClosed || ['陈家祠', '百信广场', '33小镇', '创意产业园']).join('|'));
     const stores = [...new Set(T.filter(r => r.spend > 0).map(r => r.store))].filter(s => !CLOSED.test(s));
     const has30 = T.filter(r => r.d > lastSun - 28 && r.spend > 0); const share30 = has30.length ? has30.filter(r => r.o30 !== null).length / has30.length : 0;
 
