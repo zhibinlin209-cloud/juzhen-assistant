@@ -272,7 +272,8 @@
           if (pn * 50 >= total) break;
         }
         let overview = {}; try { overview = (await fetch('/shopdiy/promotion/cpc/ajax/queryCpcDataOverview?smartShopFlag=1', { credentials: 'include' }).then(r => r.json())).msg || {}; } catch (e) { }
-        return { rows, total, overview };
+        let fin = {}; try { const f = (await fetch('/shopdiy/common/ajax/queryFinanceInfo', { credentials: 'include' }).then(r => r.json())).msg || {}; fin = { balance: f.balance, todayConsume: f.todayConsume, yesterdayConsume: f.yesterdayConsume, voucher: f.voucherBalance }; } catch (e) { }
+        return { rows, total, overview, fin };
       } });
       const d = (res || []).map(x => x && x.result).find(x => x) || { error: '没找到推广列表（页面没加载完或改版了）' };
       if (d.error) { tglog('✗ 小时监测：' + d.error); try { await srv('/lib/tgt/live/ingest', { err: d.error }); } catch (e) { } return; }

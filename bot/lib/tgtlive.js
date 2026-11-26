@@ -1,6 +1,7 @@
 /* 推广通小时监测（开关 27 tgtLive）
  * 插件每小时在老板已登录的推广通后台（midas.dianping.com 推广列表页）读一次「今日」各计划的实时数据（平台 5 分钟更新）：
  *   花费、点击、曝光、点击均价、商户浏览量、团购订单 + 日预算、点评/美团出价、状态、投放时段、人群溢价；账户今日花费/预算
+ * 余额：每次都看可用天数（余额 ÷ 近 7 天日均花费），≤7 天、≤3 天、不够今天用 三档，每档一天最多提醒一次，私聊林总
  * 服务器：存快照 data/tgtlive/日期.json（每小时的数据先只存不发，林总 2026-11-26 定：试几天看有没有用）
  *        只私聊林总两件事：① 每天第一次快照和昨天最后一次比，计划设置有变化才发；② 17 点后第一次快照：晚市前预算快花完（≥70%）的计划
  *        当日小结只在 /lib/tgt/live 里看，不主动发
@@ -78,6 +79,20 @@ function createTgtLive({ dataDir, log, on, send }) {
       }
     }
 
+    // 余额提醒（林总 2026-11-26：差不多没钱了一定要提前说）：可用天数 = 余额 ÷ 近 7 天日均花费
+    const fin = j.fin || {}; const bal = num(fin.balance);
+    if (fin.balance !== undefined) {
+      snap.fin = { bal, voucher: num(fin.voucher), y: num(fin.yesterdayConsume), today: num(fin.todayConsume) };
+      const burns = []; for (let i = 1; i <= 7; i++) { const o2 = rd(dayOf(new Date(now.getTime() - i * 864e5))); const s2 = o2.snaps[o2.snaps.length - 1]; if (s2) burns.push(s2.fin && s2.fin.today ? s2.fin.today : s2.rows.reduce((x, r) => x + r.charge, 0)); }
+      const avg = burns.length ? burns.reduce((a, b) => a + b, 0) / burns.length : (snap.fin.y || snap.ov.budget || 0);
+      const runway = avg > 0 ? bal / avg : 99; const left = Math.max(0, snap.ov.budget - (snap.fin.today || snap.ov.charge));
+      st.bal = st.bal && st.bal.day === day ? st.bal : { day, lv: 0 };
+      const lv = bal < left ? 3 : runway <= 3 ? 2 : runway <= 7 ? 1 : 0;
+      if (lv > st.bal.lv) {
+        st.bal.lv = lv;
+        msgs.push((lv === 3 ? '🔴🔴 推广通余额不够今天用了！' : lv === 2 ? '🔴 推广通余额只够 3 天以内！' : '🟠 推广通余额只够一周左右了') + `\n余额 ${money(bal)} 元${snap.fin.voucher ? `（另有抵用券 ${money(snap.fin.voucher)}）` : ''}，近 ${burns.length || 1} 天日均花 ${money(avg)} 元，大约还能投 ${runway.toFixed(1)} 天${lv === 3 ? `；今天剩下的预算还要 ${money(left)} 元，余额不够，计划会被停` : ''}。\n请安排充值（充值≠消耗，月上限按实际花费算）。`);
+      }
+    }
     // 17 点后第一次：晚市前预算快花完的计划（只私聊林总，一天一次）
     let alerts = [];
     if (hh >= 17 && st.eve !== day) {
