@@ -5,7 +5,7 @@
 const http = require('http'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 
-function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, adsWeekly, lastXlsx, reingestLast, chatMsgs, onDyAuth, exportTable, mktSnap, rereadDaily, feedbackList, moveLibs, moveStatus, dbCheck, archivable, chats, core, tableMeta, gj, ops, onGj, cmtlib }) {
+function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, adsWeekly, lastXlsx, reingestLast, chatMsgs, onDyAuth, onJgAuth, jgStatus, exportTable, mktSnap, rereadDaily, feedbackList, moveLibs, moveStatus, dbCheck, archivable, chats, core, tableMeta, gj, ops, onGj, cmtlib }) {
   const key = crypto.createHash('sha256').update('xiju-cockpit:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (who, exp, kind) => { const body = `${kind}.${who}.${exp}`; return b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url'); };
@@ -183,6 +183,7 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
         if (p === '/lib/jyb/ingest' && req.method === 'POST' && gj) { let b = ''; for await (const c of req) { b += c; if (b.length > 8e6) break; } try { const j = JSON.parse(b || '{}'); const r = gj.jybIngest(j); if (onGj) onGj(Object.assign({ jyb: true }, r), j).catch(e => log('[经营宝] 后续处理出错：' + e.message)); return sendc(res, 200, JSON.stringify(r)); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
         if (p === '/lib/dailycheck' && req.method === 'GET' && dailyCheck) return sendc(res, 200, JSON.stringify(await dailyCheck()));
         // 数据库核对：每家店在飞书和本地库里的行数、日期范围、营业额合计，逐店对比
+        if (p === '/lib/jg/status' && req.method === 'GET' && jgStatus) return sendc(res, 200, JSON.stringify({ ok: true, apps: jgStatus() })); // 聚光授权状态（不含令牌）
         if (p === '/lib/dbcheck' && req.method === 'GET' && dbCheck) { try { return sendc(res, 200, JSON.stringify(await dbCheck())); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         // 可归档统计：库里已有 + 核对一致 + 日期早于 N 天（默认 120）的飞书行，只统计不删除
         if (p === '/lib/archivable' && req.method === 'GET' && archivable) { try { return sendc(res, 200, JSON.stringify(await archivable(+u.searchParams.get('days') || 120))); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
@@ -203,6 +204,11 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
         const code = String(u.searchParams.get('code') || ''), state = String(u.searchParams.get('state') || ''), scopes = String(u.searchParams.get('scopes') || '');
         if (code && typeof onDyAuth === 'function') { try { await onDyAuth({ code, state, scopes }); } catch (e) { log('[抖音授权] 处理出错：' + e.message); } }
         return send(res, 200, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>授权结果</title><div style="font:17px/1.7 -apple-system,'PingFang SC',sans-serif;padding:40px 24px;text-align:center">${code ? '✅ 授权成功，可以关掉这个页面了。<br><span style="color:#888;font-size:14px">机器人稍后会开始同步这个抖音号的作品数据</span>' : '⚠️ 没有收到授权，请回到抖音授权页重新点「同意授权」'}</div>`, 'text/html; charset=utf-8');
+      }
+      if (p === '/xhs/callback') { // 小红书聚光授权回调：auth_code 10 分钟内换令牌（bot/lib/jg.js）
+        const code = String(u.searchParams.get('auth_code') || u.searchParams.get('code') || ''), state = String(u.searchParams.get('state') || '');
+        let ok = false; if (code && typeof onJgAuth === 'function') { try { ok = !!(await onJgAuth({ code, state })).ok; } catch (e) { log('[聚光授权] 处理出错：' + e.message); } }
+        return send(res, 200, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>聚光授权结果</title><div style="font:17px/1.7 -apple-system,'PingFang SC',sans-serif;padding:40px 24px;text-align:center">${ok ? '✅ 聚光授权成功，可以关掉这个页面了。<br><span style="color:#888;font-size:14px">机器人已私聊林总授权结果</span>' : code ? '⚠️ 收到了授权，但换令牌没成功，机器人已私聊林总原因。' : '⚠️ 没有收到授权，请回到授权页重新点「确认授权」'}</div>`, 'text/html; charset=utf-8');
       }
       if (p === '/logout') return send(res, 302, '', 'text/plain', { location: base + 'login', 'set-cookie': 'xck2=; Path=/cockpit/; Max-Age=0; HttpOnly; Secure; SameSite=Lax' });
       if (p === '/login' && req.method === 'GET') {
