@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>粤迹 · 攻略平台</title>
+<!-- 攻略平台 · 和驾驶舱同一套深色指挥台风格；数据来自 /cockpit/gl/api/*（独立登录，不含任何经营数据） -->
+<style>
+:root {
+  --ink: #e6edf7; --mute: #8b9bb4; --faint: #56657d;
+  --deep: #070d18; --panel: #0d1626; --panel2: #111d31; --line: #1e2c45;
+  --cyan: #4cc9f0; --amber: #ffb547; --good: #3ddc97; --bad: #ff6b6b; --rose: #ff6b9a; --violet: #a78bfa;
+  --f-body: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --f-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+body { min-height: 100vh; background: radial-gradient(1200px 600px at 50% -10%, #12234080, transparent 70%) fixed, var(--deep); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.55; margin: 0; padding: 0 16px 60px }
+.wrap { max-width: 1240px; margin: 0 auto }
+.mono { font-family: var(--f-data); font-variant-numeric: tabular-nums }
+.top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 0; background: linear-gradient(var(--deep) 75%, transparent) }
+.brand { font-weight: 900; letter-spacing: .08em; font-size: 13px; white-space: nowrap } .brand b { color: var(--amber) }
+.tabs { display: flex; gap: 4px; flex-wrap: wrap }
+.tab { font: inherit; color: var(--mute); background: none; border: 1px solid transparent; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 14px }
+.tab:hover { color: var(--ink) } .tab.on { color: var(--ink); border-color: var(--line); background: var(--panel) }
+.tab .soon { font-size: 10px; color: var(--faint); margin-left: 3px }
+.status { margin-left: auto; display: flex; gap: 12px; color: var(--mute); font-size: 12px; align-items: center }
+.status a { color: var(--mute); text-decoration: none } .status a:hover { color: var(--ink) }
+.dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; margin-right: 5px; background: var(--faint) } .dot.on { background: var(--good); box-shadow: 0 0 8px var(--good) } .dot.off { background: var(--amber) } .dot.bad { background: var(--bad) }
+h2 { font-size: 15px; margin: 22px 0 10px; display: flex; align-items: baseline; gap: 10px } h2 small { color: var(--faint); font-weight: 400; font-size: 12px }
+.say { background: var(--panel); border: 1px solid #ffb54755; box-shadow: 0 0 0 1px #ffb54718, 0 8px 40px -14px #ffb54744; border-radius: 10px; padding: 12px 16px; margin: 6px 0 16px }
+.say h1 { font-size: 15px; margin: 0 0 4px } .say p { margin: 0; font-size: 13px; color: var(--ink) }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 8px }
+.kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px }
+.kpi small { color: var(--faint); font-size: 11px; display: block } .kpi b { font-family: var(--f-data); font-size: 22px; font-weight: 600; display: block } .kpi .c { font-size: 11px; color: var(--mute) }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px } @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr } }
+.log { font-family: var(--f-data); font-size: 12px; color: var(--mute); max-height: 260px; overflow: auto; white-space: pre-wrap }
+.btn { font: inherit; font-size: 13px; color: var(--ink); background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; padding: 5px 12px; cursor: pointer; white-space: nowrap }
+.btn:hover { border-color: var(--cyan) } .btn.pri { background: var(--cyan); color: #04121c; border-color: var(--cyan); font-weight: 700 } .btn.ok { border-color: #3ddc9788; color: var(--good) } .btn.no { border-color: #ff6b6b88; color: var(--bad) } .btn:disabled { opacity: .45; cursor: default }
+.btn.sm { font-size: 12px; padding: 3px 9px }
+input, select, textarea { font: inherit; color: var(--ink); background: var(--deep); border: 1px solid var(--line); border-radius: 7px; padding: 5px 9px; color-scheme: dark }
+textarea { width: 100%; min-height: 70px; resize: vertical }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap }
+.chips { display: flex; flex-wrap: wrap; gap: 6px }
+.chip { font-size: 12px; color: var(--mute); background: var(--panel2); border: 1px solid var(--line); border-radius: 99px; padding: 2px 10px; cursor: pointer; white-space: nowrap }
+.chip.on { color: #04121c; background: var(--cyan); border-color: var(--cyan) } .chip i { font-style: normal; opacity: .7; margin-left: 3px }
+.tag { display: inline-block; font-size: 11px; border-radius: 4px; padding: 0 6px; margin: 0 4px 3px 0; background: #1e2c45; color: var(--mute) }
+.tag.hot { background: #ff6b9a22; color: var(--rose) } .tag.ok { background: #3ddc9722; color: var(--good) } .tag.cy { background: #4cc9f022; color: var(--cyan) } .tag.am { background: #ffb54722; color: var(--amber) } .tag.bad { background: #ff6b6b22; color: var(--bad) }
+.libgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px }
+.lc { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; cursor: pointer; display: flex; flex-direction: column } .lc:hover { border-color: var(--cyan) }
+.lc .im { aspect-ratio: 3/4; background: #0a1220 center/cover no-repeat; position: relative } .lc .im span { position: absolute; left: 6px; top: 6px }
+.lc .t { padding: 8px 10px 4px; font-size: 13px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden }
+.lc .m { padding: 0 10px 9px; font-size: 11px; color: var(--mute); font-family: var(--f-data) }
+table { width: 100%; border-collapse: collapse; font-size: 13px } th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top } th { color: var(--faint); font-weight: 500; font-size: 12px }
+.empty { color: var(--mute); text-align: center; padding: 30px; border: 1px dashed var(--line); border-radius: 10px }
+.modal { position: fixed; inset: 0; background: #000b; z-index: 50; display: flex; align-items: flex-start; justify-content: center; overflow: auto; padding: 30px 12px }
+.modal > div { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px; width: min(1100px, 100%) }
+.modal .x { float: right }
+.imgs { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 6px } .imgs img { height: 300px; border-radius: 8px; border: 1px solid var(--line); flex: none; cursor: zoom-in }
+.note { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px }
+.note.ok { border-color: #3ddc9766 } .note.fix { border-color: #ff6b6b66 }
+.note h3 { margin: 0 0 6px; font-size: 16px } .pv { display: flex; gap: 8px; overflow-x: auto; padding: 6px 0 } .pv img { width: 190px; border-radius: 6px; flex: none; cursor: zoom-in; background: #fff }
+.copy { white-space: pre-wrap; background: var(--deep); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 13px; margin: 6px 0 }
+.chk div { font-size: 12px } .chk .err { color: var(--bad) } .chk .warn { color: var(--amber) } .chk .pass { color: var(--good) }
+.lay { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px } .lay label { display: block; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; cursor: pointer } .lay input { margin-right: 6px } .lay label:has(input:checked) { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan) } .lay small { display: block; color: var(--mute); margin-top: 3px }
+.big { position: fixed; inset: 0; background: #000e; z-index: 60; display: flex; align-items: center; justify-content: center; cursor: zoom-out } .big img { max-height: 96vh; max-width: 96vw }
+.hint { color: var(--faint); font-size: 12px }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--cyan); padding: 8px 16px; border-radius: 8px; z-index: 99 }
+.kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 12px; font-size: 13px } .kv b { color: var(--faint); font-weight: 400 }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand"><b>粤迹</b> · 攻略平台</div>
+    <div class="tabs" id="tabs"></div>
+    <div class="status" id="who"></div>
+  </div>
+  <main id="main"><div class="empty">加载中…</div></main>
+</div>
+<script>
+'use strict';
+const SHARE = /\/gl\/r\//.test(location.pathname);
+const BASE = SHARE ? location.pathname.replace(/\/$/, '') : location.pathname.replace(/\/(index\.html)?$/, '');
+const $ = s => document.querySelector(s);
+const h = s => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmt = n => n === null || n === undefined ? '—' : n >= 1e4 ? (n / 1e4).toFixed(1) + '万' : String(Math.round(n));
+const ago = t => { if (!t) return '—'; const m = (Date.now() - t) / 60e3; return m < 60 ? Math.round(m) + ' 分钟前' : m < 1440 ? Math.round(m / 60) + ' 小时前' : Math.round(m / 1440) + ' 天前'; };
+const day = t => t ? new Date(t + 8 * 3600e3).toISOString().slice(5, 16).replace('T', ' ') : '';
+function toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2600); }
+async function api(p, body) { const r = await fetch(BASE + p, { method: body ? 'POST' : 'GET', headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' }); if (r.status === 401) { location.reload(); throw new Error('请先登录'); } const j = await r.json(); if (j.ok === false) throw new Error(j.error || '出错了'); return j; }
+async function copy(t) { try { await navigator.clipboard.writeText(t); toast('已复制'); } catch (e) { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); toast('已复制'); } }
+function bigImg(src) { const d = document.createElement('div'); d.className = 'big'; d.innerHTML = `<img src="${src}">`; d.onclick = () => d.remove(); document.body.appendChild(d); }
+
+// ================== 渲染：把稿件画成 1080×1440 图片（纯程序排版，不用 AI 画图） ==================
+const W = 1080, H = 1440;
+const SANS = '"PingFang SC","Microsoft YaHei","Noto Sans SC","Hiragino Sans GB",sans-serif';
+const HAND = '"KaiTi","STKaiti","Kaiti SC","楷体",serif';
+function cv() { const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'); x.textBaseline = 'top'; return [c, x]; }
+function wrap(x, text, maxW) { const out = []; let line = ''; for (const ch of String(text || '')) { if (ch === '\n') { out.push(line); line = ''; continue; } if (x.measureText(line + ch).width > maxW && line) { out.push(line); line = ch; } else line += ch; } if (line) out.push(line); return out; }
+function para(x, text, X, Y, maxW, lh) { const ls = wrap(x, text, maxW); ls.forEach((l, i) => x.fillText(l, X, Y + i * lh)); return Y + ls.length * lh; }
+function memoHead(x, bg) { x.fillStyle = bg || '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#E3A622'; x.font = `500 38px ${SANS}`; x.fillText('‹ 备忘录', 40, 40); x.fillStyle = '#E3A622'; x.font = `38px ${SANS}`; x.fillText('⇧   ⋯', W - 170, 38); }
+function stars(n) { return '⭐'.repeat(n); }
+function placeholder(note) { const [c, x] = cv(); x.fillStyle = '#f3f4f6'; x.fillRect(0, 0, W, H); x.setLineDash([18, 14]); x.strokeStyle = '#9ca3af'; x.lineWidth = 4; x.strokeRect(60, 60, W - 120, H - 120); x.setLineDash([]); x.fillStyle = '#6b7280'; x.textAlign = 'center'; x.font = `700 56px ${SANS}`; x.fillText('实拍图位置', W / 2, 420); x.font = `36px ${SANS}`; ['（人工贴图，或从门店图库挑）', '', '建议放：招牌菜特写（爆膏奶油虾）', '其他菜 · 店内环境 · 门头店名', '', note.main.name].forEach((t, i) => x.fillText(t, W / 2, 530 + i * 62)); x.textAlign = 'left'; return c; }
+function yesPage(note, style) {
+  const [c, x] = cv(); memoHead(x); let y = 130; const m = note.main;
+  x.fillStyle = '#111'; x.font = `900 60px ${SANS}`; y = para(x, m.name, 60, y, W - 120, 76) + 14;
+  x.font = `34px ${SANS}`; x.fillStyle = '#444';
+  [`📍 ${m.address}`, `💰 人均 ${m.price} 元`, `🕔 ${m.hours}`].forEach(t => { y = para(x, t, 60, y, W - 120, 50) + 6; });
+  y += 20; x.fillStyle = '#111'; x.font = `800 46px ${SANS}`; x.fillText(style === 'hand' ? '必点（我们每次都点）' : '必点', 60, y); y += 72;
+  note.yes.dishes.forEach((d, i) => { x.fillStyle = '#111'; x.font = `700 40px ${SANS}`; x.fillText(`${i + 1}. ${d.name}`, 60, y); y += 56; x.font = style === 'hand' ? `40px ${HAND}` : `34px ${SANS}`; x.fillStyle = style === 'hand' ? '#7C3AED' : '#555'; y = para(x, d.line, 100, y, W - 160, 50) + 16; });
+  y += 10; x.fillStyle = '#111'; x.font = `800 46px ${SANS}`; x.fillText('怎么点 · 什么时候去', 60, y); y += 70; x.font = `34px ${SANS}`; x.fillStyle = '#333';
+  [...note.yes.order, note.yes.when, note.yes.fit].filter(Boolean).forEach(t => { y = para(x, '· ' + t, 60, y, W - 120, 50) + 8; });
+  return c;
+}
+function listPages(note, opt) {
+  // 美食清单：按分类排；opt.style = check（空心圆）/ hand（编号＋紫色手写）/ star（星级＋短评）
+  const pages = []; let c, x, y; const st = opt.style;
+  const start = () => { [c, x] = cv(); memoHead(x); y = 130; x.fillStyle = '#111'; x.font = `900 58px ${SANS}`; y = para(x, opt.title, 60, y, W - 120, 72) + 24; pages.push(c); };
+  start(); let k = 0;
+  if (opt.spots && note.spots.length) { // 景点放在最前面（像真人先写去哪玩），后面接吃的
+    x.fillStyle = '#111'; x.font = `800 46px ${SANS}`; x.fillText(st === 'hand' ? `${opt.place}玩什么` : '先去玩', 60, y); y += 70;
+    note.spots.forEach((s, i) => { x.fillStyle = '#111'; x.font = `600 40px ${SANS}`; x.fillText(`${i + 1}. ${s.place}`, 60, y); y += 54; x.fillStyle = st === 'hand' ? '#7C3AED' : '#666'; x.font = st === 'hand' ? `38px ${HAND}` : `32px ${SANS}`; y = para(x, s.tip, 100, y, W - 160, 48) + 16; });
+    y += 16;
+  }
+  for (const s of note.sections) {
+    const need = 80 + s.items.length * (st === 'star' ? 150 : 100); if (y + Math.min(need, 300) > H - 60) start();
+    x.fillStyle = st === 'hand' ? '#111' : '#111'; x.font = `800 46px ${SANS}`;
+    const head = st === 'hand' ? `${opt.place}吃什么（${s.h}）` : s.h; if (st === 'check') { x.fillStyle = '#FFE58A'; x.fillRect(56, y + 22, x.measureText(head).width + 10, 26); x.fillStyle = '#111'; }
+    x.fillText(head, 60, y); y += 70;
+    for (const it of s.items) {
+      if (y > H - 140) { start(); }
+      k++;
+      if (st === 'check') { x.strokeStyle = '#999'; x.lineWidth = 3; x.beginPath(); x.arc(78, y + 22, 16, 0, Math.PI * 2); x.stroke(); x.fillStyle = '#111'; x.font = `${it.main ? 700 : 500} 40px ${SANS}`; x.fillText(it.name, 112, y); y += 52; x.fillStyle = '#888'; x.font = `30px ${SANS}`; y = para(x, it.say + (it.price ? `｜人均${it.price}` : ''), 112, y, W - 180, 42) + 18; }
+      else if (st === 'hand') { x.fillStyle = '#111'; x.font = `${it.main ? 700 : 500} 40px ${SANS}`; const t = `${k}. ${it.name}`; x.fillText(t, 60, y); const w = x.measureText(t).width; x.fillStyle = '#7C3AED'; x.font = `38px ${HAND}`; if (w + x.measureText(it.say).width < W - 160) { x.fillText(it.say, 60 + w + 24, y + 4); y += 66; } else { y += 54; y = para(x, it.say, 100, y, W - 160, 50) + 14; } }
+      else { x.fillStyle = '#111'; x.font = `${it.main ? 800 : 600} 40px ${SANS}`; x.fillText(`${k}. ${it.name}`, 60, y); y += 54; x.font = `34px ${SANS}`; x.fillText(stars(it.stars), 60, y); y += 50; x.fillStyle = '#555'; x.font = `32px ${SANS}`; y = para(x, it.say + (it.price ? `，人均${it.price}` : '') + (it.area ? `，${it.area}` : ''), 60, y, W - 120, 46) + 22; }
+    }
+    y += 16;
+  }
+  return pages;
+}
+function coverMemo(note) { const [c, x] = cv(); x.fillStyle = '#FFF8D2'; x.fillRect(0, 0, W, H); x.fillStyle = '#E8C84A'; x.font = `900 220px Georgia,serif`; x.fillText('“', 70, 90); x.fillStyle = '#1a1a1a'; x.font = `900 104px ${SANS}`; let y = 470; note.cover.forEach((l, i) => { if (i === 1) { const w = x.measureText(l).width; x.fillStyle = '#BFE3FF'; x.fillRect(84, y + 66, w + 12, 40); x.fillStyle = '#1a1a1a'; } x.fillText(l, 90, y); y += 150; }); x.fillStyle = '#E8C84A'; x.fillRect(W - 180, H - 170, 70, 10); return c; }
+function coverHand(note) { const [c, x] = cv(); memoHead(x); x.fillStyle = '#111'; x.font = `900 110px ${SANS}`; let y = 360; note.cover.forEach(l => { x.fillText(l, 70, y); y += 150; }); x.fillStyle = '#7C3AED'; x.font = `64px ${HAND}`; x.fillText('（自己吃过才写的）', 80, y + 30); x.strokeStyle = '#E11D48'; x.lineWidth = 6; x.beginPath(); x.ellipse(W / 2, 430, 470, 120, -0.05, 0, Math.PI * 2); x.stroke(); return c; }
+function coverStar(note) { const [c, x] = cv(); x.fillStyle = '#FFFDF7'; x.fillRect(0, 0, W, H); x.fillStyle = '#111'; x.font = `900 100px ${SANS}`; let y = 260; note.cover.forEach(l => { x.fillText(l, 80, y); y += 140; }); y += 60; x.font = `44px ${SANS}`; x.fillStyle = '#333'; [['⭐⭐⭐⭐⭐', '会专门再去'], ['⭐⭐⭐⭐', '值得一吃'], ['⭐⭐⭐', '顺路可以']].forEach(([s, t]) => { x.fillText(s, 80, y); x.fillText(t, 420, y); y += 80; }); x.fillStyle = '#999'; x.font = `34px ${SANS}`; x.fillText('纯个人口味打分，仅供参考', 80, y + 40); return c; }
+function coverRoute(note) { const [c, x] = cv(); x.fillStyle = '#EAF6FF'; x.fillRect(0, 0, W, H); x.fillStyle = '#0F4C81'; x.fillRect(0, 0, W, 26); x.fillStyle = '#0B2540'; x.font = `900 104px ${SANS}`; let y = 330; note.cover.forEach(l => { x.fillText(l, 80, y); y += 145; }); x.fillStyle = '#0F4C81'; x.font = `600 44px ${SANS}`; y += 40; note.route.slice(0, 5).forEach((r, i) => { x.fillText(`${r.t}  ${r.place}`, 100, y); if (i < Math.min(5, note.route.length) - 1) { x.fillRect(118, y + 58, 6, 34); } y += 100; }); return c; }
+function routePage(note) { const [c, x] = cv(); memoHead(x); let y = 130; x.fillStyle = '#111'; x.font = `900 58px ${SANS}`; x.fillText('一天怎么走', 60, y); y += 100; x.font = `30px ${SANS}`; x.fillStyle = '#999'; x.fillText('时间', 60, y); x.fillText('去哪', 250, y); x.fillText('做什么', 620, y); y += 50; x.fillStyle = '#ddd'; x.fillRect(60, y, W - 120, 3); y += 24; note.route.forEach(r => { x.fillStyle = '#0F4C81'; x.font = `600 36px ${SANS}`; x.fillText(r.t, 60, y); x.fillStyle = '#111'; x.font = `${/YES|大排档/.test(r.place) ? 800 : 600} 36px ${SANS}`; const y1 = para(x, r.place, 250, y, 340, 48); x.fillStyle = '#555'; x.font = `32px ${SANS}`; const y2 = para(x, r.do, 620, y, W - 680, 46); y = Math.max(y1, y2) + 26; x.fillStyle = '#eee'; x.fillRect(60, y - 14, W - 120, 2); }); y += 30; if (note.spots.length) { x.fillStyle = '#111'; x.font = `800 46px ${SANS}`; x.fillText('小贴士', 60, y); y += 70; note.spots.forEach(s => { x.font = `600 36px ${SANS}`; x.fillStyle = '#111'; x.fillText('· ' + s.place, 60, y); y += 50; x.font = `32px ${SANS}`; x.fillStyle = '#555'; y = para(x, s.tip, 92, y, W - 150, 46) + 14; }); } return c; }
+function renderNote(note, layout) {
+  const place = /白石洲/.test(note.title) ? '白石洲' : /世界之窗/.test(note.title) ? '世界之窗' : '南山';
+  const t1 = note.cover.join('');
+  if (layout === 'memo') return [coverMemo(note), ...listPages(note, { style: 'check', title: t1, place, spots: true }), yesPage(note, 'check'), placeholder(note)];
+  if (layout === 'hand') return [coverHand(note), ...listPages(note, { style: 'hand', title: `${place}吃什么／玩什么`, place, spots: true }), yesPage(note, 'hand'), placeholder(note)];
+  if (layout === 'star') return [coverStar(note), ...listPages(note, { style: 'star', title: t1, place, spots: false }), yesPage(note, 'star'), placeholder(note)];
+  return [coverRoute(note), routePage(note), ...listPages(note, { style: 'check', title: '吃饭清单', place, spots: false }), yesPage(note, 'route'), placeholder(note)];
+}
+const PCACHE = new Map();
+function pagesOf(b, n) { const k = b.id + ':' + n.no; if (!PCACHE.has(k)) PCACHE.set(k, renderNote(n, b.layout).map(c => c.toDataURL('image/jpeg', 0.9))); return PCACHE.get(k); }
+function textOf(n) { return `${n.title}\n\n${n.body}\n\n${n.tags.join(' ')}`; }
+function dlPages(b, n) { pagesOf(b, n).forEach((u, i) => { const a = document.createElement('a'); a.href = u; a.download = `${b.briefName}-第${n.no}篇-P${i + 1}.jpg`; document.body.appendChild(a); setTimeout(() => { a.click(); a.remove(); }, i * 400); }); }
+
+// ================== 页面 ==================
+let ME = null, LAYOUTS = {}; const ST = { tab: 'dash', lib: { sort: 'heat' }, batch: null };
+const TABS = [['dash', '大盘'], ['lib', '爆款库'], ['brief', '任务书'], ['gen', 'AI 出稿'], ['review', '审稿'], ['stores', '门店池'], ['dispatch', '派单·结算', 1], ['publish', '发布回填', 1], ['users', '账号']];
+function nav() { const tabs = TABS.filter(([k]) => ME.role === 'boss' || (k !== 'users' && (ME.role !== 'review' || k === 'review'))); $('#tabs').innerHTML = tabs.map(([k, n, soon]) => `<button class="tab ${ST.tab === k ? 'on' : ''}" data-tab="${k}">${n}${soon ? '<span class="soon">下一步</span>' : ''}</button>`).join(''); }
+document.addEventListener('click', e => { const t = e.target.closest('[data-tab]'); if (t) { ST.tab = t.dataset.tab; location.hash = ST.tab; nav(); show(); } });
+async function show() { const m = $('#main'); try { m.innerHTML = '<div class="empty">加载中…</div>'; const f = { dash, lib, brief, gen, review, stores, dispatch: soon, publish: soon, users }[ST.tab] || dash; await f(m); } catch (e) { m.innerHTML = `<div class="empty">出错了：${h(e.message)}</div>`; } }
+
+async function dash(m) {
+  const d = await api('/api/dash'); const n = d.lib.night || {};
+  m.innerHTML = `<div class="say"><h1>今天的攻略平台</h1><p>爆款库 ${d.lib.total} 篇；昨晚采集 ${n.rounds || 0} 轮、新入库 ${n.added || 0} 篇${n.blocked ? `，⚠️ 碰到验证已提前停止` : ''}；待审稿 ${d.todo} 篇。</p></div>
+  <div class="kpis"><div class="kpi"><small>爆款库</small><b>${d.lib.total}</b><div class="c">模板号 ${d.lib.authors.length} 个</div></div>
+  <div class="kpi"><small>昨晚新入库</small><b>${n.added || 0}</b><div class="c">${n.kw || 0} 个词 · 读 ${n.detail || 0} 篇</div></div>
+  <div class="kpi"><small>AI 出稿</small><b>${d.notes}</b><div class="c">${d.batches} 批</div></div>
+  <div class="kpi"><small>待审稿</small><b>${d.todo}</b><div class="c">点「审稿」处理</div></div>
+  <div class="kpi"><small>门店池</small><b>${d.stores}</b><div class="c">任务书 ${d.briefs} 份</div></div></div>
+  <div class="grid2"><div class="card"><h2 style="margin-top:0">夜间采集 <small>${d.lib.window ? '<span class="dot on"></span>采集时段（22:00–07:00）' : '<span class="dot"></span>白天不采集'}</small></h2><div class="log">${h((n.log || []).join('\n') || '今晚还没开始。插件每 5 分钟问一次，22:00 后开始第一轮。')}</div></div>
+  <div class="card"><h2 style="margin-top:0">最近出稿</h2>${d.recent.length ? `<table>${d.recent.map(b => `<tr><td>${h(b.briefName)}<div class="hint">${h(b.layoutName)}</div></td><td class="mono">${b.n} 篇</td><td>${b.status === 'running' ? '<span class="tag am">生成中</span>' : '<span class="tag ok">完成</span>'}</td><td class="hint">${ago(b.at)}</td></tr>`).join('')}</table>` : '<div class="hint">还没有出过稿。去「AI 出稿」试一批。</div>'}
+  ${d.lib.authors.length ? `<h2>模板号（自动发现）</h2><div class="chips">${d.lib.authors.map(a => `<span class="chip">${h(a.name)}<i>${a.n}篇</i></span>`).join('')}</div>` : ''}</div></div>`;
+}
+
+async function lib(m) {
+  const f = ST.lib; const q = new URLSearchParams(Object.entries(f).filter(([, v]) => v)).toString(); const d = await api('/api/lib?' + q);
+  const facet = (k, name) => d.facets[k].length ? `<div class="row" style="margin:6px 0"><span class="hint" style="width:62px">${name}</span><div class="chips"><span class="chip ${!f[k] ? 'on' : ''}" data-f="${k}" data-v="">全部</span>${d.facets[k].slice(0, 14).map(([v, c]) => `<span class="chip ${f[k] === v ? 'on' : ''}" data-f="${k}" data-v="${h(v)}">${h(v)}<i>${c}</i></span>`).join('')}</div></div>` : '';
+  m.innerHTML = `<h2>爆款库 <small>共 ${d.all} 篇 · 当前 ${d.total} 篇 · 热度＝日均（收藏＋分享）× 新鲜度（90 天内 ×1，半年 ×0.8，一年 ×0.5）</small></h2>
+  <div class="card">${facet('cat', '大类')}${facet('type', '类型')}${facet('trick', '标题套路')}
+  <div class="row" style="margin-top:8px"><span class="chip ${f.text ? 'on' : ''}" data-f="text" data-v="${f.text ? '' : '1'}">只看能做成文字版式</span><span class="chip ${f.hot ? 'on' : ''}" data-f="hot" data-v="${f.hot ? '' : '1'}">🔥 近期爆</span>
+  <select id="sort"><option value="heat">按热度</option><option value="collects">按收藏</option><option value="new">按发布时间</option><option value="in">按入库时间</option></select>
+  <input id="q" placeholder="搜标题/作者/关键词" value="${h(f.q || '')}" style="width:200px"></div></div>
+  <div style="margin-top:14px" class="libgrid">${d.items.map(x => `<div class="lc" data-note="${x.id}"><div class="im" style="background-image:url('${(x.files || [])[0] ? `${BASE}/img/${x.id}/${x.files[0]}` : ''}')"><span>${x.hot ? '<span class="tag hot">🔥近期爆</span>' : ''}${x.ai && x.ai.text ? '<span class="tag cy">文字版式</span>' : ''}</span></div><div class="t">${h(x.title)}</div><div class="m">热度 ${x.heat} · 藏 ${fmt(x.collects)} · ${x.pages}页<br>${h((x.ai && x.ai.trick) || '待拆解')} · ${h(x.author).slice(0, 10)}</div></div>`).join('') || '<div class="empty" style="grid-column:1/-1">还没有爆款。今晚插件开始夜间采集后，明早这里就有了。</div>'}</div>`;
+  $('#sort').value = f.sort || 'heat';
+  m.onclick = async e => { const c = e.target.closest('[data-f]'); if (c) { f[c.dataset.f] = c.dataset.v; return show(); } const n = e.target.closest('[data-note]'); if (n) noteModal(n.dataset.note); };
+  $('#sort').onchange = e => { f.sort = e.target.value; show(); }; $('#q').onchange = e => { f.q = e.target.value.trim(); show(); };
+}
+async function noteModal(id) {
+  const { note: n } = await api('/api/lib/' + id); const d = document.createElement('div'); d.className = 'modal';
+  d.innerHTML = `<div><button class="btn x">关闭</button><h2 style="margin-top:0">${h(n.title)}</h2>
+  <div class="row hint">${h(n.author)}${n.tplAuthor ? ' <span class="tag am">模板号</span>' : ''} · 发布 ${n.time ? new Date(n.time).toISOString().slice(0, 10) : '—'} · 赞 ${fmt(n.likes)} · 藏 ${fmt(n.collects)} · 评 ${fmt(n.comments)} · 转 ${fmt(n.shares)} · 日均藏+转 ${n.daily} · 热度 ${n.heat} · <a href="${h(n.url)}" target="_blank" rel="noopener" style="color:var(--cyan)">看原帖 ↗</a></div>
+  ${n.ai ? `<div class="kv card" style="margin:10px 0"><b>类型</b><span>${h(n.ai.cat)} · ${h(n.ai.type)}</span><b>标题套路</b><span>${h(n.ai.trick)}</span><b>标题骨架</b><span>${h(n.ai.skel)}</span><b>版式</b><span>${h(n.ai.layout)}</span><b>能做文字版式</b><span>${n.ai.text ? '能' : '不适合（靠实拍/景点图）'}</span></div>` : '<p class="hint">AI 还没拆解这篇（入库后几分钟内自动完成）</p>'}
+  <div class="imgs">${(n.files || []).map(f => `<img src="${BASE}/img/${n.id}/${f}" loading="lazy">`).join('')}</div>
+  <div class="copy">${h(n.desc)}</div>${(n.topComments || []).length ? `<h2>热门评论</h2><div class="copy">${n.topComments.map(c => `${c.a ? '【作者】' : ''}${h(c.t)}${c.l ? `（${c.l}赞）` : ''}`).join('\n')}</div>` : ''}
+  <p class="hint">搜到它的关键词：${h((n.kws || []).join('、'))}</p></div>`;
+  d.onclick = e => { if (e.target === d || e.target.classList.contains('x')) d.remove(); const im = e.target.closest('.imgs img'); if (im) bigImg(im.src); }; document.body.appendChild(d);
+}
+
+async function brief(m) {
+  const { briefs } = await api('/api/briefs'); const s = await api('/api/stores'); const sn = id => (s.stores.find(x => x.id === id) || {}).name || id;
+  m.innerHTML = `<h2>任务书 <small>AI 出稿和自动核对都照这里的规则来</small></h2>` + briefs.map(b => `<div class="card" style="margin-bottom:12px"><h2 style="margin-top:0">${h(b.name)}</h2><div class="kv">
+  <b>主店</b><span>${h(b.storeTitle)}（门店池：${h(sn(b.store))}）</span><b>地址</b><span>${h(b.address)}</span><b>人均 / 营业</b><span>${h(b.price)} 元 · ${h(b.hours)}</span>
+  <b>读者</b><span>${h(b.audience)}</span><b>核心信息</b><span>${h(b.message)}</span>
+  <b>三个方向</b><span>${b.directions.map(d => `${h(d.name)}（${d.words.map(h).join('/')}）`).join('；')}</span>
+  <b>必写菜</b><span>${h(b.mustDish)}＋至少 ${b.minDishes - 1} 道：${Object.entries(b.dishes).map(([k, v]) => `${h(k)}：${v.map(h).join('、')}`).join('；')}</span>
+  <b>景点</b><span>必写：${b.mustSpots.map(h).join('、')}；可选：${b.optSpots.map(h).join('、')}</span>
+  <b>主店位置</b><span>美食清单第 ${b.yesPos} 位（程序固定）</span><b>周边店</b><span>门店池里「${h(b.district)}」的店（同区优先）</span>
+  <b>话题</b><span>必带 ${b.tagsMust.map(h).join(' ')}；从 ${b.tagsOpt.map(h).join(' ')} 选 ${b.tagsOptN} 个</span>
+  <b>标题规则</b><span>${h(b.titleRule)}</span><b>禁用词</b><span>${b.banned.map(h).join('、')}</span><b>实用信息</b><span>${h(b.practical)}</span><b>发布前</b><span>${h(b.note)}</span></div>
+  <div class="row" style="margin-top:10px"><span class="hint">改禁用词（用顿号隔开）：</span><input id="ban_${b.id}" value="${h(b.banned.join('、'))}" style="flex:1;min-width:260px"><button class="btn sm" data-save="${b.id}">保存</button></div></div>`).join('') + '<p class="hint">新任务书：把甲方的任务书发给我（Claude），我按格式录进来。</p>';
+  m.onclick = async e => { const b = e.target.closest('[data-save]'); if (!b) return; const id = b.dataset.save; await api('/api/briefs', { brief: { id, banned: $('#ban_' + id).value.split(/[、,，\s]+/).filter(Boolean) } }); toast('已保存'); };
+}
+
+async function gen(m) {
+  const { briefs } = await api('/api/briefs');
+  m.innerHTML = `<h2>AI 出稿 <small>DeepSeek 写文字，程序排版出图，自动核对任务书规则；最后一页留实拍图位置</small></h2>
+  <div class="card"><div class="row"><span class="hint">任务书</span><select id="gb">${briefs.map(b => `<option value="${b.id}">${h(b.name)}</option>`).join('')}</select><span class="hint">篇数</span><input id="gn" type="number" min="1" max="10" value="3" style="width:70px"></div>
+  <h2>选版式</h2><div class="lay">${Object.entries(LAYOUTS).map(([k, v], i) => `<label><input type="radio" name="lay" value="${k}" ${i ? '' : 'checked'}>${h(v.name)}<small>${h(v.desc)}</small></label>`).join('')}</div>
+  <div class="row" style="margin-top:14px"><button class="btn pri" id="go">开始出稿</button><span class="hint">每篇大约 30–60 秒，可以先去别的页面，完成后在「审稿」里看。</span></div></div><div id="gs"></div>`;
+  $('#go').onclick = async () => { $('#go').disabled = true; try { const r = await api('/api/gen', { brief: $('#gb').value, layout: document.querySelector('[name=lay]:checked').value, n: +$('#gn').value }); ST.batch = r.batch.id; toast('已开始出稿'); ST.tab = 'review'; nav(); show(); } catch (e) { toast(e.message); $('#go').disabled = false; } };
+}
+
+let pollT = null;
+async function review(m) {
+  clearTimeout(pollT);
+  if (SHARE) { const d = await fetch(BASE + '/data').then(r => r.json()); if (!d.ok) throw new Error('链接失效'); LAYOUTS = d.layouts; return reviewBatch(m, d.batch, true); }
+  const { batches } = await api('/api/batches'); if (!batches.length) { m.innerHTML = '<div class="empty">还没有出过稿，去「AI 出稿」试一批。</div>'; return; }
+  if (!ST.batch || !batches.find(b => b.id === ST.batch)) ST.batch = batches[0].id;
+  const { batch } = await api('/api/batch/' + ST.batch);
+  m.innerHTML = `<div class="row" style="margin:8px 0 4px"><span class="hint">批次</span><select id="bs">${batches.map(b => `<option value="${b.id}" ${b.id === ST.batch ? 'selected' : ''}>${day(b.at)} · ${h(b.briefName)} · ${h(b.layoutName)} · ${b.got}/${b.n} 篇${b.status === 'running' ? '（生成中）' : ''}</option>`).join('')}</select>
+  <button class="btn sm" id="share">生成商家审稿链接</button><button class="btn sm" id="dlall">下载全部图片</button></div><div id="rb"></div>`;
+  $('#bs').onchange = e => { ST.batch = e.target.value; show(); };
+  $('#share').onclick = async () => { const r = await api(`/api/batch/${ST.batch}/share`, {}); copy(r.url); toast('审稿链接已复制（14 天有效），发给店长或商家'); };
+  $('#dlall').onclick = () => batch.notes.forEach((n, i) => setTimeout(() => dlPages(batch, n), i * 3000));
+  reviewBatch($('#rb'), batch, false);
+  if (batch.status === 'running') pollT = setTimeout(() => { if (ST.tab === 'review') show(); }, 15000);
+}
+function reviewBatch(m, b, share) {
+  const S = { todo: ['待审', 'am'], ok: ['通过', 'ok'], fix: ['要改', 'bad'], shop_ok: ['商家：没问题', 'ok'], shop_fix: ['商家：要改', 'bad'] };
+  m.innerHTML = (share ? `<div class="say"><h1>${h(b.briefName)} · 稿件确认</h1><p>请逐篇看图和文字，没问题点「没问题」；要改就写清楚改哪里再点「要改」。最后一页灰色的是实拍图位置，发布时会换成门店实拍。</p></div>` : `<div class="hint" style="margin:6px 0 12px">${b.status === 'running' ? `正在生成，已出 ${b.notes.length}/${b.n} 篇，页面会自动刷新…` : `共 ${b.notes.length} 篇`}${b.err ? ` · <span style="color:var(--bad)">${h(b.err)}</span>` : ''}</div>`) +
+  (b.notes.map(n => { const errs = n.check.filter(c => c[0] === 'err'), warns = n.check.filter(c => c[0] === 'warn'); const [sl, sc] = S[n.status] || S.todo;
+    return `<div class="note ${/ok/.test(n.status) ? 'ok' : /fix/.test(n.status) ? 'fix' : ''}" data-no="${n.no}"><div class="row"><h3 style="flex:1">第 ${n.no} 篇 · ${h(n.title)}</h3><span class="tag ${sc}">${sl}</span><span class="tag">${h(n.dir)}</span></div>
+    ${share ? '' : `<div class="chk">${errs.length || warns.length ? '' : '<div class="pass">✓ 任务书规则全部通过</div>'}${errs.map(c => `<div class="err">✗ ${h(c[1])}</div>`).join('')}${warns.map(c => `<div class="warn">! ${h(c[1])}</div>`).join('')}</div>`}
+    <div class="pv" data-pv="${n.no}"><span class="hint">正在排版…</span></div>
+    <div class="copy">${h(textOf(n))}</div>
+    ${n.notes.length ? `<div class="hint">${n.notes.map(x => `${h(x.who)}：${h(x.t)}`).join('<br>')}</div>` : ''}
+    <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里' : '修改意见（可选）'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `<button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
+  // 排版放到下一帧，避免卡住
+  b.notes.forEach((n, i) => setTimeout(() => { const el = m.querySelector(`[data-pv="${n.no}"]`); if (el) el.innerHTML = pagesOf(b, n).map(u => `<img src="${u}">`).join(''); }, 30 + i * 60));
+  m.onclick = async e => {
+    const card = e.target.closest('[data-no]'); if (!card) return; const no = +card.dataset.no; const n = b.notes.find(x => x.no === no);
+    const im = e.target.closest('.pv img'); if (im) return bigImg(im.src);
+    if (e.target.closest('[data-cp]')) return copy(textOf(n));
+    if (e.target.closest('[data-dl]')) return dlPages(b, n);
+    const mk = e.target.closest('[data-mk]'); if (!mk) return; const note = card.querySelector('[data-nt]').value.trim();
+    if (mk.dataset.mk === 'fix' && !note) return toast('先写要改哪里');
+    try { if (share) await fetch(BASE + '/mark', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ no, status: mk.dataset.mk, note }) }).then(r => r.json()); else await api(`/api/batch/${b.id}/mark`, { no, status: mk.dataset.mk, note }); toast('已记录'); if (share) { const d = await fetch(BASE + '/data').then(r => r.json()); reviewBatch(m, d.batch, true); } else show(); } catch (er) { toast(er.message); }
+  };
+}
+
+async function stores(m) {
+  const { stores } = await api('/api/stores'); const ds = [...new Set(stores.map(s => s.district))]; ST.dist = ST.dist || '南山';
+  const L = stores.filter(s => !ST.dist || s.district === ST.dist);
+  m.innerHTML = `<h2>门店池 <small>写攻略时从这里挑周边店；店名、人均、营业时间、地址发布前要核对</small></h2>
+  <div class="row"><div class="chips">${['', ...ds].map(d => `<span class="chip ${ST.dist === d ? 'on' : ''}" data-d="${h(d)}">${d || '全部'}<i>${d ? stores.filter(s => s.district === d).length : stores.length}</i></span>`).join('')}</div><button class="btn sm" data-ed="">＋ 加一家店</button></div>
+  <div class="card" style="margin-top:10px;overflow:auto"><table><tr><th>店名</th><th>商圈</th><th>品类 / 时段</th><th>推荐菜</th><th>人均</th><th>营业时间</th><th>核对</th><th></th></tr>
+  ${L.map(s => `<tr><td>${s.planted ? '<span class="tag am">我们的店</span>' : ''}${h(s.name)}</td><td>${h(s.area)}</td><td>${h(s.cat)}<div class="hint">${h(s.slot)}</div></td><td class="hint">${h(s.dishes)}</td><td class="mono">${h(s.price)}</td><td class="mono">${h(s.hours)}</td><td>${s.checked ? `<span class="tag ok">已核 ${new Date(s.checked).toISOString().slice(5, 10)}</span>` : '<span class="tag">未核</span>'}</td><td><button class="btn sm" data-ed="${s.id}">改</button></td></tr>`).join('')}</table></div>`;
+  m.onclick = e => { const c = e.target.closest('[data-d]'); if (c) { ST.dist = c.dataset.d; return show(); } const ed = e.target.closest('[data-ed]'); if (ed) storeEdit(stores.find(s => s.id === ed.dataset.ed) || { district: ST.dist || '南山' }); };
+}
+function storeEdit(s) {
+  const F = [['name', '店名'], ['district', '区'], ['area', '商圈'], ['cat', '品类'], ['slot', '时段'], ['dishes', '推荐菜'], ['price', '人均'], ['hours', '营业时间'], ['addr', '地址']];
+  const d = document.createElement('div'); d.className = 'modal'; d.innerHTML = `<div style="width:min(560px,100%)"><h2 style="margin-top:0">${s.id ? '改门店资料' : '加一家店'}</h2><div class="kv">${F.map(([k, n]) => `<b>${n}</b><input data-k="${k}" value="${h(s[k] || '')}">`).join('')}<b>我们的店</b><label><input type="checkbox" data-k="planted" ${s.planted ? 'checked' : ''}> 是（植入商户）</label><b>已核对</b><label><input type="checkbox" data-k="checked"> 这次已经核对过资料</label></div>
+  <div class="row" style="margin-top:14px"><button class="btn pri" data-sv>保存</button><button class="btn" data-cl>取消</button>${s.id ? '<button class="btn no" data-del style="margin-left:auto">删除这家</button>' : ''}</div></div>`;
+  d.onclick = async e => { if (e.target === d || e.target.closest('[data-cl]')) return d.remove(); const sv = e.target.closest('[data-sv]'), del = e.target.closest('[data-del]'); if (!sv && !del) return; const o = { id: s.id }; d.querySelectorAll('[data-k]').forEach(i => { o[i.dataset.k] = i.type === 'checkbox' ? i.checked : i.value.trim(); }); try { await api('/api/stores', { store: o, del: !!del }); d.remove(); toast('已保存'); show(); } catch (er) { toast(er.message); } };
+  document.body.appendChild(d);
+}
+
+async function users(m) {
+  const { users: UL } = await api('/api/users');
+  m.innerHTML = `<h2>账号 <small>员工只能看攻略平台，看不到驾驶舱和任何经营数据</small></h2>
+  <div class="card"><table><tr><th>名字</th><th>角色</th><th>登录账号</th><th>上次登录</th><th></th></tr>${UL.map(u => `<tr><td>${h(u.name)}</td><td>${h(u.roleName)}</td><td class="mono">${u.set ? h(u.login) : '<span class="tag am">还没设置</span>'}</td><td class="hint">${ago(u.last)}</td><td>${u.role === 'boss' ? '' : u.off ? `<button class="btn sm" data-rs="${u.id}">恢复并重发链接</button>` : `<button class="btn sm" data-rs="${u.id}">重发设置链接</button> <button class="btn sm no" data-off="${u.id}">停用</button>`}</td></tr>`).join('')}</table></div>
+  <h2>开新账号</h2><div class="card row"><input id="un" placeholder="名字（如 小卢）"><select id="ur"><option value="ops">运营/策划：爆款库、出稿、审稿、门店池</option><option value="review">审稿：只能审稿</option></select><button class="btn pri" id="ua">生成设置链接</button></div><div id="ul"></div>
+  <h2>员工怎么登录</h2><p class="hint">点「生成设置链接」后把链接发给他（24 小时内有效、只能用一次），他自己设置账号和密码。以后登录网址：${h(location.origin + BASE + '/')}</p>`;
+  const showLink = l => { $('#ul').innerHTML = `<div class="say"><p>设置链接（已复制，24 小时内有效、只能用一次）：<br><span class="mono" style="word-break:break-all">${h(l)}</span></p></div>`; copy(l); };
+  $('#ua').onclick = async () => { const name = $('#un').value.trim(); if (!name) return toast('先写名字'); const r = await api('/api/users', { name, role: $('#ur').value }); await users(m); showLink(r.link); };
+  m.onclick = async e => { const rs = e.target.closest('[data-rs]'), off = e.target.closest('[data-off]'); if (rs) { const r = await api('/api/users', { id: rs.dataset.rs, reset: 1 }); await users(m); showLink(r.link); } if (off && confirm('停用后他就登录不了，确定？')) { await api('/api/users', { id: off.dataset.off, off: 1 }); users(m); } };
+}
+function soon(m) { m.innerHTML = `<div class="empty"><b>${ST.tab === 'dispatch' ? '派单 · 写手 · 结算' : '发布回填（外部达人 / 自己的号 / 员工代发）'}</b><br><br>下一步做：${ST.tab === 'dispatch' ? '审过的稿派给写手或达人、写手在链接里交稿、按通过篇数月度结算。' : '每篇记录谁、用哪个号发的，发完回填笔记链接，三种渠道分开统计发布进度和效果。'}</div>`; }
+
+(async () => {
+  if (SHARE) { $('#tabs').innerHTML = ''; $('#who').innerHTML = ''; ST.tab = 'review'; return show(); }
+  try { const r = await api('/api/me'); ME = r.me; LAYOUTS = r.layouts; } catch (e) { $('#main').innerHTML = `<div class="empty">${h(e.message)}</div>`; return; }
+  $('#who').innerHTML = `<span>${h(ME.name)} · ${h(ME.roleName)}</span><a href="${BASE}/logout">退出</a>`;
+  ST.tab = (location.hash || '').slice(1) || (ME.role === 'review' ? 'review' : 'dash'); nav(); show();
+})();
+</script>
+</body>
+</html>

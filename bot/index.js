@@ -512,6 +512,7 @@ async function setup() {
       const kind = t === '运营日报' ? 'daily' : t === '运营周报' ? 'week' : 'month';
       await reply(m.message_id, '好，正在生成，稍后私聊你（预览，只发给你）'); try { await sendOps(kind, { previewTo: boss }); } catch (e) { await reply(m.message_id, '⚠️ 没生成出来：' + e.message.slice(0, 100)); } return;
     }
+    if (text && /^\s*(攻略平台|重设攻略平台密码)\s*$/.test(text) && m.chat_id === dailyChatNow() && glweb) { if (!boss) { await reply(m.message_id, '⚠️ 还不知道老板的飞书账号'); return; } try { await dm(boss, `🧭 攻略平台：设置/重设你的账号密码（6 小时内有效、只能用一次，别转发）：\n${glweb.bossSetupLink(6)}\n\n以后登录网址：${glUrl}`); await reply(m.message_id, '✅ 已私聊发给老板'); } catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 60)); } return; }
     if (text && /^\s*(驾驶舱|重设驾驶舱密码)\s*$/.test(text) && m.chat_id === dailyChatNow()) { const reset = /重设/.test(text); if (!boss) { await reply(m.message_id, '⚠️ 还不知道老板的飞书账号'); return; } const msgTxt = (web.hasPass() && !reset) ? `🖥 驾驶舱：${web.loginLink()}\n用你设置的账号密码登录。忘记密码在经营日报群发「重设驾驶舱密码」。` : `🔐 ${web.hasPass() ? '重设' : '设置'}驾驶舱账号密码（30 分钟内有效、只能用一次，别转发）：\n${web.setupLink(30)}`; try { await call('POST', '/im/v1/messages', { receive_id: boss, msg_type: 'text', content: JSON.stringify({ text: msgTxt }) }, { receive_id_type: 'open_id' }); await reply(m.message_id, '✅ 已私聊发给老板'); } catch (e) { await reply(m.message_id, '⚠️ 私聊发送失败：' + e.message.slice(0, 60)); } return; }
     // 门店营业日报（华付数科等机器人发的也收）
     if (text && on('daily') && /营业日概况|当天总营业额/.test(text)) {
