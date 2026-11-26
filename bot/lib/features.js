@@ -35,6 +35,8 @@ const LIST = [
 ];
 function createFeatures({ dataDir, log }) {
   const F = path.join(dataDir, 'features.json'); let off = {}; try { off = JSON.parse(fs.readFileSync(F, 'utf8')); } catch (e) { }
+  // 一次性默认关闭（只执行一次，之后老板在群里「开启 17」还能再打开）：林总 2026-11-26 说 AI 写稿写出来都无效，停掉每日和周一 AI 写稿
+  if (!off._once20261126) { off.drafts = off.drafts || Date.now(); off.creatorWeekly = off.creatorWeekly || Date.now(); off._once20261126 = 1; try { fs.writeFileSync(F, JSON.stringify(off)); } catch (e) { } log('[功能开关] 按林总要求关闭：每日 AI 写稿、周一 AI 写稿'); }
   const on = k => !off[k];
   const find = q => { q = String(q || '').trim(); if (/^\d+$/.test(q)) return LIST[+q - 1]; return LIST.find(x => x[0] === q) || LIST.find(x => x[1] === q) || LIST.find(x => x[1].includes(q)); };
   function set(q, val) { const it = find(q); if (!it) return null; if (val) delete off[it[0]]; else off[it[0]] = Date.now(); try { fs.writeFileSync(F, JSON.stringify(off)); } catch (e) { } log(`[功能开关] ${it[1]} → ${val ? '开' : '关'}`); return it; }
