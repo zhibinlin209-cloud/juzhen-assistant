@@ -5,7 +5,7 @@
 const http = require('http'); const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 
-function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, tgtLive, adsWeekly, lastXlsx, reingestLast, chatMsgs, onDyAuth, onJgAuth, jgStatus, exportTable, mktSnap, rereadDaily, feedbackList, moveLibs, moveStatus, dbCheck, archivable, chats, core, tableMeta, gj, ops, onGj, cmtlib }) {
+function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, download, registerLinks, ownlib, official, exporter, dailyCheck, annualFacts, drafts, campaign, creator, creatorLast, studioSetup, studioDedupe, studio, rows, tgtIngest, tgtAuto, tgtNeed, tgtLive, adsWeekly, lastXlsx, reingestLast, chatMsgs, onDyAuth, onJgAuth, jgStatus, exportTable, mktSnap, rereadDaily, feedbackList, moveLibs, moveStatus, dbCheck, archivable, chats, core, tableMeta, gj, ops, onGj, cmtlib, glib, glweb }) {
   const key = crypto.createHash('sha256').update('xiju-cockpit:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
   const b64 = b => Buffer.from(b).toString('base64url');
   const sign = (who, exp, kind) => { const body = `${kind}.${who}.${exp}`; return b64(body) + '.' + crypto.createHmac('sha256', key).update(body).digest('base64url'); };
@@ -112,6 +112,7 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
     try {
       const u = new URL(req.url, 'http://x'); let p = u.pathname.replace(/^\/cockpit/, '') || '/';
       if (p.startsWith('/t/')) return await task(req, res, p);
+      if ((p === '/gl' || p.startsWith('/gl/')) && glweb) return await glweb.handle(req, res, p.slice(3) || '/', u); // 攻略平台（独立登录，见 lib/glweb.js）
       if (p.startsWith('/lib/') && ownlib) { // 插件「自家内容入库」/ 官方号同步（凭口令，允许从创作者后台页面直接提交）
         const cors = { 'access-control-allow-origin': req.headers.origin && /^https:\/\/(creator\.douyin\.com|channels\.weixin\.qq\.com)$/.test(req.headers.origin) ? req.headers.origin : 'null', 'access-control-allow-headers': 'content-type, x-rm-key', 'access-control-allow-methods': 'GET, POST' };
         if (req.method === 'OPTIONS') return send(res, 204, '', 'text/plain', cors);
@@ -186,6 +187,17 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
         if (p === '/lib/jyb/ingest' && req.method === 'POST' && gj) { let b = ''; for await (const c of req) { b += c; if (b.length > 8e6) break; } try { const j = JSON.parse(b || '{}'); const r = gj.jybIngest(j); if (onGj) onGj(Object.assign({ jyb: true }, r), j).catch(e => log('[经营宝] 后续处理出错：' + e.message)); return sendc(res, 200, JSON.stringify(r)); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); } }
         if (p === '/lib/dailycheck' && req.method === 'GET' && dailyCheck) return sendc(res, 200, JSON.stringify(await dailyCheck()));
         // 数据库核对：每家店在飞书和本地库里的行数、日期范围、营业额合计，逐店对比
+        if (p.startsWith('/lib/gl/') && glib) { // 攻略平台 · 夜间爆款采集（插件）
+          const body = async () => { let b = ''; for await (const c of req) { b += c; if (b.length > 4e6) break; } return JSON.parse(b || '{}'); };
+          try {
+            if (p === '/lib/gl/need') return sendc(res, 200, JSON.stringify(glib.need()));
+            if (p === '/lib/gl/list' && req.method === 'POST') return sendc(res, 200, JSON.stringify(glib.list(await body())));
+            if (p === '/lib/gl/ingest' && req.method === 'POST') return sendc(res, 200, JSON.stringify(await glib.ingest(await body())));
+            if (p === '/lib/gl/blocked' && req.method === 'POST') return sendc(res, 200, JSON.stringify(glib.blocked(await body())));
+            if (p === '/lib/gl/round' && req.method === 'POST') return sendc(res, 200, JSON.stringify(glib.roundDone(await body())));
+            if (p === '/lib/gl/status') return sendc(res, 200, JSON.stringify(glib.status()));
+          } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); }
+        }
         if (p === '/lib/jg/status' && req.method === 'GET' && jgStatus) return sendc(res, 200, JSON.stringify({ ok: true, apps: jgStatus() })); // 聚光授权状态（不含令牌）
         if (p === '/lib/dbcheck' && req.method === 'GET' && dbCheck) { try { return sendc(res, 200, JSON.stringify(await dbCheck())); } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 300) })); } }
         // 可归档统计：库里已有 + 核对一致 + 日期早于 N 天（默认 120）的飞书行，只统计不删除

@@ -284,6 +284,45 @@
   }
   setTimeout(() => autoTgtLive(), 5 * 60e3); setInterval(() => autoTgtLive(), 5 * 60e3); // 服务器按北京时间 9:00–24:00、每 55 分钟放行一次
 
+  // ---------- 攻略平台 · 夜间爆款采集：北京时间 22:00–07:00 少量多次（服务器排节奏和额度），碰到验证立刻停、不等不硬闯 ----------
+  const GL = { busy: false, log: [] };
+  const gllog = t => { GL.log.unshift(new Date().toLocaleTimeString('zh-CN', { hour12: false }) + '  ' + t); GL.log = GL.log.slice(0, 20); try { console.log('[夜间爆款]', t); } catch (e) { } };
+  const glOthersBusy = () => S.busy || R.busy || T.busy || A.busy || O.busy || TG.busy || TL.busy || GJ.busy || JY.busy;
+  async function autoGlNight() {
+    if (GL.busy || glOthersBusy()) return; let need; try { need = await srv('/lib/gl/need'); } catch (e) { return; }
+    if (!need || need.task !== 'round') return; GL.busy = true; let err = '';
+    const xs = u => `https://www.xiaohongshu.com/search_result?keyword=${encodeURIComponent(u)}&source=web_search_result_notes`;
+    const stopBlocked = async why => { gllog('⚠️ 碰到验证，今晚停止：' + why); try { await srv('/lib/gl/blocked', { why }); } catch (e) { } };
+    try {
+      try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null;
+      let left = need.detailLeft || 0;
+      outer: for (const kw of need.kws || []) {
+        await nav(xs(kw)); await sleep(rand(2000, 4000));
+        const st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { await stopBlocked(st.blocked); break; }
+        const res = await msg({ type: 'rm:collectList', limit: 40 }, 240000);
+        if (res && res.blocked && !(res.list || []).length) { await stopBlocked(res.blocked); break; }
+        const list = ((res && res.list) || []).map(x => ({ id: x.id, type: x.type, kind: x.kind, title: x.title, author: x.author, authorId: x.authorId, likes: x.likes, collects: x.collects, comments: x.comments, shares: x.shares, time: x.time, cover: x.cover, url: x.url }));
+        const pick = await srv('/lib/gl/list', { kw, list }); gllog(`「${kw}」列表 ${list.length} 篇，读 ${(pick.read || []).length} 篇`);
+        for (const it of (pick.read || [])) {
+          if (left-- <= 0) break outer;
+          await nav(it.url); const s2 = await msg({ type: 'rm:status' }, 8000); if (s2 && s2.blocked) { await stopBlocked(s2.blocked); break outer; }
+          await sleep(rand(3000, 6000)); // 像人一样先看一会
+          let note = await ssr(); let comments = [];
+          const rp = await msg({ type: 'rm:readPost', maxComments: 12 }, 60000);
+          if (rp && rp.blocked) { await stopBlocked(rp.blocked); break outer; }
+          if (rp && rp.ok) { comments = (rp.comments || []).map(c => ({ text: c.text, likes: c.likes, author: c.author })); if ((!note || note.none) && rp.post) { const p = rp.post; note = { id: it.id, type: p.type, title: p.title, desc: p.desc, tags: p.tags || [], images: p.images || [], likes: p.likes, collects: p.collects, comments: p.comments, shares: p.shares, author: p.author, time: p.time }; } }
+          if (!note || note.none) { gllog('✗ 没读到：' + it.id); continue; }
+          if (!note.id) note.id = it.id;
+          try { const j = await srv('/lib/gl/ingest', { src: 'night', kw, note, comments }); gllog(`✓ 《${String(note.title || '').slice(0, 16)}》图 ${j.images}`); } catch (e) { gllog('✗ 入库失败：' + e.message); }
+          await sleep(rand(8000, 16000));
+        }
+        await sleep(rand(15000, 30000));
+      }
+    } catch (e) { err = e.message; gllog('出错：' + e.message); }
+    finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; try { await srv('/lib/gl/round', { err }); } catch (e) { } GL.busy = false; }
+  }
+  setTimeout(() => autoGlNight(), 7 * 60e3); setInterval(() => autoGlNight(), 5 * 60e3); // 服务器按北京时间 22:00–07:00 放行，每轮之间歇 20–40 分钟
+
   // ---------- 美团管家每日数据：早上 6:30 后在已登录的美团管家页面里查昨天（及漏掉的日子）的营业指标、渠道、菜品、时段开台，交给机器人 ----------
   // 查询用页面自己的请求通道（带美团安全签名），查询模板存在 pos.meituan.com 本机存储里，服务器有备份
   const GJ = { busy: false, log: [], last: '' };
