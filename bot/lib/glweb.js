@@ -127,13 +127,18 @@ ${shopLines}
       route: (j.route || []).slice(0, 6).map(r => ({ t: String(r.t || ''), place: String(r.place || ''), do: String(r.do || '') })), spots: (j.spots || []).slice(0, 3).map(s => ({ place: String(s.place || ''), tip: String(s.tip || '') })),
       yes: { dishes: dishes.slice(0, 5), order: (yes.order || []).map(String).slice(0, 3), when: String(yes.when || ''), fit: String(yes.fit || '') }, main: { name: B.storeTitle, address: B.address, price: B.price, hours: B.hours } };
   }
-  function parseJ(t) { // 模型偶尔多一个逗号、少一个括号：先原样解析，不行就修一下再试
-    const m = String(t || '').replace(/```(json)?/g, '').match(/\{[\s\S]*\}/); if (!m) throw new Error('没返回 JSON'); let s = m[0];
+  function parseJ(t) { // 模型偶尔多一个逗号、少括号、输出被截断：先原样解析，不行就修一下再试
+    const raw = String(t || '').replace(/```(json)?/g, ''); const i0 = raw.indexOf('{'); if (i0 < 0) throw new Error('没返回 JSON');
+    const i1 = raw.lastIndexOf('}'); let s = i1 > i0 ? raw.slice(i0, i1 + 1) : raw.slice(i0);
     try { return JSON.parse(s); } catch (e) { }
-    s = s.replace(/,\s*([\]}])/g, '$1').replace(/[“”]/g, '"').replace(/\}\s*\{/g, '},{').replace(/\]\s*\[/g, '],[').replace(/"\s*\n\s*"/g, '","');
-    try { return JSON.parse(s); } catch (e) { }
-    let o = 0, a = 0; for (const ch of s) { if (ch === '{') o++; if (ch === '}') o--; if (ch === '[') a++; if (ch === ']') a--; } s = s + ']'.repeat(Math.max(0, a)) + '}'.repeat(Math.max(0, o));
-    return JSON.parse(s);
+    const fix = x => x.replace(/,\s*([\]}])/g, '$1').replace(/[“”]/g, '"').replace(/\}\s*\{/g, '},{').replace(/\]\s*\[/g, '],[');
+    try { return JSON.parse(fix(s)); } catch (e) { }
+    // 截断：从头扫一遍，补上没闭合的字符串和括号
+    s = raw.slice(i0); let inStr = false, esc = false; const st = [];
+    for (const ch of s) { if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; } if (ch === '"') inStr = true; else if (ch === '{' || ch === '[') st.push(ch); else if (ch === '}' || ch === ']') st.pop(); }
+    if (inStr) s += '"'; s = s.replace(/[,:]\s*$/, '').replace(/([,{]\s*)"[^"]*"\s*$/, '$1').replace(/,\s*$/, '');
+    while (st.length) s += st.pop() === '{' ? '}' : ']';
+    return JSON.parse(fix(s));
   }
   const jobs = new Map();
   async function generate(briefId, layout, n, by) {
