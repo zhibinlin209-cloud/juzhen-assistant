@@ -70,6 +70,13 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
   const page = () => { try { return fs.readFileSync(path.join(__dirname, '..', 'cockpit', 'gl.html')); } catch (e) { return null; } };
 
   // ---------- AI 出稿 ----------
+  // 大模型用量和余额（林总 2026-11-27：要知道 DeepSeek、千问还够不够，不够好去充值）
+  const UGF = path.join(D, 'llmuse.json'); const USE = rj(UGF, {}); const LLMERR = {}; let useT = null;
+  function useAdd(model, u) { const d = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); const o = (USE[d] = USE[d] || {}); const m = (o[model] = o[model] || [0, 0, 0]); m[0]++; m[1] += (u && u.prompt_tokens) || 0; m[2] += (u && u.completion_tokens) || 0; if (!useT) useT = setTimeout(() => { useT = null; const ks = Object.keys(USE).sort(); while (ks.length > 60) delete USE[ks.shift()]; wj(UGF, USE); }, 5000); }
+  async function llmStat() { const out = { deepseek: { has: !!cfg.deepseekKey }, qwen: { has: !!cfg.qwenKey, models: [] }, use: USE, errs: LLMERR };
+    if (cfg.deepseekKey) { try { const r = await fetch('https://api.deepseek.com/user/balance', { headers: { authorization: 'Bearer ' + cfg.deepseekKey }, signal: AbortSignal.timeout(15000) }); const j = await r.json().catch(() => ({})); out.deepseek.ok = r.ok; out.deepseek.available = j.is_available; out.deepseek.balances = (j.balance_infos || []).map(b => ({ currency: b.currency, total: b.total_balance, granted: b.granted_balance, topped: b.topped_up_balance })); if (!r.ok) out.deepseek.err = (j.error && j.error.message) || 'HTTP ' + r.status; } catch (e) { out.deepseek.err = e.message; } }
+    if (cfg.qwenKey) for (const m of [...new Set([...(cfg.glModels || ['deepseek-v4-pro', 'deepseek-v3.2', 'qwen-plus']), ...(cfg.glReviewModels || ['qwen-max'])])].slice(0, 6)) { const t0 = Date.now(); try { const r = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.qwenKey }, signal: AbortSignal.timeout(40000), body: JSON.stringify({ model: m, max_tokens: 8, messages: [{ role: 'user', content: '回复：好' }] }) }); const j = await r.json().catch(() => ({})); out.qwen.models.push({ model: m, ok: r.ok, ms: Date.now() - t0, err: r.ok ? '' : String((j.error && (j.error.message || j.error.code)) || 'HTTP ' + r.status).slice(0, 160) }); } catch (e) { out.qwen.models.push({ model: m, ok: false, err: e.message }); } }
+    return out; }
   async function llm(prompt, models) {
     const tries = [];
     if (cfg.deepseekKey && !models) tries.push(['https://api.deepseek.com/chat/completions', cfg.deepseekKey, 'deepseek-chat']);
@@ -77,8 +84,8 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
     let last = '没有配置大模型';
     for (const [u, k, model] of tries) {
       try { const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + k }, signal: AbortSignal.timeout(240000), body: JSON.stringify({ model, temperature: 0.85, max_tokens: 8000, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }) });
-        const j = await r.json().catch(() => ({})); if (r.ok) { const t = (((j.choices || [])[0] || {}).message || {}).content || ''; if (t) return { text: t, model }; last = '返回空内容（' + (((j.choices || [])[0] || {}).finish_reason || '') + '）'; log(`[攻略平台] 模型 ${model} ${last}`); continue; }
-        last = (j.error && (j.error.message || j.error.code)) || ('HTTP ' + r.status); log(`[攻略平台] 模型 ${model} 不可用：${last}`);
+        const j = await r.json().catch(() => ({})); if (r.ok) { useAdd(model, j.usage); const t = (((j.choices || [])[0] || {}).message || {}).content || ''; if (t) return { text: t, model }; last = '返回空内容（' + (((j.choices || [])[0] || {}).finish_reason || '') + '）'; log(`[攻略平台] 模型 ${model} ${last}`); continue; }
+        last = (j.error && (j.error.message || j.error.code)) || ('HTTP ' + r.status); log(`[攻略平台] 模型 ${model} 不可用：${last}`); LLMERR[model] = { at: Date.now(), msg: String(last).slice(0, 160) };
       } catch (e) { last = e.message; }
     }
     throw new Error(last);
@@ -652,6 +659,43 @@ ${text}`);
     }
     if (n) log(`[攻略平台] 从 ${n} 篇本地笔记里抽周边店，候选共 ${CA.items.length} 家`); saveC();
   }
+  // 从「自家内容库」（我们各店发过的逛吃攻略）里抽周边店，近的、不同品类的直接进门店池（林总 2026-11-27：新门店门店池只有 8–9 家，以前的攻略里写过的店要用上）
+  const OWN_STORE = [[/白石洲/, 'b1'], [/华强北/, 'b_hqb'], [/前海/, 'b_hop'], [/水东/, 'b_sdj'], [/玖洲|九洲/, 'b_jzd'], [/千灯湖/, 'b_qdh']];
+  const shopKey = n => String(n || '').replace(/[（(].*$/, '').replace(/[\s·・.]/g, '');
+  let ownRun = null;
+  async function ownCands() {
+    if (ownRun || !rosterSrc) return; ownRun = { at: Date.now(), total: 0, done: 0 }; CA.ownDone = CA.ownDone || [];
+    try {
+      const R = await rosterSrc('自家内容库'); const done = new Set(CA.ownDone); const bs = briefs();
+      const rows = (R.rows || []).map(o => ({ o, bid: (OWN_STORE.find(([re]) => re.test(String(o['门店'] || ''))) || [])[1] })).filter(x => x.bid && bs.some(b => b.id === x.bid) && !done.has(x.o._id) && String(x.o['正文'] || '').length > 150 && !/品宣/.test(String(x.o['内容类型'] || '')));
+      ownRun.total = rows.length; let i = 0;
+      const one = async () => { while (i < rows.length) { const { o, bid } = rows[i++]; const text = `${o['标题'] || ''}\n${o['正文'] || ''}`.slice(0, 3500);
+        try { const r = await llm(`下面是一篇小红书本地逛吃笔记。把里面提到的、能找得到的具体餐饮店抽出来（必须有店名；连锁店带上分店名）。没有具体店名的不要，景点、商场不要，「YES也是大排档」不要。
+只输出 JSON：{"shops":[{"name":"店名（分店）","area":"商圈/街道/地铁站，原文怎么写就怎么写","cat":"品类，如 糖水甜品/粉面/茶餐厅/潮汕牛肉火锅/烘焙/咖啡","dishes":"原文提到的招牌菜，顿号隔开","addr":"原文给的地址，没有就空","price":"人均数字，没有就空","hours":"营业时间，没有就空"}]}
+笔记：
+${text}`, ['qwen-plus', 'deepseek-v3.2']);
+          for (const x of (parseJ(r.text).shops || []).slice(0, 30)) { const name = String(x.name || '').trim().slice(0, 40); if (name.length < 2 || /YES|也是大排档/i.test(name)) continue;
+            const c = CA.items.find(z => shopKey(z.name) === shopKey(name)) || (CA.items.push({ name, area: '', cat: '', dishes: '', addr: '', price: '', hours: '', notes: [], st: 'new' }), CA.items[CA.items.length - 1]);
+            for (const k of ['area', 'cat', 'dishes', 'addr', 'price', 'hours']) if (!c[k] && x[k]) c[k] = String(x[k]).slice(0, 80);
+            c.own = (c.own || 0) + 1; c.for = [...new Set([...(c.for || []), bid])]; if (c.notes.length < 6) c.notes.push({ id: o['笔记ID'] || o._id, title: String(o['标题'] || '').slice(0, 40), own: true }); }
+          CA.ownDone.push(o._id);
+        } catch (e) { log('[攻略平台] 自家内容库抽店出错：' + e.message); }
+        ownRun.done++; if (ownRun.done % 10 === 0) saveC(); } };
+      await Promise.all([one(), one(), one()]); saveC();
+      const added = ownPick(); CA.ownLog = { at: Date.now(), read: ownRun.done, cands: CA.items.filter(c => c.own).length, added }; saveC(); log(`[攻略平台] 自家内容库抽店完成：读 ${ownRun.done} 篇，进门店池 ${JSON.stringify(added)}`);
+    } catch (e) { log('[攻略平台] 自家内容库抽店失败：' + e.message); CA.ownLog = { at: Date.now(), err: e.message.slice(0, 100) }; saveC(); }
+    ownRun = null;
+  }
+  // 挑进门店池：这家店的攻略里写过、在主店附近、不是同品类、池里还没有；同一品类最多 3 家，每家门店池补到 24 家为止；都标「待核对」
+  function ownPick() { const out = {}; const L = stores(); const catKey = c => String(c || '其他').replace(/[·\/、，,].*$/, '').slice(0, 4);
+    briefs().forEach(B => { const main = L.find(x => x.id === B.store); if (!main) return; const near = nearOf(B); const same = sameCatRe(B); const isNear = c => near.some(a => (c.area + (c.addr || '') + c.name).includes(a));
+      const pool = L.filter(x => x.id !== main.id && near.some(a => (x.area + (x.addr || '') + x.name).includes(a))); const perCat = {}; pool.forEach(x => { const k = catKey(x.cat); perCat[k] = (perCat[k] || 0) + 1; }); let n = pool.length, add = 0;
+      CA.items.filter(c => c.st === 'new' && c.own && (c.for || []).includes(B.id) && isNear(c) && !same.test(c.cat + c.name) && c.cat && !L.some(x => shopKey(x.name) === shopKey(c.name)))
+        .sort((a, c) => (c.own - a.own) || ((c.dishes ? 1 : 0) - (a.dishes ? 1 : 0)))
+        .forEach(c => { if (n >= 24) return; const k = catKey(c.cat); if ((perCat[k] || 0) >= 3) return; perCat[k] = (perCat[k] || 0) + 1;
+          L.push({ id: 's' + Date.now().toString(36) + L.length, name: c.name, planted: false, district: B.district, area: String(c.area || '').slice(0, 20), cat: c.cat, slot: '', dishes: c.dishes, price: c.price, star: '', years: '', hours: c.hours, addr: c.addr, src: '自家内容库', verify: true, ownN: c.own }); c.st = 'added'; n++; add++; });
+      out[B.name] = [add, n]; });
+    wj(SF, L); return out; }
   setInterval(() => extractCands().catch(() => { }), 3 * 3600e3); setTimeout(() => extractCands().catch(() => { }), 120e3);
   function candList(bid) { const B = briefs().find(x => x.id === bid) || briefs()[0] || {}; const near = nearOf(B); const same = sameCatRe(B);
     return CA.items.filter(c => c.st === 'new').map(c => Object.assign({}, c, { near: near.some(a => (c.area + c.addr + c.name).includes(a)), same: same.test(c.cat + c.name) })).sort((a, c) => (c.near - a.near) || (a.same - c.same) || c.notes.length - a.notes.length); }
@@ -833,10 +877,13 @@ ${SAMPLE}
       if (p === '/api/cands' && req.method === 'GET') { const B = briefs().find(x => x.id === u.searchParams.get('brief')) || briefs()[0]; return J(res, { ok: true, brief: B && B.id, near: B ? nearOf(B) : [], focus: glib && glib.focus ? glib.focus() : [], items: candList(B && B.id) }); }
       if (p === '/api/cands' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req, 20000)); const B = briefs().find(x => x.id === j.brief) || briefs()[0];
         if (j.run) { extractCands().catch(() => { }); return J(res, { ok: true }); }
+        if (j.own) { ownCands().catch(() => { }); return J(res, { ok: true, running: true }); }
         const names = [].concat(j.names || []); let add = 0;
         for (const nm of names) { const c = CA.items.find(x => x.name === nm); if (!c) continue; if (j.ignore) { c.st = 'ignored'; continue; }
           const L2 = stores(); L2.push({ id: 's' + Date.now().toString(36) + add, name: c.name, planted: false, district: B.district, area: String(j.area || c.area || '').slice(0, 20), cat: c.cat, slot: '', dishes: c.dishes, price: c.price, star: '', years: '', hours: c.hours, addr: c.addr, src: '爆款库', verify: true, refNotes: c.notes.map(z => z.id) }); wj(SF, L2); c.st = 'added'; add++; }
         saveC(); return J(res, { ok: true, add }); }
+      if (p === '/api/llmstat' && isBoss) return J(res, Object.assign({ ok: true }, await llmStat()));
+      if (p === '/api/ownstat') return J(res, { ok: true, run: ownRun, log: CA.ownLog || null, cands: CA.items.filter(c => c.own).length });
       if (p === '/api/mkt' && isBoss && rosterSrc) { const r = await rosterSrc(String(u.searchParams.get('table') || '')); return J(res, { ok: true, fields: r.fields, n: r.n, rows: r.rows.slice(0, +u.searchParams.get('n') || 3000) }); } // 老板读营销部表格（建任务书用，敏感表 core 那边会拒）
       if (p === '/api/roster') { const L = await roster(); return J(res, { ok: true, roster: L, diag: isBoss ? RO.diag : undefined }); }
       if (p === '/api/settle' && req.method === 'GET') { const mon = /^\d{4}-\d{2}$/.test(u.searchParams.get('month') || '') ? u.searchParams.get('month') : bjDay().slice(0, 7); return J(res, { ok: true, month: mon, rates: rates(), rows: settle(mon) }); }
