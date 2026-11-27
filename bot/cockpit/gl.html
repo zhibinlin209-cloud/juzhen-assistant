@@ -172,7 +172,7 @@ function dlPages(b, n) { pagesOf(b, n).forEach((u, i) => { const a = document.cr
 
 // ================== 页面 ==================
 let ME = null, LAYOUTS = {}; const ST = { tab: 'dash', lib: { sort: 'heat' }, batch: null };
-const TABS = [['dash', '大盘'], ['lib', '爆款库'], ['brief', '任务书'], ['gen', 'AI 出稿'], ['review', '审稿'], ['stores', '门店池'], ['dispatch', '派单·结算', 1], ['publish', '发布回填', 1], ['users', '账号']];
+const TABS = [['dash', '大盘'], ['lib', '爆款库'], ['brief', '任务书·范文'], ['gen', 'AI 出稿'], ['review', '审稿'], ['stores', '门店池'], ['dispatch', '派单·结算', 1], ['publish', '发布回填', 1], ['users', '账号']];
 function nav() { const tabs = TABS.filter(([k]) => ME.role === 'boss' || (k !== 'users' && (ME.role !== 'review' || k === 'review'))); $('#tabs').innerHTML = tabs.map(([k, n, soon]) => `<button class="tab ${ST.tab === k ? 'on' : ''}" data-tab="${k}">${n}${soon ? '<span class="soon">下一步</span>' : ''}</button>`).join(''); }
 document.addEventListener('click', e => { const t = e.target.closest('[data-tab]'); if (t) { ST.tab = t.dataset.tab; location.hash = ST.tab; nav(); show(); } });
 async function show() { const m = $('#main'); m.onclick = null; clearTimeout(pollT); try { m.innerHTML = '<div class="empty">加载中…</div>'; const f = { dash, lib, brief, gen, review, stores, dispatch: soon, publish: soon, users }[ST.tab] || dash; await f(m); } catch (e) { m.innerHTML = `<div class="empty">出错了：${h(e.message)}</div>`; } }
@@ -217,7 +217,9 @@ async function noteModal(id) {
 
 async function brief(m) {
   const { briefs } = await api('/api/briefs'); const s = await api('/api/stores'); const sn = id => (s.stores.find(x => x.id === id) || {}).name || id;
-  m.innerHTML = `<h2>任务书 <small>AI 出稿和自动核对都照这里的规则来</small></h2>` + briefs.map(b => `<div class="card" style="margin-bottom:12px"><h2 style="margin-top:0">${h(b.name)}</h2><div class="kv">
+  const R = (await api('/api/refs')).refs;
+  m.innerHTML = `<h2>范文 <small>我们以前发过、效果好的文字攻略；AI 每次随机挑 2 篇学结构和语气（不照抄）</small></h2><div class="card">${R.map(r => `<div class="row" style="justify-content:space-between;border-bottom:1px solid var(--line);padding:6px 0"><span>${h(r.name)} <span class="hint">${[...r.text].length} 字</span></span><span><button class="btn sm" data-rv="${r.id}">看</button> <button class="btn sm no" data-rd="${r.id}">删</button></span></div>`).join('') || '<div class="hint">还没有范文</div>'}<div style="margin-top:10px"><input id="rn" placeholder="名字（如 华强北旅游攻略1）" style="width:100%;margin-bottom:6px"><textarea id="rt" placeholder="把整篇攻略（标题＋正文＋话题）粘贴进来" style="min-height:120px"></textarea><button class="btn pri sm" id="ra" style="margin-top:6px">加进范文</button></div></div>
+  <h2>任务书 <small>AI 出稿和自动核对都照这里的规则来</small></h2>` + briefs.map(b => `<div class="card" style="margin-bottom:12px"><h2 style="margin-top:0">${h(b.name)}</h2><div class="kv">
   <b>主店</b><span>${h(b.storeTitle)}（门店池：${h(sn(b.store))}）</span><b>地址</b><span>${h(b.address)}</span><b>人均 / 营业</b><span>${h(b.price)} 元 · ${h(b.hours)}</span>
   <b>读者</b><span>${h(b.audience)}</span><b>核心信息</b><span>${h(b.message)}</span>
   <b>三个方向</b><span>${b.directions.map(d => `${h(d.name)}（${d.words.map(h).join('/')}）`).join('；')}</span>
@@ -227,7 +229,8 @@ async function brief(m) {
   <b>话题</b><span>必带 ${b.tagsMust.map(h).join(' ')}；从 ${b.tagsOpt.map(h).join(' ')} 选 ${b.tagsOptN} 个</span>
   <b>标题规则</b><span>${h(b.titleRule)}</span><b>禁用词</b><span>${b.banned.map(h).join('、')}</span><b>实用信息</b><span>${h(b.practical)}</span><b>发布前</b><span>${h(b.note)}</span></div>
   <div class="row" style="margin-top:10px"><span class="hint">改禁用词（用顿号隔开）：</span><input id="ban_${b.id}" value="${h(b.banned.join('、'))}" style="flex:1;min-width:260px"><button class="btn sm" data-save="${b.id}">保存</button></div></div>`).join('') + '<p class="hint">新任务书：把甲方的任务书发给我（Claude），我按格式录进来。</p>';
-  m.onclick = async e => { const b = e.target.closest('[data-save]'); if (!b) return; const id = b.dataset.save; await api('/api/briefs', { brief: { id, banned: $('#ban_' + id).value.split(/[、,，\s]+/).filter(Boolean) } }); toast('已保存'); };
+  $('#ra').onclick = async () => { try { await api('/api/refs', { name: $('#rn').value.trim(), text: $('#rt').value }); toast('已加进范文'); show(); } catch (er) { toast(er.message); } };
+  m.onclick = async e => { const rv = e.target.closest('[data-rv]'), rd = e.target.closest('[data-rd]'); if (rv) { const r = R.find(x => x.id === rv.dataset.rv); const d = document.createElement('div'); d.className = 'modal'; d.innerHTML = `<div style="width:min(700px,100%)"><button class="btn x">关闭</button><h2 style="margin-top:0">${h(r.name)}</h2><div class="copy">${h(r.text)}</div></div>`; d.onclick = ev => { if (ev.target === d || ev.target.classList.contains('x')) d.remove(); }; document.body.appendChild(d); return; } if (rd) { if (confirm('删掉这篇范文？')) { await api('/api/refs', { del: rd.dataset.rd }); show(); } return; } const b = e.target.closest('[data-save]'); if (!b) return; const id = b.dataset.save; await api('/api/briefs', { brief: { id, banned: $('#ban_' + id).value.split(/[、,，\s]+/).filter(Boolean) } }); toast('已保存'); };
 }
 
 async function gen(m) {
