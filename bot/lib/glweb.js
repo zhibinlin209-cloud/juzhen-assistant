@@ -154,6 +154,8 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
     Object.keys(fixed).filter(k => !['tags', 'id', 'no', 'status', 'aiReview', 'check', 'notes', 'plan', 'tpl', 'revs', 'images'].includes(k)).forEach(k => walk(fixed, k)); if (nt) fixed.title = nt; return { fixed, hit }; }
   // ---------- 审稿员写意见 → AI 按意见改（林总 2026-11-27：员工直接在上面填哪里要改，AI 自动改好返回，不用都经过我）----------
   const revising = new Set();
+  // 服务器更新会打断正在改的稿：启动时把卡住的「正在改」清掉，留一句话让人再点一次
+  setTimeout(() => { try { batches().forEach(b => { let ch = false; b.notes.forEach(n => { if (n.revising) { delete n.revising; n.notes.push({ t: '🤖 AI 改稿被系统更新打断了，请再点一次「要改」', who: 'AI', at: Date.now() }); ch = true; } }); if (ch) wj(path.join(BD, b.id + '.json'), b); }); } catch (e) { } }, 20e3);
   async function aiRevise(bid, no, ask, who) {
     const key = bid + ':' + no; if (revising.has(key)) return; revising.add(key);
     const f = path.join(BD, bid + '.json'); const setN = fn => { const b = getBatch(bid); const n = b && b.notes.find(x => x.no === +no); if (n) { fn(n, b); wj(f, b); } return n; };
@@ -250,7 +252,9 @@ ${JSON.stringify(pick(got)).slice(0, 9000)}`;
       const angle = angles[k % angles.length]; const A = ANGLES[angle];
       const tags = opt.slice().sort((a, c) => (usedTags.get(a) || 0) - (usedTags.get(c) || 0) || (tagU.get(a) || 0) - (tagU.get(c) || 0) || Math.random() - 0.5).slice(0, nOpt); tags.forEach(t => usedTags.set(t, (usedTags.get(t) || 0) + 1));
       const near = pool.filter(sh => !sh.far), far = pool.filter(sh => sh.far).sort((a, c) => (shopU.get(a.name) || 0) - (shopU.get(c.name) || 0) || Math.random() - 0.5);
-      const shops = [...near, ...far.slice(k * 3 % Math.max(1, far.length)), ...far].filter((v, i, arr) => arr.indexOf(v) === i).slice(0, Math.max(near.length, 10));
+      // 附近的店多了以后（门店池补到 20 多家），每篇只给 15 家、按最近用得少的排、每篇错开 5 家，免得同一批每篇都写同样几家
+      const nearS = near.slice().sort((a, c) => (shopU.get(a.name) || 0) - (shopU.get(c.name) || 0)); const nearK = nearS.length > 16 ? [...nearS.slice(k * 5 % nearS.length), ...nearS].filter((v, i, arr) => arr.indexOf(v) === i).slice(0, 15) : nearS;
+      const shops = [...nearK, ...far.slice(k * 3 % Math.max(1, far.length)), ...far].filter((v, i, arr) => arr.indexOf(v) === i).slice(0, Math.max(nearK.length, 10));
       plans.push({ angle, angleName: A[0], angleHow: A[1], len: A[2], lead: dishes[k % dishes.length], tags, aiTags: (B.tagsTotal || 9) - (B.tagsMust || []).length - tags.length, nextDay: k === 0 && Math.random() < 0.5, shops: shops.map(sh => sh.name) });
     }
     return plans;
@@ -466,7 +470,8 @@ ${shopLines}
   function mark(id, i, st, note, who) {
     const f = path.join(BD, id + '.json'); const b = getBatch(id); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +i); if (!n) throw new Error('没有这一篇');
     if (st) { n.status = st; if (/ok/.test(st) && !n.okAt) n.okAt = Date.now(); } if (note) n.notes.push({ t: String(note).slice(0, 500), who, at: Date.now() }); wj(f, b);
-    if (/fix/.test(st || '') && note && String(note).replace(/【商家】/, '').trim().length >= 3 && cfg.glAutoRevise !== false) { n.revising = { ask: note, who, at: Date.now() }; aiRevise(id, n.no, String(note).replace(/^【商家】/, '').slice(0, 500), who).catch(() => { }); }
+    const revToday = (n.revs || []).filter(r => Date.now() - r.at < 24 * 3600e3).length; if (/fix/.test(st || '') && note && revToday >= 8) { n.notes.push({ t: '🤖 这篇今天已经让 AI 改了 8 次，先不自动改了，请直接点「改文案」手动改', who: 'AI', at: Date.now() }); wj(f, b); }
+    else if (/fix/.test(st || '') && note && String(note).replace(/【商家】/, '').trim().length >= 3 && cfg.glAutoRevise !== false) { n.revising = { ask: note, who, at: Date.now() }; aiRevise(id, n.no, String(note).replace(/^【商家】/, '').slice(0, 500), who).catch(() => { }); }
     return n;
   }
 
@@ -703,6 +708,7 @@ ${text}`, ['qwen-plus', 'deepseek-v4.1-flash']);
           L.push({ id: 's' + Date.now().toString(36) + L.length, name: c.name, planted: false, district: B.district, area: String(c.area || '').slice(0, 20), cat: c.cat, slot: '', dishes: c.dishes, price: c.price, star: '', years: '', hours: c.hours, addr: c.addr, src: '自家内容库', verify: true, ownN: c.own }); c.st = 'added'; n++; add++; });
       out[B.name] = [add, n]; });
     wj(SF, L); return out; }
+  setInterval(() => { const hh = new Date(Date.now() + 8 * 3600e3).getUTCHours(); if (hh === 4) ownCands().catch(() => { }); }, 3600e3); // 每天凌晨 4 点看一眼自家内容库有没有新攻略，有就接着抽店、补门店池
   setInterval(() => extractCands().catch(() => { }), 3 * 3600e3); setTimeout(() => extractCands().catch(() => { }), 120e3);
   function candList(bid) { const B = briefs().find(x => x.id === bid) || briefs()[0] || {}; const near = nearOf(B); const same = sameCatRe(B);
     return CA.items.filter(c => c.st === 'new').map(c => Object.assign({}, c, { near: near.some(a => (c.area + c.addr + c.name).includes(a)), same: same.test(c.cat + c.name) })).sort((a, c) => (c.near - a.near) || (a.same - c.same) || c.notes.length - a.notes.length); }
