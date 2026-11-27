@@ -72,14 +72,14 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm }) {
 【读者】${B.audience}
 【必须做到】
 1. 标题 ≤20 字，必须同时有地点词和需求词（${B.titleRule}），本篇优先往「${dir.words.join('」「')}」这类搜索词靠，不要用感叹号堆砌。
-2. 主店是「${B.storeTitle}」，它会由程序固定放在美食清单第 2 位，你在 sections 里不要写它。
-3. 美食清单 sections 只能用下面门店池里的店（店名照抄，不要编新店），按 2–3 个分类（如 正餐/夜宵、糖水甜品、粉面小吃、第二天早餐），一共 6–9 家；每家一句话（≤18 字）写招牌菜或特点，不要写具体价格以外编造的信息。
+2. 主店是「${B.storeTitle}」，程序会把它单独放成一个分类「${B.mainCat || '晚饭·海鲜大排档'}」、排在美食清单第 2 家，你在 sections 里不要写它。
+3. 美食清单 sections 只能用下面门店池里的店（店名照抄，不要编新店）。第一个分类固定叫「中午垫一口」、只放 1 家（粉面/小吃/茶点类）；后面再分 2–3 个分类（如 糖水甜品、夜宵续摊、第二天早餐），分类名要和店的品类对得上，不要把不同品类混在一起，一共 6–9 家；每家一句话（≤18 字）写招牌菜或特点，不要写具体价格以外编造的信息。
 4. 主店介绍 yes：爆膏奶油虾必写，再从这些菜里选 2–3 道：${dishes}；每道一句话（≤22 字，具体到口感/吃法，不夸大，不能写“只只爆膏”）。再写 2 条点菜建议（按人数）、1 句什么时候去、1 句适合什么聚会。
 5. 景点必须有世界之窗；可以再选 0–2 个：${B.optSpots.join('、')}。景点只写游玩建议，不写门票价格、开放时间等数字（这些我们没核实）。
 6. 正文 body 120–220 字，第一人称，口语化，有具体场景（谁、什么时候、玩了什么、吃了什么），提到主店最多 2 次，不要列店名清单（清单在图里）；结尾一句话自然收尾，不能和下面已经用过的结尾重复，也不要写“图里/码住”之外的套话。
 7. 禁用词：${B.banned.join('、')}；不要说“无广”“自费”“不是广告”。
 8. 话题 tags 只写 2 个，从这里选：${B.tagsOpt.join(' ')}（另外 3 个固定话题程序会加）。
-9. cover 是封面大字，2–3 行，每行 ≤9 字，${layout === 'memo' ? '像「存一下 下周去南山 要吃的东西」这种自存口吻' : layout === 'hand' ? '像「南山吃什么」「逛完世界之窗去哪吃」' : layout === 'star' ? '像「南山美食 个人打分」带一点主观' : '像「南山一日游 不走回头路」'}。
+9. cover 是封面大字，只写 2 行，每行 ≤9 字，像真人随手记的一句话，${layout === 'memo' ? '如「存一下 下周去南山」「要吃的东西」' : layout === 'hand' ? '如「逛完世界之窗」「去哪吃夜宵」' : layout === 'star' ? '如「南山美食」「个人打分」' : '如「南山一日游」「不走回头路」'}。封面和标题里都不要出现任何店名、品牌名，也不要写「大排档」，否则像广告，别人不会点进来。
 10. 这是同一批的第 ${k} 篇，标题、开头、结尾、选的店和菜都要和前面的不一样。前面用过的：${prev.length ? prev.map(p => `《${p.title}》结尾「${p.ending}」`).join('；') : '无'}
 【主店资料（程序会照抄，不用你写）】${B.storeTitle}｜${B.address}｜人均${B.price}｜${B.hours}
 【门店池（${B.district}）】
@@ -98,6 +98,9 @@ ${shopLines}
     if (!/(世界之窗|南山|白石洲|华侨城|深圳|蛇口|南头)/.test(n.title)) out.push(['err', '标题没有地点词']);
     if (!/(吃|美食|夜宵|攻略|一日游|逛|玩|清单|推荐|去哪)/.test(n.title)) out.push(['err', '标题没有需求词']);
     if ([...n.title].length > 22) out.push(['warn', `标题 ${[...n.title].length} 字，偏长`]);
+    if ((n.cover || []).some(l => /大排档|YES|也是/i.test(l))) out.push(['err', '封面出现店名/大排档，像广告']);
+    if (/大排档|YES|也是大/i.test(n.title)) out.push(['warn', '标题出现店名/大排档，像广告']);
+    if ((n.sections[1] || {}).items && !(n.sections[1].items.length === 1 && n.sections[1].items[0].main)) out.push(['warn', '主店没有单独成一个分类']);
     const flat = n.sections.flatMap(s => s.items); if (!flat[1] || !flat[1].main) out.push(['err', '主店不在清单第 2 位']);
     const dn = (n.yes.dishes || []).map(d => d.name); if (!dn.includes(B.mustDish)) out.push(['err', `主店介绍缺「${B.mustDish}」`]);
     if (dn.length < B.minDishes) out.push(['err', `主店菜品只有 ${dn.length} 道（至少 ${B.minDishes} 道）`]);
@@ -112,19 +115,27 @@ ${shopLines}
     batch.notes.forEach(o => { if (o !== n && o.ending && o.ending === n.ending) out.push(['err', '结尾和本批另一篇重复']); if (o !== n && o.title === n.title) out.push(['err', '标题和本批另一篇重复']); });
     return out;
   }
+  // 主店单独成一个分类、排全篇第 2 家：第一个分类只留 1 家（中午垫一口），主店分类第二，第一类剩下的店按原分类名接在后面
+  function regroup(secs, yes, yesH) {
+    secs = secs.map(x => ({ h: x.h, items: x.items.filter(i => !i.main) })).filter(x => x.items.length);
+    if (!secs.length) return [{ h: yesH, items: [yes] }];
+    const f = secs[0]; const rest = f.items.slice(1);
+    const out = [{ h: rest.length ? '中午垫一口' : f.h, items: [f.items[0]] }, { h: yesH, items: [yes] }];
+    if (rest.length) { const same = secs.slice(1).find(x => x.h === f.h); if (same) same.items.unshift(...rest); else out.push({ h: f.h, items: rest }); }
+    return out.concat(secs.slice(1));
+  }
   function build(j, B, pool, main) {
     const dropped = []; const used = new Set();
     const sections = (j.sections || []).map(s => ({ h: String(s.h || '').slice(0, 10), items: (s.items || []).map(it => { const sh = matchShop(it.shop, pool); if (!sh) { if (it.shop && !/YES|也是大排档/.test(it.shop)) dropped.push(it.shop); return null; } if (used.has(sh.id)) return null; used.add(sh.id); return { id: sh.id, name: sh.name, area: sh.area, price: sh.price, say: String(it.say || '').slice(0, 30), stars: Math.max(3, Math.min(5, +it.stars || 4)) }; }).filter(Boolean) })).filter(s => s.items.length);
     if (!sections.length) sections.push({ h: '吃饭', items: [] });
     const yesItem = { id: main.id, name: main.name, area: main.area, price: B.price, say: `${B.mustDish}、猛火小炒`, stars: 5, main: true };
-    // 主店固定放在全篇清单第 2 位
-    const s0 = sections[0]; if (s0.items.length >= 1) s0.items.splice(1, 0, yesItem); else { s0.items.push(yesItem); }
-    if (sections[0].items.length === 1 && sections[1] && sections[1].items.length) { /* 只有一家时把下一组第一家挪上来，保证主店第 2 */ sections[0].items.unshift(sections[1].items.shift()); }
+    const secs2 = regroup(sections.filter(s => s.items.length), yesItem, B.mainCat || '晚饭·海鲜大排档');
+    sections.length = 0; secs2.forEach(x => sections.push(x));
     const tags = [...B.tagsMust, ...(j.tags || []).map(t => '#' + String(t).replace(/^#/, '')).filter(t => B.tagsOpt.includes(t)).slice(0, B.tagsOptN)];
     for (const t of B.tagsOpt) { if (tags.length >= B.tagsMust.length + B.tagsOptN) break; if (!tags.includes(t)) tags.push(t); }
     const yes = j.yes || {}; const dishes = (yes.dishes || []).map(d => ({ name: String(d.name || '').trim(), line: String(d.line || '').slice(0, 40) })).filter(d => d.name);
     if (!dishes.some(d => d.name === B.mustDish)) dishes.unshift({ name: B.mustDish, line: '奶油香裹着虾膏，趁热先吃' });
-    return { title: String(j.title || '').trim(), cover: (j.cover || []).map(String).slice(0, 3), body: String(j.body || '').trim(), ending: String(j.ending || '').trim(), tags, sections, dropped,
+    return { title: String(j.title || '').trim(), cover: (j.cover || []).map(String).filter(l => !/大排档|YES|也是/i.test(l)).slice(0, 2), body: String(j.body || '').trim(), ending: String(j.ending || '').trim(), tags, sections, dropped,
       route: (j.route || []).slice(0, 6).map(r => ({ t: String(r.t || ''), place: String(r.place || ''), do: String(r.do || '') })), spots: (j.spots || []).slice(0, 3).map(s => ({ place: String(s.place || ''), tip: String(s.tip || '') })),
       yes: { dishes: dishes.slice(0, 5), order: (yes.order || []).map(String).slice(0, 3), when: String(yes.when || ''), fit: String(yes.fit || '') }, main: { name: B.storeTitle, address: B.address, price: B.price, hours: B.hours } };
   }
