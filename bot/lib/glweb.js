@@ -210,7 +210,7 @@ ${shopLines}
     const isBoss = me.role === 'boss', canWork = me.role === 'boss' || me.role === 'ops';
     try {
       if (p === '/api/me') return J(res, { ok: true, me: { name: me.name, role: me.role, roleName: ROLE[me.role] }, layouts: LAYOUTS });
-      if (p === '/api/dash') { const B = batches(); const st = glib.status(); return J(res, { ok: true, lib: { total: st.total, night: st.night, window: st.window, authors: st.authors }, stores: stores().length, briefs: briefs().length, batches: B.length, notes: B.reduce((s, b) => s + b.notes.length, 0), todo: B.reduce((s, b) => s + b.notes.filter(n => n.status === 'todo').length, 0), recent: B.slice(0, 5).map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.notes.length, status: b.status })) }); }
+      if (p === '/api/dash') { const B = batches(); const st = glib.status(); return J(res, { ok: true, lib: { total: st.total, night: st.night, day: st.day, pause: st.pause, window: st.window, authors: st.authors }, stores: stores().length, briefs: briefs().length, batches: B.length, notes: B.reduce((s, b) => s + b.notes.length, 0), todo: B.reduce((s, b) => s + b.notes.filter(n => n.status === 'todo').length, 0), recent: B.slice(0, 5).map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.notes.length, status: b.status })) }); }
       if (p === '/api/lib') return J(res, glib.query(Object.fromEntries(u.searchParams)));
       m = p.match(/^\/api\/lib\/([0-9a-f]{24})$/); if (m) { const n = glib.get(m[1]); return J(res, n ? { ok: true, note: n } : { ok: false, error: '没有这篇' }); }
       if (p === '/api/night') return J(res, glib.status());

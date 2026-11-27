@@ -11,6 +11,7 @@ const DAY = 864e5;
 const CITIES = ['深圳', '广州', '上海', '北京', '成都', '重庆', '杭州', '长沙', '西安', '南京', '武汉', '厦门', '苏州', '顺德', '佛山', '青岛', '珠海', '东莞', '天津', '大理', '泉州', '昆明', '三亚', '郑州', '南昌', '合肥', '福州', '济南', '汕头', '潮汕'];
 const WORDS = ['美食清单', '必吃', '吃什么', '美食攻略', '一日游', '旅游攻略', '本地人推荐', '自存', '夯到拉', '美食合集', '要买的东西', '带朋友吃', '逛吃', '好吃的店'];
 const CAP = { kw: 30, detail: 150, perRound: [2, 3], restMin: [20, 40], perKw: 6 };
+const DCAP = { kw: 12, detail: 45, perRound: [1, 2], restMin: [60, 90], perKw: 4 }; // 白天（07:00–22:00）更少更慢，林总 2026-11-27 同意白天也跑
 const bj = (t) => new Date((t || Date.now()) + 8 * 3600e3);
 const bjHour = t => bj(t).getUTCHours();
 const nightKey = t => { const d = bj(t); if (d.getUTCHours() < 12) d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); }; // 晚上 22 点开始那一天
@@ -30,33 +31,37 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
   [D, ND, ID].forEach(d => { try { fs.mkdirSync(d, { recursive: true }); } catch (e) { } });
   const rj = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
   const wj = (f, v) => { const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(v)); fs.renameSync(tmp, f); };
-  const NF = path.join(D, 'night.json'), KF = path.join(D, 'kw.json'), AF = path.join(D, 'authors.json');
-  let N = rj(NF, {}); let K = rj(KF, {}); let AU = rj(AF, {});
-  const saveN = () => wj(NF, N), saveK = () => wj(KF, K), saveA = () => wj(AF, AU);
+  const NF = path.join(D, 'night.json'), DF = path.join(D, 'day.json'), KF = path.join(D, 'kw.json'), AF = path.join(D, 'authors.json'), PF = path.join(D, 'pause.json');
+  let N = rj(NF, {}); let DY = rj(DF, {}); let K = rj(KF, {}); let AU = rj(AF, {}); let PA = rj(PF, {});
+  const saveN = () => { wj(NF, N); wj(DF, DY); }, saveK = () => wj(KF, K), saveA = () => wj(AF, AU);
   // 内存索引：所有笔记（不含正文和评论，列表页够用）
   const IDX = new Map();
   function load() { IDX.clear(); for (const f of fs.readdirSync(ND)) { if (!f.endsWith('.json')) continue; const n = rj(path.join(ND, f), null); if (n && n.id) IDX.set(n.id, slim(n)); } }
   function slim(n) { const { desc, comments, ...r } = n; return Object.assign(r, { descLen: String(desc || '').length }); }
   try { load(); } catch (e) { log('[爆款库] 读取出错：' + e.message); }
-  const night = () => { const k = nightKey(); if (N.key !== k) { N = { key: k, kw: 0, detail: 0, rounds: 0, found: 0, added: 0, blocked: '', nextAt: 0, log: [], kws: [], sent: false }; saveN(); } return N; };
-  const nlog = t => { const n = night(); n.log.unshift(bj().toISOString().slice(11, 16) + ' ' + t); n.log = n.log.slice(0, 80); saveN(); };
+  const fresh = k => ({ key: k, kw: 0, detail: 0, rounds: 0, found: 0, added: 0, blocked: '', nextAt: 0, log: [], kws: [], sent: false });
+  const night = () => { const k = nightKey(); if (N.key !== k) { N = fresh(k); saveN(); } return N; };
+  const dayS = () => { const k = 'd' + bj().toISOString().slice(0, 10); if (DY.key !== k) { DY = fresh(k); saveN(); } return DY; };
+  const cur = () => inWindow(Date.now()) ? night() : dayS(); const capOf = () => inWindow(Date.now()) ? CAP : DCAP;
+  const nlog = t => { const n = cur(); n.log.unshift(bj().toISOString().slice(11, 16) + ' ' + t); n.log = n.log.slice(0, 80); saveN(); };
 
   function pickKws(n) {
     const all = []; CITIES.forEach((c, ci) => WORDS.forEach((w, wi) => all.push({ kw: `${c}${w}`, pri: 100 - ci * 2 - wi })));
     // 爆过的笔记反推的「标题骨架 × 城市」排前面（同系列验证）
     (rj(path.join(D, 'skeleton.json'), []) || []).forEach(s => CITIES.slice(0, 10).forEach(c => all.push({ kw: s.replace(/X/g, c), pri: 120 })));
     const score = x => { const s = K[x.kw]; if (!s) return 1000 + x.pri; const days = (Date.now() - s.last) / DAY; return x.pri * 0.3 + Math.min(days, 30) * 4 + (s.runs ? (s.hot / s.runs) * 30 : 0); };
-    const used = new Set(night().kws);
+    const used = new Set([...night().kws, ...dayS().kws]);
     return all.filter(x => !used.has(x.kw)).sort((a, b) => score(b) - score(a)).slice(0, n).map(x => x.kw);
   }
 
   // ---------- 插件接口 ----------
   function need() {
-    const n = night(); const now = Date.now();
-    if (cfg.glNight === false) return { ok: true, task: 'none', why: '夜间采集已关' };
-    if (!inWindow(now)) return { ok: true, task: 'none', why: '不在 22:00–07:00' };
-    if (n.blocked) return { ok: true, task: 'none', why: '今晚碰到验证，已停：' + n.blocked };
-    if (n.kw >= CAP.kw || n.detail >= CAP.detail) return { ok: true, task: 'none', why: '今晚额度用完' };
+    const now = Date.now(); const n = cur(); const CAP = capOf(); const isNight = inWindow(now);
+    if (cfg.glNight === false) return { ok: true, task: 'none', why: '爆款采集已关' };
+    if (!isNight && cfg.glDay === false) return { ok: true, task: 'none', why: '白天采集已关' };
+    if (PA.until && now < PA.until) return { ok: true, task: 'none', why: '碰到过验证，暂停到 ' + bj(PA.until).toISOString().slice(5, 16) };
+    if (n.blocked) return { ok: true, task: 'none', why: '碰到验证，已停：' + n.blocked };
+    if (n.kw >= CAP.kw || n.detail >= CAP.detail) return { ok: true, task: 'none', why: (isNight ? '今晚' : '白天') + '额度用完' };
     if (n.nextAt && now < n.nextAt) return { ok: true, task: 'none', why: '休息中，下一轮 ' + bj(n.nextAt).toISOString().slice(11, 16) };
     if (n.running && now - n.running < 40 * 60e3) return { ok: true, task: 'none', why: '上一轮还没跑完' };
     const k = CAP.perRound[0] + Math.floor(Math.random() * (CAP.perRound[1] - CAP.perRound[0] + 1));
@@ -66,7 +71,7 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
   }
   // 插件交来搜索列表：记关键词效果、挑要点进去读的
   function list(b) {
-    const n = night(); const kw = String(b.kw || '').slice(0, 40); const L = (Array.isArray(b.list) ? b.list : []).filter(x => x && /^[0-9a-f]{24}$/.test(x.id) && x.type !== 'video' && x.kind !== 'video');
+    const n = cur(); const CAP = capOf(); const kw = String(b.kw || '').slice(0, 40); const L = (Array.isArray(b.list) ? b.list : []).filter(x => x && /^[0-9a-f]{24}$/.test(x.id) && x.type !== 'video' && x.kind !== 'video');
     const now = Date.now(); n.found += L.length;
     const cands = L.map(x => Object.assign({}, x, heatOf({ id: x.id, time: x.time, collects: x.collects, shares: x.shares }, now), { likes: num(x.likes) }))
       .filter(x => !IDX.has(x.id) && x.days <= 180 && (x.daily >= 8 || num(x.collects) >= 500 || (x.collects === undefined && x.likes >= 1000)));
@@ -85,11 +90,13 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
   function ingest(b) { const p = q.then(() => ingest1(b)); q = p.catch(() => { }); return p; }
   async function ingest1(b) {
     const x = b.note || {}; const id = String(x.id || ''); if (!/^[0-9a-f]{24}$/.test(id)) throw new Error('缺少笔记ID');
-    const n = b.src === 'night' ? night() : null; if (n) n.detail++;
+    const n = b.src === 'night' ? cur() : null; if (n) n.detail++;
+    if (x.type === 'video') { if (n) { saveN(); nlog('跳过视频笔记'); } return { ok: true, skip: 'video', images: 0 }; }
     const old = IDX.has(id) ? rj(path.join(ND, id + '.json'), {}) : null;
     const images = (Array.isArray(x.images) ? x.images : []).filter(u => /^https?:\/\/[^/]*(xhscdn|xiaohongshu)\.(com|net)\//.test(u)).slice(0, 30);
     const dir = path.join(ID, id); fs.mkdirSync(dir, { recursive: true }); const files = (old && old.files) || [];
     if (!files.length) for (let i = 0; i < images.length; i++) { try { const g = await getImg(images[i]); const f = `${i + 1}.${g.ext}`; fs.writeFileSync(path.join(dir, f), g.buf); files.push(f); } catch (e) { } }
+    if (!files.length && !old) { try { fs.rmdirSync(dir); } catch (e) { } if (n) { saveN(); nlog(`没读到图片，不入库：${String(x.title || id).slice(0, 16)}`); } return { ok: true, skip: 'noimg', images: 0 }; }
     const note = Object.assign(old || { firstAt: Date.now(), kws: [] }, {
       id, platform: 'xhs', url: `https://www.xiaohongshu.com/explore/${id}`, title: String(x.title || '').slice(0, 200), desc: String(x.desc || '').slice(0, 6000), tags: (x.tags || []).map(String).slice(0, 20),
       author: String(x.author || ''), authorId: String(x.uid || x.authorId || ''), time: x.time || idTime(id), ip: x.ip || '', type: x.type === 'video' ? 'video' : 'note',
@@ -105,8 +112,8 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
     classifyLater(id);
     return { ok: true, id, images: files.length };
   }
-  function blocked(b) { const n = night(); n.blocked = String(b.why || '验证').slice(0, 60); n.running = 0; saveN(); nlog('⚠️ 碰到验证，今晚停止：' + n.blocked); return { ok: true }; }
-  function roundDone(b) { const n = night(); n.running = 0; const [a, z] = CAP.restMin; n.nextAt = Date.now() + (a + Math.random() * (z - a)) * 60e3; if (b && b.err) nlog('本轮出错：' + String(b.err).slice(0, 80)); saveN(); return { ok: true, nextAt: n.nextAt }; }
+  function blocked(b) { const n = cur(); n.blocked = String(b.why || '验证').slice(0, 60); n.running = 0; PA = { until: Date.now() + 12 * 3600e3, why: n.blocked, at: Date.now() }; wj(PF, PA); saveN(); nlog('⚠️ 碰到验证，暂停 12 小时：' + n.blocked); if (notify) notify(`⚠️ 爆款采集碰到小红书验证（${n.blocked}），已自动暂停 12 小时，之后减量再跑。你用这个号刷小红书时如果看到验证，手动过一下就好。`).catch(() => { }); return { ok: true }; }
+  function roundDone(b) { const n = cur(); n.running = 0; const [a, z] = capOf().restMin; n.nextAt = Date.now() + (a + Math.random() * (z - a)) * 60e3; if (b && b.err) nlog('本轮出错：' + String(b.err).slice(0, 80)); saveN(); return { ok: true, nextAt: n.nextAt }; }
 
   // ---------- AI 拆解：看封面和前两张，判断类型、标题套路、版式、能不能做成文字版式 ----------
   const CQ = []; let cBusy = false;
@@ -163,7 +170,7 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
   }
   function get(id) { const n = rj(path.join(ND, id + '.json'), null); if (!n) return null; const a = AU[n.authorId]; return Object.assign(n, { tplAuthor: !!(a && a.tpl), authorNotes: a ? a.notes.length : 0 }); }
   function imgPath(id, f) { if (!/^[0-9a-f]{24}$/.test(id) || !/^\d+\.(jpg|png|webp)$/.test(f)) return null; const p = path.join(ID, id, f); return fs.existsSync(p) ? p : null; }
-  function status() { const n = night(); return { ok: true, night: Object.assign({}, n, { log: n.log.slice(0, 30) }), window: inWindow(Date.now()), total: IDX.size, authors: Object.values(AU).filter(a => a.tpl).map(a => ({ name: a.name, n: a.notes.length, why: a.why })), caps: CAP }; }
+  function status() { const n = night(), d = dayS(); return { ok: true, night: Object.assign({}, n, { log: n.log.slice(0, 30) }), day: Object.assign({}, d, { log: d.log.slice(0, 20) }), pause: PA.until > Date.now() ? PA : null, window: inWindow(Date.now()), total: IDX.size, authors: Object.values(AU).filter(a => a.tpl).map(a => ({ name: a.name, n: a.notes.length, why: a.why })), caps: CAP }; }
   return { need, list, ingest, blocked, roundDone, query, get, imgPath, status, summary, reload: load, count: () => IDX.size };
 }
 module.exports = { createGlib, heatOf };
