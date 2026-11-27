@@ -126,6 +126,11 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
     '主食': [['碎碎蛋爆炒米粉', 26], ['老广干炒牛河', 29]],
     '饮品': [['清甜茅根竹蔗', 15], ['爆打柠檬茶', 19]] };
   { const L = briefs(); let ch = false; L.forEach(b => { if (!b.menu && /YES|也是大排档/.test((b.brand || '') + b.storeTitle)) { b.menu = YES_MENU; b.dishes = { '海鲜': ['秘汁捞花甲', '蒜巴掌大生蚝', '椒盐皮皮虾', '台式胡椒花螺', '金不换炒海瓜子', '咸蛋黄鸡翅虾'], '小炒': ['椒盐玉米', '反沙凤梨', '椒盐鸭下巴', '黑椒雪花牛肉粒', '避风塘鸡中翅', '猛火啫大肠'], '主食': ['海胆炒饭2.0', '碎碎蛋爆炒米粉', '老广干炒牛河', '青虾粥'], '饮品': ['爆打柠檬茶', '清甜茅根竹蔗'] }; b.facts = String(b.facts || '').replace(/；?爆膏奶油虾用的是罗氏虾（不是龙虾）/, '') + '；爆膏奶油虾 99 元，用的是罗氏虾（不能写成龙虾）；这家店没有上必吃榜/宝藏榜（那是水东街店、华强北店的），不能写上榜'; ch = true; } }); if (ch) wj(BF, L); }
+  { if (!META.seed5) { try { const S5 = require('./glseed5'); const L = briefs(), ST0 = stores(); let i = 0; const b1 = L.find(x => x.id === 'b1') || {};
+      S5.stores.forEach(st => { if (!ST0.some(x => x.id === st.id || x.name === st.name)) ST0.push(Object.assign({ slot: '', star: '', years: '' }, st)); });
+      S5.pool.forEach(sh => { if (!ST0.some(x => x.name === sh.name)) ST0.push(Object.assign({ id: 'sp' + Date.now().toString(36) + (i++), planted: false, slot: '', price: '', star: '', years: '', hours: '', addr: '', src: '自家内容库', verify: true }, sh)); });
+      S5.briefs.forEach(b => { if (!L.some(x => x.id === b.id || x.store === b.store)) L.push(Object.assign({}, b, { menu: YES_MENU, dishes: b1.dishes || {} })); });
+      wj(SF, ST0); wj(BF, L); META.seed5 = Date.now(); saveMeta(); log(`[攻略平台] 新建 ${S5.briefs.length} 份门店任务书，门店池补 ${S5.pool.length} 家周边店（待核对）`); } catch (e) { log('[攻略平台] 建门店任务书出错：' + e.message); } } }
   const menuText = B => B.menu ? Object.entries(B.menu).map(([c, l]) => `${c}：${l.map(([n, pz]) => `${n}${pz}`).join('、')}`).join('；') : '';
   // ---------- 每篇的变量由程序分配（林总 2026-11-27：重复率高的根子是输入一样、规则锁死骨架、没人管差异）----------
   const ANGLES = {
@@ -520,8 +525,8 @@ ${plays.map(k => `- ${k}｜${PLAYS[k][0]}：${PLAYS[k][1]}`).join('\n')}
   const CF = path.join(D, 'cands.json'); let CA = rj(CF, { items: [], done: [] }); const saveC = () => wj(CF, CA);
   const nearOf = B => [...new Set((B.nearAreas && B.nearAreas.length ? B.nearAreas : [...(B.placeWords || []), ...(B.mustSpots || []), ...(B.optSpots || []).slice(0, 2)]).filter(Boolean))];
   const sameCatRe = B => new RegExp((B.sameCat && B.sameCat.length ? B.sameCat : /大排档|海鲜/.test(B.storeType || '') ? ['大排档', '海鲜', '烧烤', '生蚝', '砂锅粥', '小龙虾'] : [B.storeType || '无']).join('|'));
-  function syncFocus() { if (!glib || !glib.setFocus) return; const kws = []; briefs().forEach(B => nearOf(B).slice(0, 6).forEach(a => { kws.push(a + '美食'); if (kws.length < 12) kws.push(a + '附近吃什么'); })); glib.setFocus([...new Set(kws)].slice(0, 14)); }
-  setTimeout(syncFocus, 30e3);
+  function syncFocus() { if (!glib || !glib.setFocus) return; const kws = []; briefs().forEach(B => { const N = nearOf(B).slice(0, 4); N.forEach((a, i) => { kws.push((B.city && !a.includes(B.city) && i ? B.city : '') + a + '美食'); if (!i) kws.push(a + '附近吃什么'); }); }); glib.setFocus([...new Set(kws)].slice(0, 36)); }
+  setTimeout(syncFocus, 30e3); setInterval(syncFocus, 6 * 3600e3);
   async function extractCands() {
     if (!glib || !glib.focus) return; const F = new Set(glib.focus().map(x => x.kw)); const done = new Set(CA.done); const all = stores();
     const L = (glib.query ? glib.query({ n: 5000, sort: 'in' }) : { items: [] }).items || []; let n = 0;
