@@ -144,7 +144,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
 ${shops}
 【同一批别的篇已经用过的标题】${batch.notes.map(x => x.title).join('；') || '无'}
 【程序已经查出来的硬伤（必须改掉）】${check(got, B, batch).filter(c => c[0] === 'err').map(c => c[1]).join('；') || '无'}
-【这些不算问题，别改】话题里的 ${B.tagsMust.join(' ')} 是固定话题；正文和清单里写「${B.storeTitle}」全称是对的（只是封面和标题不能有）；周边店营业时间写「不详」的照常可以写，只是不写具体几点；sections 里没有主店是对的（程序会自己放进去）。
+【这些不算问题，别改】话题里的 ${B.tagsMust.join(' ')} 是固定话题；正文和清单里写「${B.storeTitle}」全称是对的、必须保留（只是封面和标题不能有），别把它改成「那家排档」；周边店营业时间写「不详」的照常可以写，只是不写具体几点；sections 里没有主店是对的（程序会自己放进去）。
 【要检查的】
 1. 事实：地址、地铁口、营业时间、价格、菜名和上面对不上的；把罗氏虾写成龙虾的；说上了什么榜但事实里没写的。
 2. 地理和时间：路线来回折返；「离主店远」的店被写成步行顺路；排的时间不在店的营业时间里；正文和清单里的店对不上。
@@ -159,8 +159,8 @@ ${JSON.stringify(pick(got)).slice(0, 9000)}`;
     const problems = (J0.problems || []).slice(0, 20).map(x => ({ level: x.level === 'err' ? 'err' : 'warn', where: String(x.where || '').slice(0, 16), text: String(x.text || '').slice(0, 80) })).filter(x => x.text);
     const out = { model: r.model, problems, adopted: false, at: Date.now() };
     // 只按「原话→新话」逐处替换，其余字段（店单、路线、景点、话题）原样保留，改不坏结构
-    const edits = (Array.isArray(J0.edits) ? J0.edits : []).map(e => ({ old: String((e && e.old) || ''), new: String((e && e.new) || '') })).filter(e => e.old.length >= 2 && e.old !== e.new).slice(0, 12);
-    const nt = J0.title && String(J0.title).trim() !== got.title ? String(J0.title).trim().slice(0, 24) : '';
+    const edits = (Array.isArray(J0.edits) ? J0.edits : []).map(e => ({ old: String((e && e.old) || ''), new: String((e && e.new) || '') })).filter(e => e.old.length >= 2 && e.old !== e.new && !(/YES也是大排档/i.test(e.old) && !/YES也是大排档/i.test(e.new))).slice(0, 12); // 正文里的全称要留着（林总：关键词要完整的 YES也是大排档）
+    let nt = J0.title && String(J0.title).trim() !== got.title ? String(J0.title).trim().slice(0, 24) : ''; if (nt && (CLICHE.some(w => nt.includes(w)) || brandRe(B).test(nt) || /不踩雷|避雷|闭眼/.test(nt))) nt = '';
     if (edits.length || nt) {
       const fixed = JSON.parse(JSON.stringify(got)); let hit = 0;
       const walk = (o, k) => { const v = o[k]; if (typeof v === 'string') { let t = v; edits.forEach(e => { if (t.includes(e.old)) { t = t.split(e.old).join(e.new); hit++; } }); o[k] = t.replace(/[，,]{2,}/g, '，').replace(/^[，,]\s*/, ''); } else if (v && typeof v === 'object') Object.keys(v).forEach(x => walk(v, x)); };
@@ -268,7 +268,7 @@ ${shopLines}
     if (flat.length < 5) out.push(['warn', `清单只有 ${flat.length} 家店`]);
     const bl = [...String(n.body || '')].length; if (bl < 120 || bl > 750) out.push(['warn', `正文 ${bl} 字`]);
     const yesMentions = (String(n.body).match(new RegExp(brandWordsOf(B).filter(w => w !== '大排档').map(reEsc).join('|') || 'YES', 'gi')) || []).length; if (yesMentions > 3) out.push(['warn', `正文提主店 ${yesMentions} 次，像广告`]);
-    const cl = CLICHE.filter(w => String(n.body).includes(w)); if (cl.length) out.push(['warn', `套话：${cl.join('、')}`]);
+    const cl = CLICHE.filter(w => String(n.body).includes(w) || String(n.title).includes(w)); if (cl.length) out.push(['warn', `套话：${cl.join('、')}`]);
     if (/见图|看图片|主店部分/.test(String(n.body).slice(0, -40))) out.push(['err', '正文里写了「见图片」这类话']);
     if (/龙虾[^，。！\n]{0,6}(奶油|爆膏)|(奶油|爆膏)[^，。！\n]{0,6}龙虾/.test(allText)) out.push(['err', '把爆膏奶油虾写成了龙虾（用的是罗氏虾）']);
     if (/必吃榜|宝藏榜|上榜/.test(allText) && B.honors !== true) out.push(['err', '写了上榜（必吃榜/宝藏榜是水东街店、华强北店的，这家店没有）']);
