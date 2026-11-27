@@ -723,8 +723,8 @@ async function pickImg(o, done) { // 大厅里自己选配图：同店、菜名�
   d.addEventListener('click', e => { const pi = e.target.closest('[data-pi]'); if (pi) { d.remove(); done(all[+pi.dataset.pi].f); } });
 }
 // 需求箱：员工直接提软件/功能上的需求，不用都找林总
-async function askBox() { const AS = { todo: ['已收到', 'am'], doing: ['在改', 'am'], done: ['已改好', 'ok'], no: ['暂不做', 'bad'] }; const r = await api('/api/asks');
-  const d = modal(`<h3>📮 提需求 / 报问题</h3><div class="hint">用着哪里不顺手、想加什么功能、哪里出错了，直接写在这。写清楚：哪个页面、现在是什么样、想要什么样。稿子内容要改的不用写这里，在审稿那篇下面写意见点「要改」，AI 会直接改。</div>
+async function askBox() { try { localStorage.glAskSeen = Date.now(); const ab = $('#askbtn'); if (ab) ab.textContent = '📮 提需求'; } catch (e) { } const AS = { todo: ['已收到', 'am'], doing: ['在改', 'am'], done: ['已改好', 'ok'], no: ['暂不做', 'bad'] }; const r = await api('/api/asks');
+  const d = modal(`<h3>📮 提需求 / 报问题</h3><div class="hint">用着哪里不顺手、想加什么功能、哪里出错了，直接写在这，系统每小时自动看一次、能改的直接改好上线，改完在下面回复你。写清楚：哪个页面、现在是什么样、想要什么样。稿子内容要改的不用写这里，在审稿那篇下面写意见点「要改」，AI 会直接改。</div>
   <textarea id="asktx" rows="4" style="width:100%;margin:8px 0" placeholder="例：派发页想按账号筛选；AI 审稿里下载图片的顺序是乱的…"></textarea><div class="row"><button class="btn pri" id="askgo">提交</button><button class="btn" data-cl>关闭</button></div>
   <h3 style="margin-top:14px">${r.boss ? '大家提的' : '我提过的'}</h3>${r.items.map(x => { const [l, c] = AS[x.status] || AS.todo; return `<div class="note" style="padding:8px 10px;margin:6px 0"><div class="row"><span class="tag ${c}">${l}</span><span class="hint">${h(x.by)} · ${day(x.at)}${x.page ? ' · ' + h(x.page) : ''}</span></div><div>${h(x.text)}</div>${x.reply ? `<div class="hint">回复：${h(x.reply)}</div>` : ''}</div>`; }).join('') || '<div class="hint">还没有</div>'}`);
   d.querySelector('#askgo').onclick = async () => { const text = d.querySelector('#asktx').value.trim(); try { await api('/api/asks', { text, page: ST.tab }); toast('收到了，改好会在这里回复你'); d.remove(); } catch (e) { toast(e.message); } }; }
@@ -776,7 +776,7 @@ function soon(m) { m.innerHTML = `<div class="empty"><b>结算</b><br><br>下一
   if (CARD) { $('#tabs').innerHTML = ''; $('#who').innerHTML = ''; return cardPage($('#main')); }
   if (HALL) { $('#tabs').innerHTML = ''; $('#who').innerHTML = ''; return hallPage($('#main')); }
   try { const r = await api('/api/me'); ME = r.me; LAYOUTS = r.layouts; } catch (e) { $('#main').innerHTML = `<div class="empty">${h(e.message)}</div>`; return; }
-  $('#who').innerHTML = `<span>${h(ME.name)} · ${h(ME.roleName)}</span><a href="#" id="askbtn">📮 提需求</a><a href="${BASE}/logout">退出</a>`; $('#askbtn').onclick = e => { e.preventDefault(); askBox(); };
+  $('#who').innerHTML = `<span>${h(ME.name)} · ${h(ME.roleName)}</span><a href="#" id="askbtn">📮 提需求</a><a href="${BASE}/logout">退出</a>`; $('#askbtn').onclick = e => { e.preventDefault(); askBox(); }; api('/api/asks').then(r => { const seen = +(localStorage.glAskSeen || 0); if (r.items.some(x => (x.replyAt || 0) > seen && !r.boss)) $('#askbtn').textContent = '📮 提需求 ●有回复'; }).catch(() => { });
   ST.tab = ME.role === 'writer' ? 'submit' : (location.hash || '').slice(1) || (ME.role === 'review' ? 'review' : 'dash'); nav(); show();
 })();
 </script>

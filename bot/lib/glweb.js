@@ -659,6 +659,13 @@ ${text}`);
   const TD = path.join(D, 'ctask'); fs.mkdirSync(TD, { recursive: true }); const SHD = path.join(D, 'cshots'); fs.mkdirSync(SHD, { recursive: true });
   const tasks = () => fs.readdirSync(TD).filter(f => f.endsWith('.json')).map(f => rj(path.join(TD, f), null)).filter(Boolean).sort((a, c) => c.no - a.no);
   const getTask = id => /^t[0-9a-z]+$/.test(id) ? rj(path.join(TD, id + '.json'), null) : null; const saveTask = t => wj(path.join(TD, t.id + '.json'), t);
+  // ---------- 需求箱（员工提需求 → 定时任务读 /q/<askKey> → 改代码 → glreplies.js 登记 → 这里写回）----------
+  const AF = path.join(D, 'asks.json'); const askKey = () => { if (!META.askKey) { META.askKey = crypto.randomBytes(12).toString('base64url'); saveMeta(); } return META.askKey; };
+  function mergeReplies() { let R = []; try { R = require('./glreplies'); } catch (e) { return; } const A = rj(AF, { items: [] }); const done = [];
+    (Array.isArray(R) ? R : []).forEach(r => { const it = A.items.find(x => x.id === r.id); if (!it || !r.at || (it.replyAt || 0) >= r.at) return; it.status = ['done', 'no', 'doing'].includes(r.status) ? r.status : 'done'; it.reply = String(r.reply || '').slice(0, 300); it.replyAt = r.at; done.push(it); });
+    if (!done.length) return; wj(AF, A); const SN = { done: '已改好', no: '暂不做', doing: '等你点头' };
+    if (bossDm) setTimeout(() => bossDm(`📮 攻略平台需求箱处理了 ${done.length} 条：\n` + done.map(x => `· ${x.by}：「${x.text.slice(0, 40)}」→ ${SN[x.status]}${x.reply ? '（' + x.reply.slice(0, 60) + '）' : ''}`).join('\n')).catch(() => { }), 60000); }
+  try { mergeReplies(); } catch (e) { log('[攻略平台] 需求箱回复写回出错：' + e.message); }
   const hallKey = () => { if (!META.hallKey) { META.hallKey = crypto.randomBytes(9).toString('base64url'); saveMeta(); } return META.hallKey; };
   const hallUrl = () => `${base}h/${hallKey()}`;
   setTimeout(() => { try { tasks().forEach(t => { let ch = false; t.floors.forEach(f => { if (t.status === 'draft' && f.img && !f.imgBy && !f.wantImg) { f.wantImg = true; f.img = ''; ch = true; } if (t.status !== 'done' && !f.done && /yes\s*大排档/i.test(f.text)) { f.text = f.text.replace(/(yes|YES|Yes)\s*(也是)?\s*大排档/g, 'YES也是大排档'); ch = true; } }); if (ch) saveTask(t); }); } catch (e) { } }, 5e3); // 之前自动配的图改成让领的人自己选
@@ -751,6 +758,11 @@ ${SAMPLE}
       if (sub === '/mark' && req.method === 'POST') { const j = JSON.parse(await body(req, 20000) || '{}'); return J(res, { ok: true, note: mark(bid, j.no, j.status === 'ok' ? 'shop_ok' : j.status === 'fix' ? 'shop_fix' : '', j.note ? '【商家】' + j.note : '', '商家') }); }
       return send(res, 404, '{}');
     }
+    // 需求箱待处理清单（给定时任务读的，凭密钥链接；只有没处理的需求，纯文字）
+    m = p.match(/^\/q\/([A-Za-z0-9_-]{12,})$/);
+    if (m) { if (m[1] !== META.askKey) return send(res, 403, 'no'); const A = rj(AF, { items: [] }); const pend = A.items.filter(x => x.status === 'todo');
+      const esc = t => String(t).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+      return send(res, 200, `<!doctype html><meta charset="utf-8"><title>需求箱</title><h1>待处理 ${pend.length} 条</h1>` + pend.map(x => `<article><h2>编号 ${x.id}</h2><p>提的人：${esc(x.by)}（${esc(ROLE[x.role] || x.role)}）｜页面：${esc(x.page || '-')}｜时间：${new Date(x.at + 8 * 3600e3).toISOString().slice(0, 16).replace('T', ' ')}</p><blockquote>${esc(x.text)}</blockquote></article>`).join('') + (pend.length ? '' : '<p>NONE 没有待处理的需求</p>'), 'text/html; charset=utf-8'); }
     // 评论任务大厅（不用登录，凭大厅链接）
     m = p.match(/^\/h\/([A-Za-z0-9_-]{8,})(\/.*)?$/);
     if (m) {
@@ -788,13 +800,13 @@ ${SAMPLE}
     m = p.match(/^\/up\/(g[0-9a-z]+)\/(\d+\.jpg)$/); if (m) { if (me.role === 'writer' && (getBatch(m[1]) || {}).byId !== me.id) return send(res, 403, ''); return serveJpg(res, upFile(m[1], m[2])); }
     try {
       // 需求箱（林总 2026-11-27：员工对软件有什么需求直接提，不用都经过我）：谁都能提；自己看自己的，老板看全部；处理完写回复
-      if (p === '/api/asks') { const AF = path.join(D, 'asks.json'); const A = rj(AF, { items: [] });
+      if (p === '/api/asks') { const A = rj(AF, { items: [] });
         if (req.method === 'POST') { const j = JSON.parse(await body(req, 6000)); const text = String(j.text || '').trim().slice(0, 1000); if (text.length < 4) throw new Error('写具体一点：哪个页面、想怎么改');
           if (j.id && isBoss) { const it = A.items.find(x => x.id === j.id); if (!it) throw new Error('没有这条'); it.status = ['todo', 'doing', 'done', 'no'].includes(j.status) ? j.status : it.status; it.reply = text; it.replyAt = Date.now(); wj(AF, A); return J(res, { ok: true }); }
           const it = { id: 'a' + Date.now().toString(36), text, page: String(j.page || '').slice(0, 30), by: me.name, byId: me.id, role: me.role, at: Date.now(), status: 'todo' }; A.items.push(it); wj(AF, A);
           if (bossDm && !isBoss) bossDm(`📮 攻略平台需求箱：${me.name}（${ROLE[me.role] || me.role}）提了一条\n「${text.slice(0, 200)}」\n${it.page ? '页面：' + it.page + '\n' : ''}已记下，处理完会在平台上回复他。`).catch(() => { });
           return J(res, { ok: true, id: it.id }); }
-        return J(res, { ok: true, boss: isBoss, items: A.items.filter(x => isBoss || x.byId === me.id).slice(-80).reverse() }); }
+        return J(res, { ok: true, boss: isBoss, feed: isBoss ? `${base}q/${askKey()}` : undefined, items: A.items.filter(x => isBoss || x.byId === me.id).slice(-80).reverse() }); }
       if (p === '/api/me') return J(res, { ok: true, me: { name: me.name, role: me.role, roleName: ROLE[me.role] }, layouts: LAYOUTS });
       if (p === '/api/dash') { const B = batches(); const st = glib.status(); return J(res, { ok: true, lib: { total: st.total, night: st.night, day: st.day, pause: st.pause, window: st.window, authors: st.authors, seed: st.seed }, stores: stores().length, briefs: briefs().length, batches: B.length, notes: B.reduce((s, b) => s + b.notes.length, 0), late: pubs().filter(x => x.late).length, due: pubs().filter(x => x.due).length, todo: B.reduce((s, b) => s + b.notes.filter(n => n.status === 'todo').length, 0), recent: B.slice(0, 5).map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.notes.length, status: b.status })) }); }
       if (p === '/api/submit' && req.method === 'POST') { const j = JSON.parse(await body(req, 30e6)); const b = submit(j, me); return J(res, { ok: true, id: b.id }); }
