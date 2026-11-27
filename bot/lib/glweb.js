@@ -172,7 +172,7 @@ ${JSON.stringify(pick(got)).slice(0, 9000)}`;
       const better = errs(fixed) < errs(got) || (errs(fixed) === errs(got) && warns(fixed) <= warns(got));
       if (lost > 1 || added) out.why = `改后的版本${lost > 1 ? `删了 ${lost} 家店` : '加了新店'}，没采用`; else if (len(fixed) < len(got) * 0.6) out.why = '改后的正文砍得太多，没采用';
       else if (fixed.title && fixed.body && better) { out.adopted = true; out.before = { title: got.title, body: got.body }; return { note: fixed, review: out }; }
-      if (!out.why) out.why = '改完的版本问题没变少，没采用';
+      if (!out.why) out.why = '改完的版本问题没变少，没采用'; out.fixedCheck = check(fixed, B, batch).map(c => c.join(':')).slice(0, 8); out.fixedTitle = fixed.title;
     }
     return { note: got, review: out };
   }
