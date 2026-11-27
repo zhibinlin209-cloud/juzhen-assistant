@@ -16,7 +16,7 @@ const LAYOUTS = {
   route: { name: '一日游路线表', desc: '路线时间表＋景点小贴士＋吃饭清单＋主店介绍' }
 };
 
-function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision }) {
+function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, roster: rosterSrc }) {
   const D = path.join(dataDir, 'gl'); const BD = path.join(D, 'batches'), PD = path.join(D, 'photos'); [D, BD, PD].forEach(d => fs.mkdirSync(d, { recursive: true }));
   const rj = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
   const wj = (f, v) => { const t = f + '.tmp'; fs.writeFileSync(t, JSON.stringify(v)); fs.renameSync(t, f); };
@@ -257,7 +257,7 @@ ${shopLines}
   const getBatch = id => /^g[0-9a-z]+$/.test(id) ? rj(path.join(BD, id + '.json'), null) : null;
   function mark(id, i, st, note, who) {
     const f = path.join(BD, id + '.json'); const b = getBatch(id); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +i); if (!n) throw new Error('没有这一篇');
-    if (st) n.status = st; if (note) n.notes.push({ t: String(note).slice(0, 500), who, at: Date.now() }); wj(f, b); return n;
+    if (st) { n.status = st; if (/ok/.test(st) && !n.okAt) n.okAt = Date.now(); } if (note) n.notes.push({ t: String(note).slice(0, 500), who, at: Date.now() }); wj(f, b); return n;
   }
 
 
@@ -316,7 +316,7 @@ ${shopLines}
   function assign(bid, j, who) { const b = getBatch(bid); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +j.no); if (!n) throw new Error('没有这一篇');
     if (j.clear) { delete n.assign; wj(path.join(BD, bid + '.json'), b); return { ok: true }; }
     const acct = String(j.acct || '').trim().slice(0, 30); if (!acct) throw new Error('写上发布账号'); const date = /^\d{4}-\d{2}-\d{2}$/.test(j.date) ? j.date : bjDay();
-    n.assign = { acct, kind: KINDS.includes(j.kind) ? j.kind : '员工代发', who: String(j.who || '').trim().slice(0, 20), date, by: who, at: Date.now() }; wj(path.join(BD, bid + '.json'), b); return { ok: true, url: cardUrl(bid, n.no) }; }
+    n.assign = { acct, kind: KINDS.includes(j.kind) ? j.kind : '员工代发', who: String(j.who || '').trim().slice(0, 20), fee: Math.max(0, +j.fee || 0), date, by: who, at: Date.now() }; wj(path.join(BD, bid + '.json'), b); return { ok: true, url: cardUrl(bid, n.no) }; }
   function pub(bid, no, url, who) { const b = getBatch(bid); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +no); if (!n) throw new Error('没有这一篇');
     const m = String(url || '').match(/https?:\/\/[^\s，。]*(xiaohongshu\.com|xhslink\.com)[^\s，。]*/); if (!m) throw new Error('贴小红书笔记链接（App 里点分享→复制链接）');
     n.pub = { url: m[0], at: Date.now(), who }; wj(path.join(BD, bid + '.json'), b); log(`[攻略平台] 第 ${n.no} 篇已发布（${(n.assign || {}).acct || ''}）`); return n.pub; }
@@ -340,6 +340,86 @@ ${shopLines}
     if (b.directions !== undefined) o.directions = (Array.isArray(b.directions) ? b.directions : String(b.directions).split('\n').map(l => { const [n, w] = l.split(/[:：]/); return n && n.trim() ? { name: n.trim(), words: String(w || '').split(/[\/、,，]+/).map(x => x.trim()).filter(Boolean) } : null; }).filter(Boolean)).slice(0, 6);
     if (b.dishes !== undefined) o.dishes = typeof b.dishes === 'object' && !Array.isArray(b.dishes) ? b.dishes : Object.fromEntries(String(b.dishes).split('\n').map(l => { const [c, d] = l.split(/[:：]/); return c && d ? [c.trim(), d.split(/[、,，]+/).map(x => x.trim()).filter(Boolean)] : null; }).filter(Boolean));
     if (o.directions && !o.directions.length) throw new Error('至少写一个方向'); return o;
+  }
+
+  // ---------- 发布名单（飞书营销部「小红书-笔记-分发名单」，10 分钟缓存）----------
+  let RO = { at: 0, list: [] };
+  // 林总 2026-11-27：名单就是营销部这 6 张表里的人和账号（分发名单 + 各平台矩阵号/素人号数据表），合并去重
+  const ROSTER_T = [['小红书-笔记-分发名单', '小红书', '分发名单'], ['抖音-视频-分发名单', '抖音', '分发名单'], ['小红书矩阵号-数据', '小红书', '矩阵号'], ['抖音-素人号-数据', '抖音', '素人号'], ['抖音-矩阵号-数据', '抖音', '矩阵号'], ['视频号-矩阵号-数据', '视频号', '矩阵号']];
+  const pick = (o, ks) => { for (const k of ks) { const v = String(o[k] === undefined || o[k] === null ? '' : o[k]).trim(); if (v) return v; } return ''; };
+  async function roster() {
+    if (!rosterSrc) return []; if (Date.now() - RO.at < 10 * 60e3 && RO.list.length) return RO.list;
+    const M = new Map();
+    for (const [t, plat, kind] of ROSTER_T) {
+      let r; try { r = await rosterSrc(t); } catch (e) { log(`[攻略平台] 读「${t}」出错：` + e.message); continue; }
+      for (const x of r.rows || []) {
+        const name = pick(x, ['发布人员', '人员', '负责人', '运营人员']); const acct = pick(x, [plat + '昵称', '账号昵称', '账号名称', '昵称', '账号']); if (!name && !acct) continue;
+        const k = plat + '|' + (acct || name); const o = M.get(k) || { name, acct, plat, kinds: [], home: '', posts: 0 };
+        if (!o.name && name) o.name = name; if (!o.kinds.includes(kind)) o.kinds.push(kind); if (!o.home) o.home = pick(x, [plat + '主页链接', '主页链接', '主页']); if (kind !== '分发名单') o.posts++; M.set(k, o);
+      }
+    }
+    RO = { at: Date.now(), list: [...M.values()].sort((a, c) => a.plat.localeCompare(c.plat) || (a.name || '').localeCompare(c.name || '')) }; return RO.list;
+  }
+
+  // ---------- 结算（林总 2026-11-27）：写手按「通过」篇数，发布按「已发布」篇数；单价在页面上设，外部达人按派发时填的报价 ----------
+  const RATE0 = { writer: 0, staff: 0, kol: 0, self: 0 };
+  const rates = () => Object.assign({}, RATE0, META.rates || {});
+  function settle(mon) {
+    const R = rates(); const P = new Map(); const add = (key, o, item, amt) => { if (!P.has(key)) P.set(key, Object.assign({ key, n: 0, amt: 0, items: [] }, o)); const x = P.get(key); x.n++; x.amt += amt; x.items.push(item); };
+    for (const b of batches()) for (const n of b.notes) {
+      if (b.kind === 'manual' && /ok/.test(n.status) && bjDay(n.okAt || b.firstAt || b.at).slice(0, 7) === mon) add('w:' + b.byId, { role: '写手', name: b.by, unit: R.writer }, { bid: b.id, no: n.no, title: n.title, day: bjDay(n.okAt || b.at) }, R.writer);
+      if (n.assign && n.pub && bjDay(n.pub.at).slice(0, 7) === mon) { const a = n.assign; const kind = a.kind || '员工代发'; const unit = kind === '外部达人' ? (+a.fee || R.kol) : kind === '自己的号' ? R.self : R.staff;
+        add('p:' + kind + ':' + (a.who || a.acct), { role: kind, name: a.who || a.acct, acct: a.acct, unit: kind === '外部达人' ? null : unit }, { bid: b.id, no: n.no, title: n.title, day: bjDay(n.pub.at), url: n.pub.url, acct: a.acct, fee: unit }, unit); }
+    }
+    const paid = (META.paid || {})[mon] || {};
+    return [...P.values()].map(x => Object.assign(x, { paid: paid[x.key] || null })).sort((a, c) => a.role.localeCompare(c.role) || c.amt - a.amt);
+  }
+  // ---------- 评论区维护（林总 2026-11-27，照爆文工厂「爆评库」的打法）：贴笔记链接 → 按打法写评论稿，叠楼按 A/B/C/D… 楼排好 ----------
+  const CD2 = path.join(D, 'cmts'); fs.mkdirSync(CD2, { recursive: true });
+  const PLAYS = {
+    rec: ['直接推荐', '一上来就推荐这家店：开头说区域/地标＋店名（也可以先说品类，最后点店名）；一句真实感受（吃了好几次、这边吃过最正宗的一家）；1–2 道招牌菜，可带一句点单建议（几个人点××就够）；一个去过才知道的细节（怎么找、几点人少、菜量、好停车）；可以带一个不伤口味的小缺点（要排队、有点辣）'],
+    list: ['发攻略', '一条评论列 3–5 家店，我们的店放第 2 或第 3 位，不放第 1；排法任选：排名（1.×× 2.×× 3.××，我称之为××三大巨头）、按品类（湘菜（店名）粤菜（店名））、店名＋招牌罗列；别家只写店名＋一道招牌，只用给你的周边店；我们那一项和别家写法、字数一样，不单独多夸'],
+    stack: ['叠楼互动', '一楼几个人接力：A 开楼用直接推荐的写法，但店名或位置不说全（××那边有一家××馆），留给后面的人问；B 问，短，像随口一问（在哪／叫什么／多少钱／是不是××那家）；C 答，店名全称＋好找的地标，也可以是 A 自己回；D 说去过：确实/吃过＋一个具体细节（菜量、排队、好停车）；可选 E 发帖人回一句「那我一定要去试试」或再问价格；可选 F、G 再追问一个细节和回答'],
+    pic: ['作者带图评论', '只用于我们自己发的笔记：发帖人自己在评论区发一条，点名一道菜（全称），像随口一句（谁能帮我打包一份××／最想再吃的是××／漏写了××），写清配什么图（特写、打包盒、刚上桌）；可以不带店名，留给网友问'],
+    qa: ['作者答疑对话', '只用于我们自己发的笔记：A 网友问（这个好吃吗／哪家啊／人均多少）；B 作者答，点 1–2 道具体菜名，不夸张；C 网友追问一个细节（××是烤的吗／要排队吗）；D 作者一两句答（是啊／工作日不用）；E 网友收尾（那我知道了！×× ／收藏了），复述一次店名或菜名']
+  };
+  const cmtList = () => fs.readdirSync(CD2).filter(f => f.endsWith('.json')).map(f => rj(path.join(CD2, f), null)).filter(Boolean).sort((a, c) => c.at - a.at);
+  function noteTextOf(url) { // 链接如果是我们平台发出去的稿，或爆款库里有，就直接拿正文
+    const id = (String(url).match(/(?:explore|discovery\/item)\/([0-9a-f]{24})/) || [])[1];
+    for (const b of batches()) for (const n of b.notes) if (n.pub && (n.pub.url === url || (id && n.pub.url.includes(id)))) return { from: '我们自己发的', own: true, title: n.title, text: n.body };
+    if (id && glib && glib.get) { const g = glib.get(id); if (g && (g.title || g.desc)) return { from: '爆款库', title: g.title, text: g.desc }; }
+    return null;
+  }
+  async function genCmt(j, who) {
+    const B = briefs().find(x => x.id === j.brief) || briefs()[0]; if (!B) throw new Error('先建任务书');
+    const url = String(j.url || '').trim().slice(0, 500); const known = noteTextOf(url); const own = j.own !== undefined ? !!j.own : !!(known && known.own);
+    const noteText = String(j.noteText || '').trim().slice(0, 3000) || (known ? `${known.title}\n${known.text}` : '');
+    const plays = (j.plays || ['rec', 'list', 'stack']).filter(k => PLAYS[k] && (own || !['pic', 'qa'].includes(k))); if (!plays.length) throw new Error('至少选一种打法');
+    const per = Math.max(2, Math.min(10, +j.per || 5)); const dy = j.platform === 'dy';
+    const pool = stores().filter(s => s.district === B.district && s.id !== B.store && !(s.planted && brandRe(B).test(s.name))).sort(() => Math.random() - 0.5).slice(0, 20);
+    const dishes = [B.mustDish, ...Object.values(B.dishes || {}).flat()].filter(Boolean).join('、');
+    const prompt = `你在帮餐饮店做${dy ? '抖音' : '小红书'}评论区维护：给一条目标笔记写评论稿，让我们的店名在评论区被自然提到、被追问、被搜。评论由我们的员工号/素人号分别去发，要像不同的真人。
+【我们的店】${B.storeTitle}｜${B.address}｜人均${B.price}｜${B.hours}｜可写的菜：${dishes}｜卖点：${B.message}
+【周边别家店（发攻略时只能用这些，店名照抄）】
+${pool.map(s => `- ${s.name}｜${s.cat}｜招牌：${s.dishes}`).join('\n') || '（没有，就写【别家店名】占位）'}
+【目标笔记】${url || '（没给链接）'}${noteText ? `\n${noteText.slice(0, 1500)}` : '\n（没拿到原文，按「' + ({ need: '求推荐帖', guide: '攻略／美食清单', single: '单店探店笔记' }[j.noteType] || '本地美食帖') + '」写，内容要能接得上这类帖子）'}
+${own ? '【这是我们自己发的笔记，可以用发帖人身份】' : '【这不是我们发的笔记，不能用发帖人身份，不能代替博主说话】'}
+【打法】每种写 ${per} 组：
+${plays.map(k => `- ${k}｜${PLAYS[k][0]}：${PLAYS[k][1]}`).join('\n')}
+【通用规则】
+1. 店名每次都用同一个写法「${B.storeTitle.replace(/（.*$/, '')}」${B.storeTitle.includes('（') ? '，需要时带分店名' : ''}，常和招牌菜一起出现（容易被平台做成「大家都在搜」的搜索词）。
+2. 每条带一个具体场景（带对象、朋友聚餐、宵夜、带爸妈、逛完××）或一个到店理由（招牌菜、离哪近、几点去不排队），不要只说「好吃」。
+3. 口语短句，${dy ? '可以用抖音方括号表情如 [捂脸][舔屏][呲牙][比心]' : '可以用小红书表情如 [哭惹R][赞R][笑哭R][doge]，或少量 emoji'}；一组里最多一两条用网络热词（夯、上人）。
+4. 不写禁用词：${(B.banned || []).join('、')}；不写「不是广告／无广／自费」这类此地无银的话；不编造优惠活动和价格。
+5. 同一组里每楼像不同的人，语气、长短要有差别；问的那楼要短。
+6. 每组给一句 tip：建议谁发（员工号/素人号/发帖人）、隔多久发、要不要给哪楼点赞。
+只输出 JSON：{"groups":[{"play":"rec","floors":[{"tag":"A","who":"素人号/员工号/发帖人/路人","role":"开楼/问/答/去过/发帖人","text":"评论内容"}],"tip":"≤40字"}]}
+单条评论的打法（直接推荐、发攻略、作者带图评论）也放在 floors 里，只有一个 A 楼；叠楼和答疑按 A、B、C、D、E… 依次排。作者带图评论的 text 末尾用【配图：……】写清楚配什么图。`;
+    const r = await llm(prompt); const J0 = parseJ(r.text);
+    const groups = (J0.groups || []).map(g => ({ play: PLAYS[g.play] ? g.play : 'rec', floors: (g.floors || []).slice(0, 8).map((f, i) => ({ tag: String.fromCharCode(65 + i), who: String(f.who || '').slice(0, 10), role: String(f.role || '').slice(0, 8), text: String(f.text || '').slice(0, 400) })).filter(f => f.text), tip: String(g.tip || '').slice(0, 80) })).filter(g => g.floors.length);
+    const bad = groups.flatMap(g => g.floors).filter(f => (B.banned || []).some(w => f.text.includes(w))).length;
+    const rec = { id: 'c' + Date.now().toString(36), at: Date.now(), by: who, url, brief: B.id, briefName: B.name, platform: dy ? 'dy' : 'xhs', own, from: known ? known.from : (noteText ? '手动粘贴' : ''), noteText: noteText.slice(0, 400), plays, groups, model: r.model, bad };
+    wj(path.join(CD2, rec.id + '.json'), rec); log(`[攻略平台] 评论稿 ${groups.length} 组（${url.slice(0, 60)}）`); return rec;
   }
   // ---------- 路由 ----------
   async function handle(req, res, p, u) {
@@ -412,6 +492,15 @@ ${shopLines}
         return J(res, { ok: true, month: mon, months: months.includes(mon) ? months : [mon, ...months], stats: [...W.values()].sort((a, c) => c.sub - a.sub), list, writers: U.users.filter(x => x.role === 'writer' && !x.off).map(x => ({ id: x.id, name: x.name })) });
       }
       if (p === '/api/writerlist') return J(res, { ok: true, writers: me.role === 'writer' ? [] : U.users.filter(x => x.role === 'writer' && !x.off).map(x => ({ id: x.id, name: x.name })) });
+      if (p === '/api/roster') return J(res, { ok: true, roster: await roster() });
+      if (p === '/api/settle' && req.method === 'GET') { const mon = /^\d{4}-\d{2}$/.test(u.searchParams.get('month') || '') ? u.searchParams.get('month') : bjDay().slice(0, 7); return J(res, { ok: true, month: mon, rates: rates(), rows: settle(mon) }); }
+      if (p === '/api/settle' && req.method === 'POST' && isBoss) { const j = JSON.parse(await body(req, 20000));
+        if (j.rates) { const R = {}; for (const k of Object.keys(RATE0)) if (j.rates[k] !== undefined) R[k] = Math.max(0, Math.round(+j.rates[k] * 100) / 100 || 0); META.rates = Object.assign(rates(), R); }
+        if (j.paid && /^\d{4}-\d{2}$/.test(j.month)) { META.paid = META.paid || {}; const m2 = META.paid[j.month] = META.paid[j.month] || {}; if (j.undo) delete m2[j.paid]; else m2[j.paid] = { at: Date.now(), who: me.name, amt: +j.amt || 0 }; }
+        saveMeta(); return J(res, { ok: true }); }
+      if (p === '/api/cmt' && req.method === 'GET') return J(res, { ok: true, list: cmtList().slice(0, 60), plays: Object.fromEntries(Object.entries(PLAYS).map(([k, v]) => [k, v[0]])) });
+      if (p === '/api/cmt' && req.method === 'POST' && me.role !== 'writer') { const j = JSON.parse(await body(req, 20000)); if (j.del) { try { fs.unlinkSync(path.join(CD2, String(j.del).replace(/[^a-z0-9]/g, '') + '.json')); } catch (e) { } return J(res, { ok: true }); } return J(res, { ok: true, rec: await genCmt(j, me.name) }); }
+      if (p === '/api/cmt/peek') return J(res, { ok: true, known: noteTextOf(u.searchParams.get('url') || '') });
       if (p === '/api/pubs') return J(res, { ok: true, pubs: pubs(), today: bjDay() });
       if (p === '/api/lib') return J(res, glib.query(Object.fromEntries(u.searchParams)));
       m = p.match(/^\/api\/lib\/([0-9a-f]{24})$/); if (m) { const n = glib.get(m[1]); return J(res, n ? { ok: true, note: n } : { ok: false, error: '没有这篇' }); }
@@ -455,6 +544,6 @@ ${shopLines}
   // 第一次出样稿有几篇失败（模型 JSON 不规范，已修）：把没出满的系统样稿重出一次
   setTimeout(() => { try { if (META.sampled2 || !META.sampled) return; META.sampled2 = Date.now(); saveMeta(); let i = 0; for (const b of batches()) { if (b.by !== '系统样稿' || b.status === 'running' || b.notes.length >= b.n) continue; try { fs.unlinkSync(path.join(BD, b.id + '.json')); } catch (e) { } const l = b.layout; setTimeout(() => generate(b.brief, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), (i++) * 20e3); } } catch (e) { log('[攻略平台] 补样稿出错：' + e.message); } }, 60e3);
   setTimeout(() => { try { if (batches().length || !(cfg.qwenKey || cfg.deepseekKey) || META.sampled) return; META.sampled = Date.now(); saveMeta(); const b = briefs()[0]; if (!b) return; ['clean', 'green', 'nav', 'memo'].forEach((l, i) => setTimeout(() => generate(b.id, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), i * 20e3)); log('[攻略平台] 开始出样稿'); } catch (e) { log('[攻略平台] 样稿出错：' + e.message); } }, 90e3);
-  return { handle, generate, LAYOUTS, syncSucai, sucaiFor, _t: { submit, assign, pubs, pub, edit, getBatch, checkManual }, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
+  return { genCmt, handle, generate, LAYOUTS, syncSucai, sucaiFor, _t: { submit, assign, pubs, pub, edit, getBatch, checkManual }, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
 }
 module.exports = { createGlweb };
