@@ -26,7 +26,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
   { const L = rj(RF, []); const del = (rj(path.join(D, 'meta.json'), {}).refDel || []); const add = (require('./glseed').refs || []).filter(r => !L.some(x => x.id === r.id) && !del.includes(r.id)); if (add.length || !fs.existsSync(RF)) wj(RF, L.concat(add)); } // 新加进初始数据的范文自动补进来
   const stores = () => rj(SF, []), briefs = () => rj(BF, []), refs = () => rj(RF, []);
   { const L = refs(); if (L.some(r => r.imgDesc && !(r.imgs || []).length)) { L.forEach(r => { if (!(r.imgs || []).length) delete r.imgDesc; }); wj(RF, L); } } // 图删光了，版式说明也去掉
-  { const L = briefs(); let ch = false; L.forEach(b => { if (!b.city) { b.city = '深圳'; ch = true; } if (b.id === 'b1' && !b.placeWords) { b.placeWords = ['白石洲', '华侨城', '蛇口', '南头', '深圳湾']; b.storeType = b.storeType || '海鲜大排档'; ch = true; } }); if (ch) wj(BF, L); }
+  { const L = briefs(); let ch = false; L.forEach(b => { if (!b.city) { b.city = '深圳'; ch = true; } if (b.id === 'b1' && !b.placeWords) { b.placeWords = ['白石洲', '华侨城', '蛇口', '南头', '深圳湾']; b.storeType = b.storeType || '海鲜大排档'; ch = true; } if (b.id === 'b1' && !b.nearAreas) { b.nearAreas = ['白石洲', '世界之窗', '华侨城', '欢乐谷', '沙河', '深圳湾']; b.facts = b.facts || '店在博耐家居广场一楼，白石洲站 C 口出来步行约 260 米；营业 17:00-次日02:00；爆膏奶油虾用的是罗氏虾（不是龙虾）'; ch = true; } }); if (ch) wj(BF, L); }
   { const L = briefs(); let ch = false; const more = ['#深圳美食攻略', '#深圳旅游攻略', '#南山宵夜', '#海鲜大排档', '#广式大排档', '#深圳本地人推荐', '#华侨城', '#深圳湾公园']; L.forEach(b => { if (!b.tagsTotal) { b.tagsTotal = 9; b.tagsOpt = [...new Set([...(b.tagsOpt || []), ...more])]; if (!(b.tagsMust || []).includes('#YES也是大排档')) b.tagsMust = [...(b.tagsMust || []), '#YES也是大排档']; ch = true; } }); if (ch) wj(BF, L); } // 林总 2026-11-27：话题 8–10 个，必带 #YES也是大排档
   { const L = briefs(); let ch = false; L.forEach(b => { if ((b.banned || []).includes('第一')) { b.banned = b.banned.filter(w => w !== '第一').concat(['全网第一', '深圳第一', '第一名']); ch = true; } }); if (ch) wj(BF, L); } // 「第一」会误伤「第一站」「第一天」
   const key = crypto.createHash('sha256').update('xiju-gl:' + (cfg.appSecret || '') + ':' + (cfg.cockpitSalt || '')).digest();
@@ -75,14 +75,21 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
   const placeWordsOf = B => [...new Set([...(B.placeWords || []), B.city || '深圳', B.district, ...(B.mustSpots || []), ...(B.optSpots || [])].filter(Boolean))];
   const brandWordsOf = B => [...new Set([...(B.brandWords && B.brandWords.length ? B.brandWords : /YES|也是大排档/.test(B.brand || B.storeTitle || '') ? ['大排档', 'YES', '也是'] : [String(B.brand || '').slice(0, 6)])].filter(Boolean))];
   const brandRe = B => new RegExp(brandWordsOf(B).map(reEsc).join('|'), 'i');
+  // 周边店：任务书「周边商圈」里的店优先；不够 6 家才用同区别的店补，并标「远」，AI 不能把它们写成步行顺路（林总 2026-11-27）
+  function poolOf(B, all, main) {
+    const ok = s => s.id !== main.id && !(s.planted && brandRe(B).test(s.name)) && !(B.sameCat && B.sameCat.length && sameCatRe(B).test(s.cat + s.name));
+    const near = nearOf(B); const isNear = s => near.some(a => (s.area + (s.addr || '') + s.name).includes(a));
+    const N = all.filter(s => ok(s) && isNear(s)); if (N.length >= 6 || !near.length) return N.length ? N : all.filter(s => s.district === B.district && ok(s));
+    return [...N, ...all.filter(s => s.district === B.district && ok(s) && !isNear(s)).map(s => Object.assign({}, s, { far: true }))];
+  }
   function promptFor(B, layout, dir, pool, spots, prev, k) {
     const dishes = Object.entries(B.dishes).map(([c, l]) => `${c}：${l.join('、')}`).join('；');
-    const shopLines = pool.map(s => `- ${s.name}｜${s.area}｜${s.cat}｜人均${s.price}｜${s.hours}｜招牌：${s.dishes}`).join('\n');
+    const shopLines = pool.map(s => `- ${s.name}｜${s.area}${s.far ? '（离主店远，要坐地铁，只能写成另找时间去/第二天，不能写成步行顺路）' : '（主店附近）'}｜${s.cat}｜人均${s.price}｜营业${s.hours}｜招牌：${s.dishes}`).join('\n');
     const L = LAYOUTS[layout];
     const refText = refs().slice().sort(() => Math.random() - 0.5).slice(0, 2).map((r, i) => `——范文${i + 1}——\n${String(r.text).slice(0, 1200)}${r.imgDesc ? `\n（这篇原稿的图片版式：\n${r.imgDesc.slice(0, 700)}）` : ''}`).join('\n') || '（暂无）';
     return `你是小红书本地生活博主，替${B.city || '深圳'}一家${B.storeType || '海鲜大排档'}写一篇「${dir.name}」方向的图文攻略，读起来要像真实游客或本地人自己整理的，不能像广告。
 【版式】${L.name}：${L.desc}。你只写文字内容，排版由程序完成。
-【读者】${B.audience}
+【读者】${B.audience}${B.facts ? `\n【固定事实，每篇都照这个写，不能改、不能编别的版本】${B.facts}` : ''}
 【必须做到】
 1. 标题 ≤20 字，必须同时有地点词和需求词（${B.titleRule}），本篇优先往「${dir.words.join('」「')}」这类搜索词靠，不要用感叹号堆砌。
 2. 主店是「${B.storeTitle}」，程序会把它单独放成一个分类「${B.mainCat || '晚饭·' + (B.storeType || '海鲜大排档')}」、排在美食清单第 2 家，你在 sections 里不要写它。
@@ -94,6 +101,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
 8. 话题 tags 写 ${(B.tagsTotal || 9) - B.tagsMust.length} 个（另外 ${B.tagsMust.join(' ')} 程序会固定加上，总共 ${B.tagsTotal || 9} 个）：优先从这里选：${B.tagsOpt.join(' ')}；也可以自己加 2–3 个贴合这篇内容的（地点、景点、菜名、场景，如 #深圳湾 #生腌），不要带别的店名、品牌名。
 9. cover 是封面大字，一般只写 2 行（导航避坑版式可以 3–4 行），每行 ≤9 字，像真人随手记的一句话，${layout === 'clean' ? '如「落地深圳」「第1️⃣顿直奔谁家」，可以带 1 个 emoji' : layout === 'green' ? '如「去了南山5次」「我的建议是😪」' : layout === 'nav' ? '写 3–4 行短句，如「（南山）」「可能会遇到的」「一点小麻烦」「自存」'  : layout === 'memo' ? '如「存一下 下周去南山」「要吃的东西」' : layout === 'hand' ? '如「逛完世界之窗」「去哪吃夜宵」' : layout === 'star' ? '如「南山美食」「个人打分」' : '如「南山一日游」「不走回头路」'}。封面和标题里都不要出现任何店名、品牌名，也不要写「大排档」，否则像广告，别人不会点进来。
 10. navs 写 4–6 个（只用导航避坑版式时最重要），good 写 3–5 个、skip 写 2–3 个（不建议的要写真实原因，别黑景点本身，写“节假日太挤、门口特产贵”这类）、streets 写 2–3 个，全部在 ${B.district} 或附近；tips 不写门票价格、具体开放时间、地铁出口编号这类拿不准的数字。
+14. route 里排到某家店的时间，必须在它的营业时间内（看门店池里写的营业时间）；路线按地理顺序走，不要来回折返；标了「离主店远」的店不能排进同一天的步行路线。
 13. 正文里写导航避坑、路线、游玩建议这类分条内容时，每段写 4–6 条，别只写 3 条。
 12. 每篇要做成 8–10 页图（君游 2026-11-27）：route 写 7–9 站的一天行程（上午、中午、下午、傍晚、晚饭、夜宵都有）（每站带吃什么或注意什么）；tips 当「旅程注意事项」写 6–8 条；stay 写 2–3 个住宿区域建议（只写区域和为什么住这，不写具体酒店名和价格）；traffic 写 3–5 条交通（机场/高铁站怎么过来、景点之间怎么串、夜宵后怎么回，只写你确定的线路站名，不写票价）；sections 里每家店的 say 写成 18–30 字的具体推荐（招牌菜＋口感），会单独排成美食详解页。
 11. 这是同一批的第 ${k} 篇，标题、开头、结尾、选的店和菜都要和前面的不一样。前面用过的：${prev.length ? prev.map(p => `《${p.title}》结尾「${p.ending}」`).join('；') : '无'}
@@ -221,7 +229,7 @@ ${shopLines}
   async function generate(briefId, layout, n, by) {
     const B = briefs().find(b => b.id === briefId); if (!B) throw new Error('没找到任务书'); if (!LAYOUTS[layout]) throw new Error('没有这个版式');
     const all = stores(); const main = all.find(s => s.id === B.store); if (!main) throw new Error('任务书的主店不在门店池');
-    const pool = all.filter(s => s.district === B.district && s.id !== main.id && !(s.planted && brandRe(B).test(s.name)));
+    const pool = poolOf(B, all, main);
     const id = 'g' + Date.now().toString(36); const batch = { id, brief: B.id, briefName: B.name, layout, layoutName: LAYOUTS[layout].name, by, at: Date.now(), n, status: 'running', notes: [], err: '' };
     wj(path.join(BD, id + '.json'), batch); runBatch(batch);
     return batch;
@@ -231,7 +239,7 @@ ${shopLines}
     const B = briefs().find(b => b.id === batch.brief); const all = stores(); const main = B && all.find(s => s.id === B.store);
     const id = batch.id, n = batch.n, layout = batch.layout, f = path.join(BD, id + '.json');
     if (!B || !main) { batch.status = 'error'; batch.err = '任务书或主店不见了'; wj(f, batch); return; }
-    const pool = all.filter(s => s.district === B.district && s.id !== main.id && !(s.planted && brandRe(B).test(s.name)));
+    const pool = poolOf(B, all, main);
     const save = () => { const d = rj(f, null); if (d && d.notes) d.notes.forEach(o => { const x = batch.notes.find(y => y.no === o.no); if (x) { x.status = o.status; x.notes = o.notes; } }); wj(f, batch); }; // 跑的过程中审稿标记不被覆盖
     jobs.set(id, true);
     (async () => {
@@ -333,8 +341,8 @@ ${shopLines}
   function cleanBrief(b) { // 网页上改/新建任务书：只收这些字段，列表统一成数组
     const str = (v, n) => String(v === undefined || v === null ? '' : v).trim().slice(0, n || 200); const arr = v => (Array.isArray(v) ? v : String(v || '').split(/[、,，\n]+/)).map(x => String(x).trim()).filter(Boolean).slice(0, 40);
     const tag = v => arr(v).map(t => '#' + t.replace(/^#/, '')); const o = {};
-    for (const k of ['id', 'name', 'store', 'brand', 'storeTitle', 'storeType', 'mainCat', 'city', 'district', 'address', 'price', 'hours', 'audience', 'message', 'mustDish', 'titleRule', 'practical', 'note']) if (b[k] !== undefined) o[k] = str(b[k], k === 'message' || k === 'audience' ? 300 : 120);
-    for (const k of ['mustSpots', 'optSpots', 'banned', 'placeWords', 'brandWords']) if (b[k] !== undefined) o[k] = arr(b[k]);
+    for (const k of ['id', 'name', 'store', 'brand', 'storeTitle', 'storeType', 'mainCat', 'city', 'district', 'address', 'price', 'hours', 'audience', 'message', 'mustDish', 'titleRule', 'practical', 'note', 'facts']) if (b[k] !== undefined) o[k] = str(b[k], ['message', 'audience', 'facts'].includes(k) ? 300 : 120);
+    for (const k of ['mustSpots', 'optSpots', 'banned', 'placeWords', 'brandWords', 'nearAreas', 'sameCat']) if (b[k] !== undefined) o[k] = arr(b[k]);
     for (const k of ['tagsMust', 'tagsOpt']) if (b[k] !== undefined) o[k] = tag(b[k]);
     if (b.minDishes !== undefined) o.minDishes = Math.max(1, Math.min(6, +b.minDishes || 3)); if (b.tagsTotal !== undefined) o.tagsTotal = Math.max(5, Math.min(10, +b.tagsTotal || 9));
     if (b.directions !== undefined) o.directions = (Array.isArray(b.directions) ? b.directions : String(b.directions).split('\n').map(l => { const [n, w] = l.split(/[:：]/); return n && n.trim() ? { name: n.trim(), words: String(w || '').split(/[\/、,，]+/).map(x => x.trim()).filter(Boolean) } : null; }).filter(Boolean)).slice(0, 6);
@@ -400,7 +408,7 @@ ${shopLines}
     const pool = stores().filter(s => s.district === B.district && s.id !== B.store && !(s.planted && brandRe(B).test(s.name))).sort(() => Math.random() - 0.5).slice(0, 20);
     const dishes = [B.mustDish, ...Object.values(B.dishes || {}).flat()].filter(Boolean).join('、');
     const prompt = `你在帮餐饮店做${dy ? '抖音' : '小红书'}评论区维护：给一条目标笔记写评论稿，让我们的店名在评论区被自然提到、被追问、被搜。评论由我们的员工号/素人号分别去发，要像不同的真人。
-【我们的店】${B.storeTitle}｜${B.address}｜人均${B.price}｜${B.hours}｜可写的菜：${dishes}｜卖点：${B.message}
+【我们的店】${B.storeTitle}｜${B.address}｜人均${B.price}｜${B.hours}｜可写的菜：${dishes}｜卖点：${B.message}${B.facts ? '\n【固定事实，不能改】' + B.facts : ''}
 【周边别家店（发攻略时只能用这些，店名照抄）】
 ${pool.map(s => `- ${s.name}｜${s.cat}｜招牌：${s.dishes}`).join('\n') || '（没有，就写【别家店名】占位）'}
 【目标笔记】${url || '（没给链接）'}${noteText ? `\n${noteText.slice(0, 1500)}` : '\n（没拿到原文，按「' + ({ need: '求推荐帖', guide: '攻略／美食清单', single: '单店探店笔记' }[j.noteType] || '本地美食帖') + '」写，内容要能接得上这类帖子）'}
@@ -422,6 +430,42 @@ ${plays.map(k => `- ${k}｜${PLAYS[k][0]}：${PLAYS[k][1]}`).join('\n')}
     const rec = { id: 'c' + Date.now().toString(36), at: Date.now(), by: who, url, brief: B.id, briefName: B.name, platform: dy ? 'dy' : 'xhs', own, from: known ? known.from : (noteText ? '手动粘贴' : ''), noteText: noteText.slice(0, 400), plays, groups, model: r.model, bad };
     wj(path.join(CD2, rec.id + '.json'), rec); log(`[攻略平台] 评论稿 ${groups.length} 组（${url.slice(0, 60)}）`); return rec;
   }
+
+  // ---------- 周边店候选（林总 2026-11-27：周边店从爆款库里找，放进门店池，不要和主店同品类）----------
+  // 1) 按任务书的商圈给采集插件加「本地调研词」；2) 采到的本地笔记让 AI 抽出店名/品类/招牌/地址；3) 候选在「门店池」里一键加入
+  const CF = path.join(D, 'cands.json'); let CA = rj(CF, { items: [], done: [] }); const saveC = () => wj(CF, CA);
+  const nearOf = B => [...new Set((B.nearAreas && B.nearAreas.length ? B.nearAreas : [...(B.placeWords || []), ...(B.mustSpots || []), ...(B.optSpots || []).slice(0, 2)]).filter(Boolean))];
+  const sameCatRe = B => new RegExp((B.sameCat && B.sameCat.length ? B.sameCat : /大排档|海鲜/.test(B.storeType || '') ? ['大排档', '海鲜', '烧烤', '生蚝', '砂锅粥', '小龙虾'] : [B.storeType || '无']).join('|'));
+  function syncFocus() { if (!glib || !glib.setFocus) return; const kws = []; briefs().forEach(B => nearOf(B).slice(0, 6).forEach(a => { kws.push(a + '美食'); if (kws.length < 12) kws.push(a + '附近吃什么'); })); glib.setFocus([...new Set(kws)].slice(0, 14)); }
+  setTimeout(syncFocus, 30e3);
+  async function extractCands() {
+    if (!glib || !glib.focus) return; const F = new Set(glib.focus().map(x => x.kw)); const done = new Set(CA.done); const all = stores();
+    const L = (glib.query ? glib.query({ n: 5000, sort: 'in' }) : { items: [] }).items || []; let n = 0;
+    for (const it of L) {
+      if (done.has(it.id) || !(it.kws || []).some(k => F.has(k))) continue; const g = glib.get(it.id); if (!g) continue; done.add(it.id); CA.done.push(it.id);
+      const text = `${g.title}\n${g.desc}\n${(g.ai && g.ai.text) || ''}`.slice(0, 3500); if (text.length < 40) continue;
+      try {
+        const r = await llm(`下面是一篇小红书本地美食笔记（标题、正文、图片里的字）。把里面提到的、能找得到的具体餐饮店抽出来（必须有店名；连锁店带上分店名）。没有具体店名的不要，景点、商场不要。
+只输出 JSON：{"shops":[{"name":"店名（分店）","area":"商圈/街道/地铁站，原文怎么写就怎么写","cat":"品类，如 糖水甜品/粉面/茶餐厅/潮汕牛肉火锅/烘焙/咖啡","dishes":"原文提到的招牌菜，顿号隔开","addr":"原文给的地址，没有就空","price":"人均数字，没有就空","hours":"营业时间，没有就空"}]}
+笔记：
+${text}`);
+        const J0 = parseJ(r.text);
+        for (const x of (J0.shops || []).slice(0, 30)) {
+          const name = String(x.name || '').trim().slice(0, 40); if (name.length < 2) continue; const key = name.replace(/[（(].*$/, '').replace(/\s/g, '');
+          if (all.some(st => st.name.replace(/[（(].*$/, '').replace(/\s/g, '') === key && (!x.area || st.name.includes(String(x.area).slice(0, 2)) || st.area === x.area))) continue;
+          const o = CA.items.find(c => c.name === name) || (CA.items.push({ name, area: '', cat: '', dishes: '', addr: '', price: '', hours: '', notes: [], st: 'new' }), CA.items[CA.items.length - 1]);
+          for (const k of ['area', 'cat', 'dishes', 'addr', 'price', 'hours']) if (!o[k] && x[k]) o[k] = String(x[k]).slice(0, 80);
+          if (!o.notes.some(z => z.id === it.id)) o.notes.push({ id: it.id, title: String(g.title || '').slice(0, 40), likes: g.likes || 0, collects: g.collects || 0 });
+        }
+        n++;
+      } catch (e) { log('[攻略平台] 抽周边店出错：' + e.message); }
+      saveC(); if (n >= 25) break;
+    }
+    if (n) log(`[攻略平台] 从 ${n} 篇本地笔记里抽周边店，候选共 ${CA.items.length} 家`); saveC();
+  }
+  setInterval(() => extractCands().catch(() => { }), 3 * 3600e3); setTimeout(() => extractCands().catch(() => { }), 120e3);
+  function candList(bid) { const B = briefs().find(x => x.id === bid) || briefs()[0] || {}; const near = nearOf(B); const same = sameCatRe(B);
+    return CA.items.filter(c => c.st === 'new').map(c => Object.assign({}, c, { near: near.some(a => (c.area + c.addr + c.name).includes(a)), same: same.test(c.cat + c.name) })).sort((a, c) => (c.near - a.near) || (a.same - c.same) || c.notes.length - a.notes.length); }
   // ---------- 路由 ----------
   async function handle(req, res, p, u) {
     if (p === '/login' && req.method === 'POST') {
@@ -493,6 +537,13 @@ ${plays.map(k => `- ${k}｜${PLAYS[k][0]}：${PLAYS[k][1]}`).join('\n')}
         return J(res, { ok: true, month: mon, months: months.includes(mon) ? months : [mon, ...months], stats: [...W.values()].sort((a, c) => c.sub - a.sub), list, writers: U.users.filter(x => x.role === 'writer' && !x.off).map(x => ({ id: x.id, name: x.name })) });
       }
       if (p === '/api/writerlist') return J(res, { ok: true, writers: me.role === 'writer' ? [] : U.users.filter(x => x.role === 'writer' && !x.off).map(x => ({ id: x.id, name: x.name })) });
+      if (p === '/api/cands' && req.method === 'GET') { const B = briefs().find(x => x.id === u.searchParams.get('brief')) || briefs()[0]; return J(res, { ok: true, brief: B && B.id, near: B ? nearOf(B) : [], focus: glib && glib.focus ? glib.focus() : [], items: candList(B && B.id) }); }
+      if (p === '/api/cands' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req, 20000)); const B = briefs().find(x => x.id === j.brief) || briefs()[0];
+        if (j.run) { extractCands().catch(() => { }); return J(res, { ok: true }); }
+        const names = [].concat(j.names || []); let add = 0;
+        for (const nm of names) { const c = CA.items.find(x => x.name === nm); if (!c) continue; if (j.ignore) { c.st = 'ignored'; continue; }
+          const L2 = stores(); L2.push({ id: 's' + Date.now().toString(36) + add, name: c.name, planted: false, district: B.district, area: String(j.area || c.area || '').slice(0, 20), cat: c.cat, slot: '', dishes: c.dishes, price: c.price, star: '', years: '', hours: c.hours, addr: c.addr, src: '爆款库', verify: true, refNotes: c.notes.map(z => z.id) }); wj(SF, L2); c.st = 'added'; add++; }
+        saveC(); return J(res, { ok: true, add }); }
       if (p === '/api/roster') { const L = await roster(); return J(res, { ok: true, roster: L, diag: isBoss ? RO.diag : undefined }); }
       if (p === '/api/settle' && req.method === 'GET') { const mon = /^\d{4}-\d{2}$/.test(u.searchParams.get('month') || '') ? u.searchParams.get('month') : bjDay().slice(0, 7); return J(res, { ok: true, month: mon, rates: rates(), rows: settle(mon) }); }
       if (p === '/api/settle' && req.method === 'POST' && isBoss) { const j = JSON.parse(await body(req, 20000));

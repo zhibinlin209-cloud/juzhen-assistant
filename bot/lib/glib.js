@@ -46,13 +46,17 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
   const cur = () => inWindow(Date.now()) ? night() : dayS(); const capOf = () => inWindow(Date.now()) ? CAP : DCAP;
   const nlog = t => { const n = cur(); n.log.unshift(bj().toISOString().slice(11, 16) + ' ' + t); n.log = n.log.slice(0, 80); saveN(); };
 
+  // 本地店铺调研词（林总 2026-11-27：周边店从爆款库里找）：优先跑，3 天内不重复；笔记门槛放低（本地小店的笔记没那么爆）
+  const FF = path.join(D, 'focus.json'); const focus = () => rj(FF, []);
+  function setFocus(L) { const old = new Map(focus().map(x => [x.kw, x])); wj(FF, L.map(kw => old.get(kw) || { kw, at: Date.now() })); return focus(); }
+  const isFocus = kw => focus().some(x => x.kw === kw);
   function pickKws(n) {
-    const all = []; CITIES.forEach((c, ci) => WORDS.forEach((w, wi) => all.push({ kw: `${c}${w}`, pri: 100 - ci * 2 - wi })));
+    const all = []; focus().forEach(x => all.push({ kw: x.kw, pri: 400, focus: 1 })); CITIES.forEach((c, ci) => WORDS.forEach((w, wi) => all.push({ kw: `${c}${w}`, pri: 100 - ci * 2 - wi })));
     // 爆过的笔记反推的「标题骨架 × 城市」排前面（同系列验证）
     (rj(path.join(D, 'skeleton.json'), []) || []).forEach(s => CITIES.slice(0, 10).forEach(c => all.push({ kw: s.replace(/X/g, c), pri: 120 })));
-    const score = x => { const s = K[x.kw]; if (!s) return 1000 + x.pri; const days = (Date.now() - s.last) / DAY; return x.pri * 0.3 + Math.min(days, 30) * 4 + (s.runs ? (s.hot / s.runs) * 30 : 0); };
+    const score = x => { const s = K[x.kw]; if (x.focus) return s && Date.now() - s.last < 3 * DAY ? -1 : 5000 + x.pri; if (!s) return 1000 + x.pri; const days = (Date.now() - s.last) / DAY; return x.pri * 0.3 + Math.min(days, 30) * 4 + (s.runs ? (s.hot / s.runs) * 30 : 0); };
     const used = new Set([...night().kws, ...dayS().kws]);
-    return all.filter(x => !used.has(x.kw)).sort((a, b) => score(b) - score(a)).slice(0, n).map(x => x.kw);
+    return all.filter(x => !used.has(x.kw) && score(x) >= 0).sort((a, b) => score(b) - score(a)).slice(0, n).map(x => x.kw);
   }
 
 
@@ -95,7 +99,7 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
     const n = cur(); const CAP = capOf(); const kw = String(b.kw || '').slice(0, 40); const L = (Array.isArray(b.list) ? b.list : []).filter(x => x && /^[0-9a-f]{24}$/.test(x.id) && x.type !== 'video' && x.kind !== 'video');
     const now = Date.now(); n.found += L.length;
     const cands = L.map(x => Object.assign({}, x, heatOf({ id: x.id, time: x.time, collects: x.collects, shares: x.shares }, now), { likes: num(x.likes) }))
-      .filter(x => !IDX.has(x.id) && x.days <= 180 && (x.daily >= 8 || num(x.collects) >= 500 || (x.collects === undefined && x.likes >= 1000)));
+      .filter(x => !IDX.has(x.id) && (isFocus(kw) ? x.days <= 365 && (num(x.collects) >= 50 || num(x.likes) >= 100) : x.days <= 180 && (x.daily >= 8 || num(x.collects) >= 500 || (x.collects === undefined && x.likes >= 1000))));
     cands.sort((a, c) => (c.heat || c.likes / 100) - (a.heat || a.likes / 100));
     const read = cands.slice(0, Math.min(CAP.perKw, Math.max(0, CAP.detail - n.detail))).map(x => ({ id: x.id, url: x.url }));
     const s = K[kw] || (K[kw] = { runs: 0, found: 0, hot: 0, last: 0 }); s.runs++; s.found += L.length; s.hot += cands.length; s.last = now; saveK(); saveN();
@@ -193,6 +197,6 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
   function get(id) { const n = rj(path.join(ND, id + '.json'), null); if (!n) return null; const a = AU[n.authorId]; return Object.assign(n, { tplAuthor: !!(a && a.tpl), authorNotes: a ? a.notes.length : 0 }); }
   function imgPath(id, f) { if (!/^[0-9a-f]{24}$/.test(id) || !/^\d+\.(jpg|png|webp)$/.test(f)) return null; const p = path.join(ID, id, f); return fs.existsSync(p) ? p : null; }
   function status() { const n = night(), d = dayS(); return { ok: true, night: Object.assign({}, n, { log: n.log.slice(0, 30) }), day: Object.assign({}, d, { log: d.log.slice(0, 20) }), pause: PA.until > Date.now() ? PA : null, window: inWindow(Date.now()), total: IDX.size, seed: seedStat(), authors: Object.values(AU).filter(a => a.tpl).map(a => ({ name: a.name, n: a.notes.length, why: a.why })), caps: CAP }; }
-  return { need, list, ingest, blocked, roundDone, seedFetch, seedFail, query, get, imgPath, status, summary, reload: load, count: () => IDX.size };
+  return { need, list, ingest, blocked, roundDone, seedFetch, seedFail, setFocus, focus, query, get, imgPath, status, summary, reload: load, count: () => IDX.size };
 }
 module.exports = { createGlib, heatOf };
