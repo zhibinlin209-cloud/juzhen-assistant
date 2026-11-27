@@ -119,32 +119,33 @@ function yesPage(note, style) {
   [...note.yes.order, note.yes.when, note.yes.fit].filter(Boolean).forEach(t => { y = para(x, '· ' + t, 60, y, W - 120, 50) + 8; });
   return c;
 }
-function listPages(note, opt) {
+function listPages1(note, opt, k0) { const LW = W / k0, LH = H / k0;
   // 美食清单：按分类排；opt.style = check（空心圆）/ hand（编号＋紫色手写）/ star（星级＋短评）
   const pages = []; let c, x, y; const st = opt.style;
-  const start = () => { [c, x] = cv(); memoHead(x); y = 130; x.fillStyle = '#111'; x.font = `900 58px ${SANS}`; y = para(x, opt.title, 60, y, W - 120, 72) + 24; pages.push(c); };
+  const start = () => { [c, x] = cv(); memoHead(x); x.scale(k0, k0); y = 130 / k0; x.fillStyle = '#111'; x.font = `900 58px ${SANS}`; y = para(x, opt.title, 60, y, LW - 120, 72) + 24; pages.push(c); };
   start(); let k = 0;
   if (opt.spots && note.spots.length) { // 景点放在最前面（像真人先写去哪玩），后面接吃的
     x.fillStyle = '#111'; x.font = `800 46px ${SANS}`; x.fillText(st === 'hand' ? `${opt.place}玩什么` : '先去玩', 60, y); y += 70;
-    note.spots.forEach((s, i) => { x.fillStyle = '#111'; x.font = `600 40px ${SANS}`; x.fillText(`${i + 1}. ${s.place}`, 60, y); y += 54; x.fillStyle = st === 'hand' ? '#7C3AED' : '#666'; x.font = st === 'hand' ? `38px ${HAND}` : `32px ${SANS}`; y = para(x, s.tip, 100, y, W - 160, 48) + 16; });
+    note.spots.forEach((s, i) => { x.fillStyle = '#111'; x.font = `600 40px ${SANS}`; x.fillText(`${i + 1}. ${s.place}`, 60, y); y += 54; x.fillStyle = st === 'hand' ? '#7C3AED' : '#666'; x.font = st === 'hand' ? `38px ${HAND}` : `32px ${SANS}`; y = para(x, s.tip, 100, y, LW - 160, 48) + 16; });
     y += 16;
   }
   for (const s of note.sections) {
-    const need = 80 + s.items.length * (st === 'star' ? 150 : 100); if (y + Math.min(need, 300) > H - 60) start();
+    const need = 80 + s.items.length * (st === 'star' ? 150 : 100); if (y + Math.min(need, 300) > LH - 60) start();
     x.fillStyle = st === 'hand' ? '#111' : '#111'; x.font = `800 46px ${SANS}`;
     const head = st === 'hand' ? `${opt.place}吃什么（${s.h}）` : s.h; if (st === 'check') { x.fillStyle = '#FFE58A'; x.fillRect(56, y + 22, x.measureText(head).width + 10, 26); x.fillStyle = '#111'; }
     x.fillText(head, 60, y); y += 70;
     for (const it of s.items) {
-      if (y > H - 140) { start(); }
+      if (y > LH - 140) { start(); }
       k++;
-      if (st === 'check') { x.strokeStyle = '#999'; x.lineWidth = 3; x.beginPath(); x.arc(78, y + 22, 16, 0, Math.PI * 2); x.stroke(); x.fillStyle = '#111'; x.font = `${it.main ? 700 : 500} 40px ${SANS}`; x.fillText(it.name, 112, y); y += 52; x.fillStyle = '#888'; x.font = `30px ${SANS}`; y = para(x, it.say + (it.price ? `｜人均${it.price}` : ''), 112, y, W - 180, 42) + 18; }
-      else if (st === 'hand') { x.fillStyle = '#111'; x.font = `${it.main ? 700 : 500} 40px ${SANS}`; const t = `${k}. ${it.name}`; x.fillText(t, 60, y); const w = x.measureText(t).width; x.fillStyle = '#7C3AED'; x.font = `38px ${HAND}`; if (w + x.measureText(it.say).width < W - 160) { x.fillText(it.say, 60 + w + 24, y + 4); y += 66; } else { y += 54; y = para(x, it.say, 100, y, W - 160, 50) + 14; } }
-      else { x.fillStyle = '#111'; x.font = `${it.main ? 800 : 600} 40px ${SANS}`; x.fillText(`${k}. ${it.name}`, 60, y); y += 54; x.font = `34px ${SANS}`; x.fillText(stars(it.stars), 60, y); y += 50; x.fillStyle = '#555'; x.font = `32px ${SANS}`; y = para(x, it.say + (it.price ? `，人均${it.price}` : '') + (it.area ? `，${it.area}` : ''), 60, y, W - 120, 46) + 22; }
+      if (st === 'check') { x.strokeStyle = '#999'; x.lineWidth = 3; x.beginPath(); x.arc(78, y + 22, 16, 0, Math.PI * 2); x.stroke(); x.fillStyle = '#111'; x.font = `${it.main ? 700 : 500} 40px ${SANS}`; x.fillText(it.name, 112, y); y += 52; x.fillStyle = '#888'; x.font = `30px ${SANS}`; y = para(x, it.say + (it.price ? `｜人均${it.price}` : ''), 112, y, LW - 180, 42) + 18; }
+      else if (st === 'hand') { x.fillStyle = '#111'; x.font = `${it.main ? 700 : 500} 40px ${SANS}`; const t = `${k}. ${it.name}`; x.fillText(t, 60, y); const w = x.measureText(t).width; x.fillStyle = '#7C3AED'; x.font = `38px ${HAND}`; if (w + x.measureText(it.say).width < LW - 160) { x.fillText(it.say, 60 + w + 24, y + 4); y += 66; } else { y += 54; y = para(x, it.say, 100, y, LW - 160, 50) + 14; } }
+      else { x.fillStyle = '#111'; x.font = `${it.main ? 800 : 600} 40px ${SANS}`; x.fillText(`${k}. ${it.name}`, 60, y); y += 54; x.font = `34px ${SANS}`; x.fillText(stars(it.stars), 60, y); y += 50; x.fillStyle = '#555'; x.font = `32px ${SANS}`; y = para(x, it.say + (it.price ? `，人均${it.price}` : '') + (it.area ? `，${it.area}` : ''), 60, y, LW - 120, 46) + 22; }
     }
     y += 16;
   }
   return pages;
 }
+function listPages(note, opt) { let best = listPages1(note, opt, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = listPages1(note, opt, k); if (p.length < best.length) best = p; } return best; } // 能一页放下就缩点字放一页
 function coverMemo(note) { const [c, x] = cv(); x.fillStyle = '#FFF8D2'; x.fillRect(0, 0, W, H); x.fillStyle = '#E8C84A'; x.font = `900 220px Georgia,serif`; x.fillText('“', 70, 90); x.fillStyle = '#1a1a1a'; x.font = `900 104px ${SANS}`; let y = 470; note.cover.forEach((l, i) => { if (i === 1) { const w = x.measureText(l).width; x.fillStyle = '#BFE3FF'; x.fillRect(84, y + 66, w + 12, 40); x.fillStyle = '#1a1a1a'; } x.fillText(l, 90, y); y += 150; }); x.fillStyle = '#E8C84A'; x.fillRect(W - 180, H - 170, 70, 10); return c; }
 function coverHand(note) { const [c, x] = cv(); memoHead(x); x.fillStyle = '#111'; x.font = `900 110px ${SANS}`; let y = 360; note.cover.forEach(l => { x.fillText(l, 70, y); y += 150; }); x.fillStyle = '#7C3AED'; x.font = `64px ${HAND}`; x.fillText('（自己吃过才写的）', 80, y + 30); x.strokeStyle = '#E11D48'; x.lineWidth = 6; x.beginPath(); x.ellipse(W / 2, 430, 470, 120, -0.05, 0, Math.PI * 2); x.stroke(); return c; }
 function coverStar(note) { const [c, x] = cv(); x.fillStyle = '#FFFDF7'; x.fillRect(0, 0, W, H); x.fillStyle = '#111'; x.font = `900 100px ${SANS}`; let y = 260; note.cover.forEach(l => { x.fillText(l, 80, y); y += 140; }); y += 60; x.font = `44px ${SANS}`; x.fillStyle = '#333'; [['⭐⭐⭐⭐⭐', '会专门再去'], ['⭐⭐⭐⭐', '值得一吃'], ['⭐⭐⭐', '顺路可以']].forEach(([s, t]) => { x.fillText(s, 80, y); x.fillText(t, 420, y); y += 80; }); x.fillStyle = '#999'; x.font = `34px ${SANS}`; x.fillText('纯个人口味打分，仅供参考', 80, y + 40); return c; }
@@ -174,17 +175,18 @@ function coverQuote(n, o) { // 米白/粉底＋浅色引号＋灰色大字；o.h
   let y = Math.round(H / 2 - lines.length * size * 1.4 / 2); lines.forEach((l, i) => { if (i === 0 && o.hl) { x.fillStyle = o.hl; x.fillRect(128, y + size * 0.62, x.measureText(l).width + 6, size * 0.42); } x.fillStyle = o.ink; x.fillText(l, 130, y); y += Math.round(size * 1.4); });
   x.fillStyle = o.quote; x.fillRect(W - 210, H - 150, 72, 16); return c;
 }
-function cleanLists(n) { // 大分类标题＋空心圆店名（只写店名，干净）
-  const pages = []; let c, x, y; const start = () => { [c, x] = cv(); x.fillStyle = '#FCFBF6'; x.fillRect(0, 0, W, H); y = 60; pages.push(c); };
+function cleanLists1(n, k0) { const LW = W / k0, LH = H / k0; // 大分类标题＋空心圆店名（只写店名，干净）
+  const pages = []; let c, x, y; const start = () => { [c, x] = cv(); x.fillStyle = '#FCFBF6'; x.fillRect(0, 0, W, H); x.scale(k0, k0); y = 60; pages.push(c); };
   start();
   for (const s of n.sections) {
-    if (y + 100 + Math.min(s.items.length, 3) * 100 > H - 40) start();
+    if (y + 100 + Math.min(s.items.length, 3) * 100 > LH - 40) start();
     x.fillStyle = '#4a4a4a'; x.font = `800 84px ${SANS}`; x.fillText(s.h.replace(/^晚饭·/, ''), 70, y); y += 130;
-    for (const it of s.items) { if (y > H - 110) start(); x.strokeStyle = '#a99d9f'; x.lineWidth = 4; x.beginPath(); x.arc(118, y + 28, 30, 0, Math.PI * 2); x.stroke(); x.fillStyle = '#555'; x.font = `400 50px ${SANS}`; const t = wrap(x, it.name, W - 260)[0]; x.fillText(t, 176, y); y += 100; }
+    for (const it of s.items) { if (y > LH - 110) start(); x.strokeStyle = '#a99d9f'; x.lineWidth = 4; x.beginPath(); x.arc(118, y + 28, 30, 0, Math.PI * 2); x.stroke(); x.fillStyle = '#555'; x.font = `400 50px ${SANS}`; const t = wrap(x, it.name, LW - 260)[0]; x.fillText(t, 176, y); y += 100; }
     y += 30;
   }
   return pages;
 }
+function cleanLists(n) { let best = cleanLists1(n, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = cleanLists1(n, k); if (p.length < best.length) best = p; } return best; }
 async function collagePage(n, photos, seed) { // 四宫格实拍＋中间白字描边（店名＋一段话），照 88/81/83 的实拍页
   if (!photos || !photos.length) return placeholder(n);
   const pick = []; const st0 = (seed * 4) % photos.length; for (let i = 0; i < Math.min(4, photos.length); i++) pick.push(photos[(st0 + i) % photos.length]); while (pick.length < 4) pick.push(pick[pick.length % Math.max(1, photos.length)]);
@@ -218,10 +220,11 @@ function greenBracket(n, place, title) {
   }
   return c;
 }
-function greenTips(n, place, title) {
-  const pages = []; let c, x, y; const start = () => { [c, x] = greenPage(title); y = 240; chip(x, `${place}旅游建议`, 40, y, '#FFE38A', 46); y += 96; pages.push(c); };
-  start(); (n.tips || []).forEach((t, i) => { x.font = `38px ${SANS}`; if (y + 120 > H) start(); x.fillStyle = '#222'; y = para(x, `建议${i + 1}：${t}`, 40, y, W - 80, 62) + 10; }); return (n.tips || []).length ? pages : [];
+function greenTips1(n, place, title, k0) { const LW = W / k0, LH = H / k0;
+  const pages = []; let c, x, y; const start = () => { [c, x] = greenPage(title); y = 240; chip(x, `${place}旅游建议`, 40, y, '#FFE38A', 46); y += 96; x.scale(k0, k0); y = y / k0; pages.push(c); };
+  start(); (n.tips || []).forEach((t, i) => { x.font = `38px ${SANS}`; if (y + 120 > LH) start(); x.fillStyle = '#222'; y = para(x, `建议${i + 1}：${t}`, 40, y, LW - 80, 62) + 10; }); return (n.tips || []).length ? pages : [];
 }
+function greenTips(n, place, title) { let best = greenTips1(n, place, title, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = greenTips1(n, place, title, k); if (p.length < best.length) best = p; } return best; }
 async function greenFood(n, place, title, photos) {
   const [c, x] = greenPage(title); let y = 240; chip(x, `${place}美食推荐`, 46, y, '#FFE38A', 46); y += 100;
   const items = n.sections.flatMap(s => s.items).slice(0, 4); const textW = photos && photos.length ? 690 : W - 90;
@@ -230,20 +233,21 @@ async function greenFood(n, place, title, photos) {
   return c;
 }
 // ---- nav：白色备忘录「规则怪谈」，导航建议高亮 ----
-function navPages(n, place) {
+function navPages1(n, place, k0) { const LW = W / k0, LH = H / k0;
   const pages = []; let c, x, y; const title = `${place}旅游规则怪谈`;
-  const start = () => { [c, x] = cv(); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#D9A52B'; x.font = `600 46px ${SANS}`; x.fillText('‹ 备忘录', 50, 44); x.fillStyle = '#999'; x.font = `44px ${SANS}`; x.fillText('🔔  🔒  ✉  ➤', W - 360, 44); x.fillStyle = '#000'; x.font = `900 86px ${SANS}`; x.fillText(title, 80, 130); y = 270; pages.push(c); };
+  const start = () => { [c, x] = cv(); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#D9A52B'; x.font = `600 46px ${SANS}`; x.fillText('‹ 备忘录', 50, 44); x.fillStyle = '#999'; x.font = `44px ${SANS}`; x.fillText('🔔  🔒  ✉  ➤', W - 360, 44); x.fillStyle = '#000'; x.font = `900 86px ${SANS}`; x.fillText(title, 80, 130); x.scale(k0, k0); y = 270 / k0; pages.push(c); };
   start();
   (n.navs || []).forEach((v, i) => {
-    x.font = `48px ${SANS}`; const head = `${i + 1}、 ${v.place}：不要只搜「${v.place}」`; const hl = wrap(x, head, W - 130); const pun = t => t && !/[。；！，,.!;]$/.test(t) ? t + '。' : t; const body = [pun(v.why), v.nav ? (/[。；！]$/.test(v.nav) ? v.nav : v.nav + '；') : '', v.tip].filter(Boolean);
-    if (y + hl.length * 64 + 260 > H) start();
+    x.font = `48px ${SANS}`; const head = `${i + 1}、 ${v.place}：不要只搜「${v.place}」`; const hl = wrap(x, head, LW - 130); const pun = t => t && !/[。；！，,.!;]$/.test(t) ? t + '。' : t; const body = [pun(v.why), v.nav ? (/[。；！]$/.test(v.nav) ? v.nav : v.nav + '；') : '', v.tip].filter(Boolean);
+    if (y + hl.length * 64 + 260 > LH) start();
     x.fillStyle = '#111'; hl.forEach(l => { x.fillText(l, 62, y); y += 66; }); y += 14;
     // 正文：why 普通、nav 黄色高亮、tip 普通，连续排
     x.font = `38px ${SANS}`; const segs = []; body.forEach(t => [...t].forEach(ch => segs.push([ch, !!v.nav && t.startsWith(v.nav.slice(0, 4)) ])));  let line = [], lx = 62; const flush = () => { let px = 62; line.forEach(([ch, h1]) => { const w = x.measureText(ch).width; if (h1) { x.fillStyle = '#FFE38A'; x.fillRect(px, y - 2, w + 1, 50); } px += w; }); px = 62; x.fillStyle = '#666'; line.forEach(([ch]) => { x.fillText(ch, px, y); px += x.measureText(ch).width; }); y += 64; line = []; lx = 62; };
-    segs.forEach(sg => { const w = x.measureText(sg[0]).width; if (lx + w > W - 62) flush(); line.push(sg); lx += w; }); if (line.length) flush(); y += 50;
+    segs.forEach(sg => { const w = x.measureText(sg[0]).width; if (lx + w > LW - 62) flush(); line.push(sg); lx += w; }); if (line.length) flush(); y += 50;
   });
   return (n.navs || []).length ? pages : [];
 }
+function navPages(n, place) { let best = navPages1(n, place, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = navPages1(n, place, k); if (p.length < best.length) best = p; } return best; }
 // ---- 8–10 页（君游 2026-11-27：封面1＋行程美食3–4＋注意事项1＋住宿交通1–2＋实拍1）：按版式配色排的通用信息页 ----
 const THEMES = {
   clean: { start(t) { const [c, x] = cv(); x.fillStyle = '#FCFBF6'; x.fillRect(0, 0, W, H); x.fillStyle = '#4a4a4a'; x.font = `800 88px ${SANS}`; x.fillText(t, 70, 80); return [c, x, 240]; }, sec(x, t, y) { x.fillStyle = '#F2E7D8'; x.fillRect(66, y + 30, x.measureText(t).width + 10, 26); x.fillStyle = '#4a4a4a'; x.font = `800 62px ${SANS}`; x.fillText(t, 70, y); return y + 100; }, head: '#4a4a4a', body: '#777', mark: 'circle' },
