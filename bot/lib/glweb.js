@@ -203,7 +203,7 @@ ${shops}
 3. 不像真人：套话（嘬手指、不踩雷、天花板、封神、绝绝子、救命、谁懂啊等）、排比堆砌、每段一个格式、太书面；编造的亲身经历细节（刚好碰上、土著朋友甩来）；正文里提主店超过 2 次或写「见图片」。
 4. 规则：标题 ≤20 字要有地点词和需求词；封面和标题不能有店名/大排档；禁用词：${(B.banned || []).join('、')}。
 5. 同批重复：标题、开头和别的篇太像。
-改的方式：不要重写整篇，只给「把哪句原话换成什么」。old 必须是原稿里一字不差、能找到的一段（10–60 字），new 是换掉后的话；能删就删（new 写空），别加新店、新菜、新景点、新营业时间；不确定的事实宁可删掉那半句也别编。标题有问题才给 title（≤20 字，必须有地点词，且含 吃/美食/夜宵/攻略/逛/玩/清单/推荐/去哪 其中一个）。problems 只写你有把握的真问题，没问题就写空数组、edits 也空。
+改的方式：edits 只用来改硬伤——禁用词、上面列的套话词、「见图片」、说上榜、把虾写成龙虾。old 是原稿里一字不差、带着那个词的一小段（≤40 字），new 只把那个词换掉或删掉，其余字不动。口吻、文风、开头结尾、「去了几次」这类说法、你觉得不够好的句子，一律不要改写（这些稿子是故意写得口语、像真人随手记的，润色会让它更像 AI）；这类意见和事实疑点只写进 problems，由人来判断。标题有问题才给 title（≤20 字，必须有地点词，且含 吃/美食/夜宵/攻略/逛/玩/清单/推荐/去哪 其中一个）。problems 只写你有把握的真问题，没问题就写空数组、edits 也空。
 只输出 JSON：{"problems":[{"level":"err 或 warn","where":"title/body/route/…","text":"问题，≤40字"}],"title":"新标题，没问题就不写","edits":[{"old":"原稿里的原话","new":"换成的话"}]}
 原稿：
 ${JSON.stringify(pick(got)).slice(0, 9000)}`;
@@ -211,7 +211,11 @@ ${JSON.stringify(pick(got)).slice(0, 9000)}`;
     const problems = (J0.problems || []).slice(0, 20).map(x => ({ level: x.level === 'err' ? 'err' : 'warn', where: String(x.where || '').slice(0, 16), text: String(x.text || '').slice(0, 80) })).filter(x => x.text);
     const out = { model: r.model, problems, adopted: false, at: Date.now() };
     // 只按「原话→新话」逐处替换，其余字段（店单、路线、景点、话题）原样保留，改不坏结构
-    const edits = (Array.isArray(J0.edits) ? J0.edits : []).map(e => ({ old: String((e && e.old) || ''), new: String((e && e.new) || '') })).filter(e => e.old.length >= 2 && e.old !== e.new && !(/YES也是大排档/i.test(e.old) && !/YES也是大排档/i.test(e.new))).slice(0, 12); // 正文里的全称要留着（林总：关键词要完整的 YES也是大排档）
+    const allEdits = (Array.isArray(J0.edits) ? J0.edits : []).map(e => ({ old: String((e && e.old) || ''), new: String((e && e.new) || '') })).filter(e => e.old.length >= 2 && e.old !== e.new && !(/YES也是大排档/i.test(e.old) && !/YES也是大排档/i.test(e.new))).slice(0, 12);
+    // 11-28 自查：审稿员爱「润色」，把「五点开门就排队，必冲」改成「非常推荐」、把开头的钩子改成「有很多美食，推荐大家试试」，越改越像 AI。
+    // 所以只自动改硬伤（禁用词、套话清单里的词、见图片、上榜、龙虾），而且只许小改；别的意见照样列出来给人看，由人决定。
+    const hardRe = new RegExp([...(B.banned || []), ...CLICHE, '见图', '看图片', '主店部分', '必吃榜', '宝藏榜', '上榜', '龙虾'].filter(Boolean).map(reEsc).join('|'));
+    const edits = allEdits.filter(e => hardRe.test(e.old) && e.old.length <= 60 && e.new.length <= e.old.length + 8); out.skipped = allEdits.length - edits.length; // 正文里的全称要留着（林总：关键词要完整的 YES也是大排档）
     let nt = J0.title && String(J0.title).trim() !== got.title ? String(J0.title).trim().slice(0, 24) : ''; if (nt && (CLICHE.some(w => nt.includes(w)) || brandRe(B).test(nt) || /不踩雷|避雷|闭眼/.test(nt))) nt = '';
     if (nt && !check(got, B, batch).some(c => /标题/.test(c[1]))) { nt = ''; out.titleKept = true; } // 程序没查出标题有毛病就不让审稿员换标题：它爱把学来的爆款句式改成「XX美食推荐清单」这种平的
     if (edits.length || nt) {
@@ -453,7 +457,7 @@ ${shopLines}
         let got = null, err = '', best = null, bestBad = 99;
         for (let t = 0; t < 3 && !got; t++) {
           try { const r = await llm(promptFor(B, layout, dir, shuffled, spots, batch.notes.map(x => ({ title: x.title, ending: x.ending })), k, tpl, plan) + (err && /^不合格/.test(err) ? `\n【上一次写的不合格，这次一定避开】${err.slice(4)}` : '')); const g = build(parseJ(r.text), B, pool, main, plan); g.model = r.model;
-            const bad = gate(g, tpl, layout, plan && plan.shops ? plan.shops.length : pool.length); if (!bad.length) got = g; else { err = '不合格：' + bad.join('；'); if (bad.length < bestBad) { best = g; bestBad = bad.length; } log(`[攻略平台] 第 ${k} 篇重写：${bad.join('；')}`); } }
+            const bad = gate(g, tpl, layout, plan && plan.shops ? plan.shops.length : pool.length); try { check(g, B, batch).filter(c => c[0] === 'err' && /标题/.test(c[1])).forEach(c => bad.push(c[1] + '（标题要有地点词，并且含 吃/美食/夜宵/攻略/逛/玩/清单/推荐/去哪 其中一个）')); } catch (e) { } if (!bad.length) got = g; else { err = '不合格：' + bad.join('；'); if (bad.length < bestBad) { best = g; bestBad = bad.length; } log(`[攻略平台] 第 ${k} 篇重写：${bad.join('；')}`); } }
           catch (e) { err = e.message; }
         }
         if (!got && best) { got = best; got.gateWarn = err; }
