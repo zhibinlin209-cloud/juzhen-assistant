@@ -137,7 +137,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
   async function aiReview(got, B, pool, main, batch, plan) {
     const pick = n => ({ title: n.title, cover: n.cover, body: n.body, ending: n.ending, tags: n.tags, sections: n.sections.map(sc => ({ h: sc.h, items: sc.items.filter(i => !i.main).map(i => ({ shop: i.name, say: i.say })) })), route: n.route, spots: n.spots, yes: n.yes, stay: n.stay, traffic: n.traffic, tips: n.tips, navs: n.navs, good: n.good, skip: n.skip });
     const shops = pool.map(sh => `${sh.name}｜${sh.area}${sh.far ? '｜离主店远（要坐车）' : '｜主店附近'}｜营业${sh.hours || '不详'}`).join('\n');
-    const prompt = `你是小红书攻略的审稿编辑，专门挑会被本地人挑错、会被平台判成广告或 AI 文的地方。下面是一篇刚写好的稿子（JSON），请逐项检查，然后给出改好的版本。
+    const prompt = `你是小红书攻略的审稿编辑，专门挑会被本地人挑错、会被平台判成广告或 AI 文的地方。下面是一篇刚写好的稿子（JSON），请逐项检查，然后指出要改的句子。
 【门店事实（以这个为准）】${B.storeTitle}｜${B.address}｜营业${B.hours}｜人均${B.price}｜${B.facts || ''}
 【菜单（菜名价格只能用这些）】${menuText(B) || ''}
 【可用的周边店（店名、位置、营业时间以这个为准）】
@@ -151,29 +151,30 @@ ${shops}
 3. 不像真人：套话（嘬手指、不踩雷、天花板、封神、绝绝子、救命、谁懂啊等）、排比堆砌、每段一个格式、太书面；编造的亲身经历细节（刚好碰上、土著朋友甩来）；正文里提主店超过 2 次或写「见图片」。
 4. 规则：标题 ≤20 字要有地点词和需求词；封面和标题不能有店名/大排档；禁用词：${(B.banned || []).join('、')}。
 5. 同批重复：标题、开头和别的篇太像。
-改的时候：只改有问题的地方，没问题的句子一个字都别动；sections 里的店一家都不要删（只能改 say），也不要加新店、新菜、新景点、新的营业时间；不确定的事实宁可删掉那半句也别编；problems 只写你有把握的真问题，没问题就写空数组。
-只输出 JSON：{"problems":[{"level":"err 或 warn","where":"title/body/route/…","text":"问题，≤40字"}],"fixed":{和原稿一样的字段，改好后的完整内容}}
+改的方式：不要重写整篇，只给「把哪句原话换成什么」。old 必须是原稿里一字不差、能找到的一段（10–60 字），new 是换掉后的话；能删就删（new 写空），别加新店、新菜、新景点、新营业时间；不确定的事实宁可删掉那半句也别编。标题有问题才给 title（≤20 字，必须有地点词，且含 吃/美食/夜宵/攻略/逛/玩/清单/推荐/去哪 其中一个）。problems 只写你有把握的真问题，没问题就写空数组、edits 也空。
+只输出 JSON：{"problems":[{"level":"err 或 warn","where":"title/body/route/…","text":"问题，≤40字"}],"title":"新标题，没问题就不写","edits":[{"old":"原稿里的原话","new":"换成的话"}]}
 原稿：
 ${JSON.stringify(pick(got)).slice(0, 9000)}`;
     const r = await llm(prompt, cfg.glReviewModels || ['qwen-max', 'deepseek-v3.2', 'qwen-plus']); const J0 = parseJ(r.text);
     const problems = (J0.problems || []).slice(0, 20).map(x => ({ level: x.level === 'err' ? 'err' : 'warn', where: String(x.where || '').slice(0, 16), text: String(x.text || '').slice(0, 80) })).filter(x => x.text);
     const out = { model: r.model, problems, adopted: false, at: Date.now() };
-    if (J0.fixed && J0.fixed.body) {
-      const fx = J0.fixed; // 店单不让审稿员动：沿用原稿的分类和店，只把它改过的那句话（say）按店名套回去
-      const says = new Map(); (Array.isArray(fx.sections) ? fx.sections : []).forEach(sc => (Array.isArray(sc.items) ? sc.items : []).forEach(i => { const nm = String(i.shop || i.name || ''); if (nm && i.say) says.set(nm.replace(/[（(].*$/, ''), String(i.say)); }));
-      fx.sections = got.sections.map(sc => ({ h: sc.h, items: sc.items.filter(i => !i.main).map(i => ({ shop: i.name, say: says.get(String(i.name).replace(/[（(].*$/, '')) || i.say, stars: i.stars })) })).filter(sc => sc.items.length);
-      ['route', 'stay', 'traffic', 'spots', 'tips', 'navs', 'good', 'skip', 'streets', 'intro'].forEach(k => { if (!Array.isArray(fx[k]) || !fx[k].length) fx[k] = got[k]; });
-      fx.tags = (fx.tags || []).filter(t => !B.tagsMust.includes(t) && !((plan && plan.tags) || []).includes(t));
-      const fy = Object.assign({}, got.yes, fx.yes && typeof fx.yes === 'object' ? fx.yes : {}); if (!Array.isArray(fy.dishes)) fy.dishes = got.yes.dishes; ['route', 'stay', 'traffic', 'tips', 'navs', 'good', 'skip', 'spots', 'cover', 'tags'].forEach(k => { if (fx[k] !== undefined && !Array.isArray(fx[k])) fx[k] = got[k]; });
-      const fixed = build(Object.assign({}, fx, { yes: fy }), B, pool, main, plan);
-      const errs = n => check(n, B, batch).filter(c => c[0] === 'err').length;
-      const names = n => new Set(n.sections.flatMap(sc => sc.items.map(i => i.name))); const a = names(got), b2 = names(fixed); const lost = [...a].filter(x => !b2.has(x)).length, added = [...b2].filter(x => !a.has(x)).length;
-      const warns = n => check(n, B, batch).filter(c => c[0] === 'warn').length; const len = n => [...String(n.body)].length;
+    // 只按「原话→新话」逐处替换，其余字段（店单、路线、景点、话题）原样保留，改不坏结构
+    const edits = (Array.isArray(J0.edits) ? J0.edits : []).map(e => ({ old: String((e && e.old) || ''), new: String((e && e.new) || '') })).filter(e => e.old.length >= 2 && e.old !== e.new).slice(0, 12);
+    const nt = J0.title && String(J0.title).trim() !== got.title ? String(J0.title).trim().slice(0, 24) : '';
+    if (edits.length || nt) {
+      const fixed = JSON.parse(JSON.stringify(got)); let hit = 0;
+      const walk = (o, k) => { const v = o[k]; if (typeof v === 'string') { let t = v; edits.forEach(e => { if (t.includes(e.old)) { t = t.split(e.old).join(e.new); hit++; } }); o[k] = t.replace(/[，,]{2,}/g, '，').replace(/^[，,]\s*/, ''); } else if (v && typeof v === 'object') Object.keys(v).forEach(x => walk(v, x)); };
+      Object.keys(fixed).filter(k => !['tags', 'id', 'no', 'status', 'aiReview', 'check', 'notes', 'plan', 'tpl'].includes(k)).forEach(k => walk(fixed, k));
+      if (nt) fixed.title = nt;
+      const bx = Object.assign({}, batch, { notes: batch.notes.filter(o => o !== got && o.no !== got.no) }); // 别拿原稿自己跟改后的比
+      const errs = n => check(n, B, bx).filter(c => c[0] === 'err').length, warns = n => check(n, B, bx).filter(c => c[0] === 'warn').length;
       const better = errs(fixed) < errs(got) || (errs(fixed) === errs(got) && warns(fixed) <= warns(got));
-      if (lost > 1 || added) out.why = `改后的版本${lost > 1 ? `删了 ${lost} 家店` : '加了新店'}，没采用`; else if (len(fixed) < len(got) * 0.6) out.why = '改后的正文砍得太多，没采用';
-      else if (fixed.title && fixed.body && better) { out.adopted = true; out.before = { title: got.title, body: got.body }; return { note: fixed, review: out }; }
-      if (!out.why) out.why = '改完的版本问题没变少，没采用'; out.fixedCheck = check(fixed, B, batch).map(c => c.join(':')).slice(0, 8); out.fixedTitle = fixed.title;
-    }
+      out.edits = edits.length; out.hit = hit;
+      if (!hit && !nt) out.why = '审稿员给的原话在稿子里找不到，没改';
+      else if ([...String(fixed.body)].length < [...String(got.body)].length * 0.6) out.why = '改后的正文砍得太多，没采用';
+      else if (better) { out.adopted = true; out.before = { title: got.title, body: got.body }; return { note: fixed, review: out }; }
+      if (!out.why) { out.why = '改完的版本问题没变少，没采用'; out.fixedCheck = check(fixed, B, bx).map(c => c.join(':')).slice(0, 8); out.fixedTitle = fixed.title; }
+    } else if (!problems.length) out.why = '没挑出问题';
     return { note: got, review: out };
   }
   // ---------- 每篇的变量由程序分配（林总 2026-11-27：重复率高的根子是输入一样、规则锁死骨架、没人管差异）----------
