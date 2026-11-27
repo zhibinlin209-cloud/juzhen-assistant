@@ -709,6 +709,7 @@ ${SAMPLE}
         for (const nm of names) { const c = CA.items.find(x => x.name === nm); if (!c) continue; if (j.ignore) { c.st = 'ignored'; continue; }
           const L2 = stores(); L2.push({ id: 's' + Date.now().toString(36) + add, name: c.name, planted: false, district: B.district, area: String(j.area || c.area || '').slice(0, 20), cat: c.cat, slot: '', dishes: c.dishes, price: c.price, star: '', years: '', hours: c.hours, addr: c.addr, src: '爆款库', verify: true, refNotes: c.notes.map(z => z.id) }); wj(SF, L2); c.st = 'added'; add++; }
         saveC(); return J(res, { ok: true, add }); }
+      if (p === '/api/mkt' && isBoss && rosterSrc) { const r = await rosterSrc(String(u.searchParams.get('table') || '')); return J(res, { ok: true, fields: r.fields, n: r.n, rows: r.rows.slice(0, +u.searchParams.get('n') || 3000) }); } // 老板读营销部表格（建任务书用，敏感表 core 那边会拒）
       if (p === '/api/roster') { const L = await roster(); return J(res, { ok: true, roster: L, diag: isBoss ? RO.diag : undefined }); }
       if (p === '/api/settle' && req.method === 'GET') { const mon = /^\d{4}-\d{2}$/.test(u.searchParams.get('month') || '') ? u.searchParams.get('month') : bjDay().slice(0, 7); return J(res, { ok: true, month: mon, rates: rates(), rows: settle(mon) }); }
       if (p === '/api/settle' && req.method === 'POST' && isBoss) { const j = JSON.parse(await body(req, 20000));
