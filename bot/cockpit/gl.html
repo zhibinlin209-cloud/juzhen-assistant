@@ -293,7 +293,9 @@ const shortName = i => String(i.name || '').replace(/\((.*)\)$/, '（$1）');
 const areaGroups = n => { const m = new Map(); allItems(n).forEach(i => { const a = i.area || '附近'; if (!m.has(a)) m.set(a, []); m.get(a).push(i); }); return [...m.entries()].map(([h, items]) => ({ h, items })); };
 const dishOf = i => String(i.say || '').split(/[，,。；;、]/)[0].replace(/^(招牌|必点|推荐)[：:]?/, '').slice(0, 12);
 const CN_NUM = '一二三四五六七八九十';
-function fitPages(fn) { let best = fn(1); for (const k of [0.9, 0.82, 0.74]) { if (best.length <= 1) break; const p = fn(k); if (p.length < best.length) best = p; } return best; }
+function fitPages(fn) { let best = fn(1); for (const k of [0.9, 0.82, 0.74]) { if (best.length <= 1) break; const p = fn(k); if (p.length < best.length) best = p; }
+  if (best.length === 1) for (const k of [1.5, 1.38, 1.26, 1.14]) { const p = fn(k); if (p.length === 1) { best = p; break; } } // 一页还剩大片空白就把字放大，放到刚好一页为止
+  return best; }
 // 通用清单引擎：S = { bg, head:'memo'|'icloud'|'', title(n,place,pi), tColor, tFont, gStyle, marker, fmt, cols, groups:'cat'|'area', size }
 function listStyle(n, place, S) {
   const groups = S.groups === 'area' ? areaGroups(n) : n.sections.map(s => ({ h: s.h.replace(/^晚饭·/, ''), items: s.items }));
@@ -329,7 +331,8 @@ function listStyle(n, place, S) {
     return pages;
   });
 }
-function bigCover(n, o) { const [c, x] = cv(); x.fillStyle = o.bg; x.fillRect(0, 0, W, H); if (o.paper) o.paper(x); if (o.head) memoHead(x, o.bg); x.fillStyle = o.ink || '#111'; x.font = o.font || `900 108px ${SANS}`; let y = o.y || 420; (o.lines || n.cover).forEach(l => { wrap(x, l, W - 160).forEach(w => { if (o.hl) { const tw = x.measureText(w).width; x.fillStyle = o.hl; x.fillRect(76, y + 70, tw + 10, 40); x.fillStyle = o.ink || '#111'; } x.fillText(w, 80, y); y += 150; }); }); if (o.sub) { x.fillStyle = o.subInk || '#666'; x.font = `500 46px ${o.subFont || SANS}`; x.fillText(o.sub, 84, y + 40); } return c; }
+function bigCover(n, o) { const [c, x] = cv(); x.fillStyle = o.bg; x.fillRect(0, 0, W, H); if (o.paper) o.paper(x); if (o.head) memoHead(x, o.bg); x.fillStyle = o.ink || '#111'; x.font = o.font || `900 108px ${SANS}`; if (!o.font) { let sz = 108; const orphan = () => (o.lines || n.cover).some(l => { const ws = wrap(x, l, W - 160); return ws.length > 1 && [...ws[ws.length - 1]].length <= 2; }); while (sz > 84 && orphan()) { sz -= 4; x.font = `900 ${sz}px ${SANS}`; } } // 多出一两个字掉到下一行就缩一点字号
+  let y = o.y || 420; (o.lines || n.cover).forEach(l => { wrap(x, l, W - 160).forEach(w => { if (o.hl) { const tw = x.measureText(w).width; x.fillStyle = o.hl; x.fillRect(76, y + 70, tw + 10, 40); x.fillStyle = o.ink || '#111'; } x.fillText(w, 80, y); y += 150; }); }); if (o.sub) { x.fillStyle = o.subInk || '#666'; x.font = `500 46px ${o.subFont || SANS}`; x.fillText(o.sub, 84, y + 40); } return c; }
 const lined = x => { x.strokeStyle = 'rgba(120,150,200,.22)'; x.lineWidth = 2; for (let yy = 140; yy < H; yy += 64) { x.beginPath(); x.moveTo(0, yy); x.lineTo(W, yy); x.stroke(); } };
 const kraftBg = x => { x.fillStyle = '#C9A57A'; x.fillRect(0, 0, W, H); x.fillStyle = 'rgba(255,255,255,.08)'; for (let i = 0; i < 900; i++) x.fillRect(Math.random() * W, Math.random() * H, 2, 2); x.fillStyle = '#F3E6CF'; x.fillRect(70, 70, W - 140, H - 140); x.strokeStyle = 'rgba(160,120,80,.25)'; x.lineWidth = 2; for (let yy = 190; yy < H - 90; yy += 66) { x.beginPath(); x.moveTo(100, yy); x.lineTo(W - 100, yy); x.stroke(); } };
 function chatPages(n, place) { // 聊天截图：右边绿色气泡「X最好吃的品类：店名」
@@ -357,7 +360,7 @@ async function renderListLayout(note, layout, place, last) {
   const N = note; const P = place; const yes = allItems(N).find(i => i.main) || {};
   const cv1 = (o) => bigCover(N, o);
   switch (layout) {
-    case 'allcheck': return [cv1({ bg: '#fff', ink: '#222', lines: [`${P}美食超全合集`, '存了慢慢吃'], hl: '#FFE38A' }), ...listStyle(N, P, { bg: '#fff', title: (n, p, i) => i ? '' : `${p}美食超全合集！`, marker: 'check', fmt: i => `${shortName(i)}${i.area ? `（${i.area}）` : ''}`, gStyle: 'bar', cols: 1, size: 40 }), last];
+    case 'allcheck': return [cv1({ bg: '#fff', ink: '#222', lines: [`${P}美食超全合集`, '存了慢慢吃'], hl: '#FFE38A' }), ...listStyle(N, P, { bg: '#fff', title: (n, p, i) => i ? '' : `${p}美食超全合集！`, marker: 'check', fmt: i => { const a = String(i.area || '').replace(/美食$/, ''); return `${shortName(i)}${a && !shortName(i).includes(a.replace(/店$/, '').slice(0, 2)) ? `（${a}）` : ''}`; }, gStyle: 'bar', cols: 1, size: 40 }), last];
     case 'treat': return [cv1({ bg: '#FFF8E7', head: 1, lines: [`${P}招待外地朋友`, '（自用版）'], y: 360 }), ...listStyle(N, P, { bg: '#fff', head: 'memo', title: (n, p, i) => i ? '' : `${p}招待外地朋友（自用版）`, tFont: `900 58px ${SANS}`, gStyle: 'plain', gSize: 46, marker: 'dot', fmt: i => `${shortName(i)}（${(i.say || '').slice(0, 16)}）` }), last];
     case 'friends': return [cv1({ bg: '#fff', lines: ['和朋友一致认为', `${P}好吃的`], ink: '#222' }), ...listStyle(N, P, { bg: '#fff', head: 'memo', groups: 'area', title: (n, p, i) => i ? '' : `和朋友一致认为${p}好吃的`, gStyle: 'plain', gText: (g, gi) => `${CN_NUM[gi] || gi + 1}、${g.h}`, marker: 'none', fmt: (i, ii) => `${ii + 1}.${shortName(i)}（${dishOf(i) || i.cat}）` }), last];
     case 'icloud': return [...listStyle(N, P, { bg: '#fff', head: 'icloud', groups: 'area', title: (n, p, i) => `和朋友一致认为${p}好吃的店`, tFont: `900 58px ${SANS}`, gStyle: 'tag', gColors: ['#FF6B6B', '#4D96FF', '#6BCB77', '#FFB84C', '#B983FF'], gText: (g, gi) => `${CN_NUM[gi] || gi + 1}、${g.h}`, marker: 'none', fmt: i => shortName(i) }), last];

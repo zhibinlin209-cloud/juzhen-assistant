@@ -529,7 +529,7 @@ ${shopLines}
   }
   function edit(bid, j, who) { const f = path.join(BD, bid + '.json'); const b = getBatch(bid); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +j.no); if (!n) throw new Error('没有这一篇');
     if (j.title !== undefined) n.title = String(j.title).trim().slice(0, 40); if (j.body !== undefined) n.body = String(j.body).trim().slice(0, 3000); if (j.tags !== undefined) n.tags = String(j.tags).split(/[\s,，]+/).filter(Boolean).map(t => '#' + t.replace(/^#/, '')).slice(0, 10);
-    n.edited = { who, at: Date.now() }; n.notes.push({ t: '改了文案', who, at: Date.now() }); wj(f, b); return n; }
+    n.edited = { who, at: Date.now() }; n.notes.push({ t: '改了文案', who, at: Date.now() }); if (b.kind !== 'manual') { const B = briefs().find(x => x.id === b.brief); if (B) { try { n.check = check(n, B, b); } catch (e) { } } } wj(f, b); return n; } // 手动改完重新核对一遍，提示跟着更新
   function savePages(bid, no, pages) { const b = getBatch(bid); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +no); if (!n) throw new Error('没有这一篇');
     const dir = path.join(CDD, `${bid}-${+no}`); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { } fs.mkdirSync(dir, { recursive: true });
     (pages || []).slice(0, 18).forEach((d, i) => fs.writeFileSync(path.join(dir, (i + 1) + '.jpg'), jpg(d))); n.cardPages = Math.min(18, (pages || []).length); n.cardAt = Date.now(); wj(path.join(BD, bid + '.json'), b); return n; }
@@ -705,13 +705,15 @@ ${text}`, ['qwen-plus', 'deepseek-v4.1-flash']);
     ownRun = null;
   }
   // 挑进门店池：这家店的攻略里写过、在主店附近、不是同品类、池里还没有；同一品类最多 3 家，每家门店池补到 24 家为止；都标「待核对」
+  const cleanArea = a => String(a || '').replace(/(美食|附近|片区)$/, '').replace(/^(.{2,6})店$/, '$1').replace(/区$/, m => m).slice(0, 20); // 「华强北美食」「燕南店」这种抽出来的商圈写法收拾一下
+  setTimeout(() => { try { const L = stores(); let n = 0; L.forEach(x => { if (x.src === '自家内容库' && x.ownN) { const a = cleanArea(x.area); if (a !== x.area) { x.area = a; n++; } } }); if (n) { wj(SF, L); log(`[攻略平台] 门店池里 ${n} 家店的商圈写法收拾了一下`); } } catch (e) { } }, 15e3);
   function ownPick() { const out = {}; const L = stores(); const catKey = c => String(c || '其他').replace(/[·\/、，,].*$/, '').slice(0, 4);
     briefs().forEach(B => { const main = L.find(x => x.id === B.store); if (!main) return; const near = nearOf(B); const same = sameCatRe(B); const isNear = c => near.some(a => (c.area + (c.addr || '') + c.name).includes(a));
       const pool = L.filter(x => x.id !== main.id && near.some(a => (x.area + (x.addr || '') + x.name).includes(a))); const perCat = {}; pool.forEach(x => { const k = catKey(x.cat); perCat[k] = (perCat[k] || 0) + 1; }); let n = pool.length, add = 0;
       CA.items.filter(c => c.st === 'new' && c.own && (c.for || []).includes(B.id) && isNear(c) && !same.test(c.cat + c.name) && c.cat && !L.some(x => shopKey(x.name) === shopKey(c.name)))
         .sort((a, c) => (c.own - a.own) || ((c.dishes ? 1 : 0) - (a.dishes ? 1 : 0)))
         .forEach(c => { if (n >= 24) return; const k = catKey(c.cat); if ((perCat[k] || 0) >= 3) return; perCat[k] = (perCat[k] || 0) + 1;
-          L.push({ id: 's' + Date.now().toString(36) + L.length, name: c.name, planted: false, district: B.district, area: String(c.area || '').slice(0, 20), cat: c.cat, slot: '', dishes: c.dishes, price: c.price, star: '', years: '', hours: c.hours, addr: c.addr, src: '自家内容库', verify: true, ownN: c.own }); c.st = 'added'; n++; add++; });
+          L.push({ id: 's' + Date.now().toString(36) + L.length, name: c.name, planted: false, district: B.district, area: cleanArea(c.area), cat: c.cat, slot: '', dishes: c.dishes, price: c.price, star: '', years: '', hours: c.hours, addr: c.addr, src: '自家内容库', verify: true, ownN: c.own }); c.st = 'added'; n++; add++; });
       out[B.name] = [add, n]; });
     wj(SF, L); return out; }
   setInterval(() => { const hh = new Date(Date.now() + 8 * 3600e3).getUTCHours(); if (hh === 4) ownCands().catch(() => { }); }, 3600e3); // 每天凌晨 4 点看一眼自家内容库有没有新攻略，有就接着抽店、补门店池
