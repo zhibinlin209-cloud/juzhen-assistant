@@ -250,20 +250,21 @@ function navPages1(n, place, k0) { const LW = W / k0, LH = H / k0;
 function navPages(n, place) { let best = navPages1(n, place, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = navPages1(n, place, k); if (p.length < best.length) best = p; } return best; }
 // ---- 8–10 页（君游 2026-11-27：封面1＋行程美食3–4＋注意事项1＋住宿交通1–2＋实拍1）：按版式配色排的通用信息页 ----
 const THEMES = {
+  memo: { start(t) { const [c, x] = cv(); memoHead(x); x.fillStyle = '#111'; x.font = `900 58px ${SANS}`; const y = para(x, t, 60, 130, W - 120, 72) + 34; return [c, x, y]; }, sec(x, t, y) { x.font = `800 46px ${SANS}`; x.fillStyle = '#FFE58A'; x.fillRect(56, y + 22, x.measureText(t).width + 10, 26); x.fillStyle = '#111'; x.fillText(t, 60, y); return y + 70; }, head: '#111', body: '#888', mark: 'circle', sz: { hs: 40, bs: 31, hl: 54, bl: 44, gap: 22, tx: 112, cx: 78, cr: 16, hw: 700 } },
   clean: { start(t) { const [c, x] = cv(); x.fillStyle = '#FCFBF6'; x.fillRect(0, 0, W, H); x.fillStyle = '#4a4a4a'; x.font = `800 88px ${SANS}`; x.fillText(t, 70, 80); return [c, x, 240]; }, sec(x, t, y) { x.fillStyle = '#F2E7D8'; x.fillRect(66, y + 30, x.measureText(t).width + 10, 26); x.fillStyle = '#4a4a4a'; x.font = `800 62px ${SANS}`; x.fillText(t, 70, y); return y + 100; }, head: '#4a4a4a', body: '#777', mark: 'circle' },
   green: { start(t) { const [c, x] = greenPage(t); return [c, x, 250]; }, sec(x, t, y) { chip(x, t, 40, y, '#FFE38A', 46); return y + 96; }, head: '#C0392B', body: '#222', mark: '' },
   nav: { start(t) { const [c, x] = cv(); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#D9A52B'; x.font = `600 46px ${SANS}`; x.fillText('‹ 备忘录', 50, 44); x.fillStyle = '#999'; x.font = `44px ${SANS}`; x.fillText('🔔  🔒  ✉  ➤', W - 360, 44); x.fillStyle = '#000'; x.font = `900 80px ${SANS}`; x.fillText(t, 80, 130); return [c, x, 270]; }, sec(x, t, y) { x.font = `800 54px ${SANS}`; x.fillStyle = '#FFE38A'; x.fillRect(60, y + 26, x.measureText(t).width + 8, 30); x.fillStyle = '#111'; x.fillText(t, 62, y); return y + 92; }, head: '#111', body: '#666', mark: 'num' }
 };
 function infoPages1(theme, title, entries, k0) { const Z = v => Math.round(v * k0);
-  const T = THEMES[theme] || THEMES.clean; const pages = []; let c, x, y; const start = () => { [c, x, y] = T.start(title); pages.push(c); };
+  const T = THEMES[theme] || THEMES.clean; const S = Object.assign({ hs: 54, bs: 44, hl: 74, bl: 66, gap: 44, tx: 140, cx: 102, cr: 24, hw: 800 }, T.sz || {}); const pages = []; let c, x, y; const start = () => { [c, x, y] = T.start(title); pages.push(c); };
   if (!entries.length) return pages; start(); let k = 0;
   for (const e of entries) {
     if (e.sec) { if (y + 260 > H) start(); x.font = `800 54px ${SANS}`; y = T.sec(x, e.sec, y); k = 0; continue; }
-    k++; x.font = `800 ${Z(54)}px ${SANS}`; const hl = e.head ? wrap(x, (T.mark === 'num' ? k + '、' : '') + e.head, W - 190) : []; x.font = `${Z(44)}px ${SANS}`; const bl = e.body ? wrap(x, e.body, W - 190) : [];
-    if (y + hl.length * Z(74) + bl.length * Z(66) + 20 > H - 50) start();
-    if (T.mark === 'circle' && e.head) { x.strokeStyle = '#a99d9f'; x.lineWidth = 4; x.beginPath(); x.arc(102, y + 28, 24, 0, Math.PI * 2); x.stroke(); }
-    x.fillStyle = T.head; x.font = `800 ${Z(54)}px ${SANS}`; hl.forEach(l => { x.fillText(l, 140, y); y += Z(74); });
-    x.fillStyle = T.body; x.font = `${Z(44)}px ${SANS}`; bl.forEach(l => { x.fillText(l, 140, y); y += Z(66); }); y += Z(44);
+    k++; x.font = `${S.hw} ${Z(S.hs)}px ${SANS}`; const hl = e.head ? wrap(x, (T.mark === 'num' ? k + '、' : '') + e.head, W - S.tx - 50) : []; x.font = `${Z(S.bs)}px ${SANS}`; const bl = e.body ? wrap(x, e.body, W - S.tx - 50) : [];
+    if (y + hl.length * Z(S.hl) + bl.length * Z(S.bl) + 20 > H - 50) start();
+    if (T.mark === 'circle' && e.head) { x.strokeStyle = '#a99d9f'; x.lineWidth = S.cr > 20 ? 4 : 3; x.beginPath(); x.arc(S.cx, y + Z(S.hs) / 2 + 2, S.cr, 0, Math.PI * 2); x.stroke(); }
+    x.fillStyle = T.head; x.font = `${S.hw} ${Z(S.hs)}px ${SANS}`; hl.forEach(l => { x.fillText(l, S.tx, y); y += Z(S.hl); });
+    x.fillStyle = T.body; x.font = `${Z(S.bs)}px ${SANS}`; bl.forEach(l => { x.fillText(l, S.tx, y); y += Z(S.bl); }); y += Z(S.gap);
   }
   return pages;
 }
@@ -272,18 +273,20 @@ function infoPages(theme, title, entries) { let best = infoPages1(theme, title, 
 const routeEntries = n => (n.route || []).map(r => ({ head: `${r.t ? r.t + ' ' : ''}${r.place}`, body: [r.do, r.tip].filter(Boolean).join('｜') }));
 const foodEntries = (n, skip) => n.sections.flatMap(s => s.items.map(it => ({ s: s.h, it }))).slice(skip || 0).flatMap(({ s, it }, i, a) => [...(i === 0 || a[i - 1].s !== s ? [{ sec: s.replace(/^晚饭·/, '') }] : []), { head: it.name, body: it.main ? [(n.yes.blurb || ''), '必点：' + n.yes.dishes.map(d => d.name).join('、'), n.main && n.main.hours ? '营业：' + n.main.hours : ''].filter(Boolean).join('\n') : [it.say, it.price ? '人均 ' + it.price : ''].filter(Boolean).join('｜') }]);
 const tipEntries = n => (n.tips || []).map((t, i) => ({ body: `${i + 1}. ${t}` }));
-const stayEntries = n => [...((n.stay || []).length ? [{ sec: '🏨 住哪里方便' }] : []), ...(n.stay || []).map(s => ({ head: s.area, body: [s.why, s.fit ? '适合：' + s.fit : ''].filter(Boolean).join('｜') })), ...((n.traffic || []).length ? [{ sec: '🚇 交通怎么走' }] : []), ...(n.traffic || []).map(t => ({ head: t.how, body: t.detail }))];
+const stayEntries = n => (n.stay || []).map(s => ({ head: s.area, body: [s.why, s.fit ? '适合：' + s.fit : ''].filter(Boolean).join('｜') }));
+const trafficEntries = n => (n.traffic || []).map(t => ({ head: t.how, body: t.detail }));
+const cityOf = n => (String(n.title + n.body).match(/惠州|广州|珠海|佛山|东莞/) || ['深圳'])[0];
 const opt = a => { a.forEach(c => { c._opt = 1; }); return a; }; // 页数超了先删这些（和别的页重复的清单）
 function cap10(pages, last) { while (pages.length > 9) { let i = pages.map(c => c._opt).lastIndexOf(1); if (i < 0) i = pages.length - 2; pages.splice(i, 1); } return [...pages, last]; } // 最多 10 页
 async function renderNoteAsync(note, layout, photos, seed) {
   note = normalize(note);
   const place = /白石洲/.test(note.title) ? '白石洲' : /世界之窗/.test(note.title) ? '世界之窗' : /蛇口/.test(note.title) ? '蛇口' : '南山';
   const last = await collagePage(note, photos, seed);
-  const extra = th => [...infoPages(th, '出发前注意这些', tipEntries(note)), ...infoPages(th, '住宿＋交通', stayEntries(note))];
+  const extra = th => [...infoPages(th, '出发前注意这些', tipEntries(note)), ...infoPages(th, `${cityOf(note)}住宿建议：`, stayEntries(note)), ...infoPages(th, `${cityOf(note)}交通注意：`, trafficEntries(note))];
   if (layout === 'clean') return cap10([coverQuote(note, { bg: '#FCFBF6', quote: '#F2E7D8', ink: '#555', lines: note.cover }), ...infoPages('clean', `${place}一天这么走`, routeEntries(note)), ...opt(cleanLists(note)), ...infoPages('clean', '每家吃什么', foodEntries(note)), ...extra('clean')], last);
-  if (layout === 'green') { const t = '存下吧　很难找全!!!'; return cap10([coverGreen(note, place), greenBracket(note, place, t), ...infoPages('green', t, [{ sec: `${place}一天这么走` }, ...routeEntries(note)]), ...greenTips(note, place, t), await greenFood(note, place, t, photos), ...opt(infoPages('green', t, foodEntries(note, 4))), ...infoPages('green', t, stayEntries(note))], last); }
+  if (layout === 'green') { const t = '存下吧　很难找全!!!'; return cap10([coverGreen(note, place), greenBracket(note, place, t), ...infoPages('green', t, [{ sec: `${place}一天这么走` }, ...routeEntries(note)]), ...greenTips(note, place, t), await greenFood(note, place, t, photos), ...opt(infoPages('green', t, foodEntries(note, 4))), ...infoPages('green', t, [{ sec: `${cityOf(note)}住宿建议：` }, ...stayEntries(note)]), ...infoPages('green', t, [{ sec: `${cityOf(note)}交通注意：` }, ...trafficEntries(note)])], last); }
   if (layout === 'nav') return cap10([coverQuote(note, { bg: '#FDE3EB', quote: '#F7C6D6', ink: '#4f4549', hl: '#8EEFF5', lines: note.cover }), ...navPages(note, place), ...infoPages('nav', `${place}一天这么走`, routeEntries(note)), ...infoPages('nav', '吃什么不踩雷', foodEntries(note)), ...extra('nav')], last);
-  const old = renderNote(note, layout); old.pop(); return cap10([...old, ...extra('clean')], last);
+  const old = renderNote(note, layout); old.pop(); return cap10([...old, ...extra('memo')], last);
 }
 
 const PCACHE = new Map(); let PHOTOS = [];
