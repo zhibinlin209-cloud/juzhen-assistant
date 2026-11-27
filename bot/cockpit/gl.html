@@ -352,9 +352,9 @@ async function renderListLayout(note, layout, place, last) {
     case 'icloud': return [...listStyle(N, P, { bg: '#fff', head: 'icloud', groups: 'area', title: (n, p, i) => `和朋友一致认为${p}好吃的店`, tFont: `900 58px ${SANS}`, gStyle: 'tag', gColors: ['#FF6B6B', '#4D96FF', '#6BCB77', '#FFB84C', '#B983FF'], gText: (g, gi) => `${CN_NUM[gi] || gi + 1}、${g.h}`, marker: 'none', fmt: i => shortName(i) }), last];
     case 'chat': return [...chatPages(N, P), last];
     case 'helpme': return [...listStyle(N, P, { bg: '#fff', head: 'memo', title: (n, p) => `大家帮我看看${p}这些店可以吃吗😭`, tFont: `900 56px ${SANS}`, gStyle: 'none', marker: 'none', size: 40, fmt: (i, ii, no, g) => `${g.h}：${shortName(i)}（${dishOf(i) || '招牌'}）` }), last];
-    case 'tier': return [tierPage(N, P), last];
+    case 'tier': return [...tierPage(N, P), last];
     case 'kraft': return [...listStyle(N, P, { bg: '#C9A57A', paper: kraftBg, title: (n, p, i) => i ? '' : `${p}最值得吃的好饭`, tColor: '#5B3A1E', tFont: `900 64px ${HAND}`, gStyle: 'none', marker: 'none', iFont: HAND, size: 44, iColor: '#3B2A1A', mainColor: '#C0392B', fmt: i => `${P}最值得吃的${String(i.cat).replace(/·.*$/, '').slice(0, 5)}：${shortName(i)}` }), last];
-    case 'table': return [tablePage(N, P), last];
+    case 'table': return [...tablePage(N, P), last];
     case 'news': return [...listStyle(N, P, { bg: '#F4ECD8', title: (n, p, i) => i ? '' : `最近想去吃的${p}美食`, tColor: '#222', tFont: `900 70px ${SERIF}`, gStyle: 'none', cols: 2, marker: 'none', iFont: SERIF, size: 34, fmt: (i, ii, no) => `${no}. ${shortName(i)}\n${String(i.cat).slice(0, 6)}｜人均${i.price || '--'}\n推荐：${dishOf(i) || '招牌菜'}` }), last];
     case 'mint': return [...cardPages(N, P, { bg: '#DDF3E7', card: '#fff', ink: '#1E5A3C', num: '#3BB273', sub: '#4E7A63', tFont: `900 64px ${SANS}`, title: p => `${p}人的嘴真的很会挑` }), last];
     case 'greyblock': return [...listStyle(N, P, { bg: '#fff', head: 'memo', title: (n, p, i) => i ? '' : `${p}吃饭清单（分类版）`, tFont: `900 58px ${SANS}`, gStyle: 'grey', gText: (g, gi) => `${CN_NUM[gi] || gi + 1}、${g.h}`, marker: 'none', fmt: (i, ii) => `${ii + 1}、${shortName(i)}（${(i.say || '').slice(0, 14)}）` }), last];
