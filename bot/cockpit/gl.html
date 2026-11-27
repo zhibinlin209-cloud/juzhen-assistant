@@ -587,12 +587,13 @@ async function llmBox(box) { box.innerHTML = '<h2>大模型（出稿、审稿、
   let s; try { s = await api('/api/llmstat'); } catch (e) { box.querySelector('.card').textContent = e.message; return; }
   const days = Object.keys(s.use || {}).sort().slice(-7).reverse(); const q = s.qwen || {};
   box.innerHTML = `<h2>大模型（出稿、审稿、改稿用的千问 / DeepSeek） <small>都走阿里云百炼这一把 key，充值也只充这个账号</small></h2>
-  <div class="card"><div>现在用的 key：<b class="mono">${h(q.tail || '没有')}</b> ${q.changed ? `<span class="tag ok">已换成新的</span> <span class="hint">原来那把 ${h(q.origTail)} 留作备用</span> <button class="btn sm" id="lkr">退回原来那把</button>` : '<span class="tag">原来那把</span>'}</div>
+  <div class="card"><div>现在用的 key：<b class="mono">${h(q.tail || '没有')}</b> ${q.changed ? `<span class="tag ok">已换成新的${q.scope === 'gl' ? '（只攻略平台用）' : ''}</span> <span class="hint">原来那把 ${h(q.origTail)} 留作备用</span> <button class="btn sm" id="lkr">退回原来那把</button>` : '<span class="tag">原来那把</span>'}</div>
   <div style="margin-top:6px">${(q.models || []).map(x => `<span class="tag ${x.ok ? 'ok' : 'bad'}">${h(x.model)} ${x.ok ? '正常' : '不可用：' + h(x.err)}</span>`).join(' ')}</div>
   <div class="row" style="margin-top:10px"><input id="lkv" type="password" autocomplete="off" placeholder="换 key：把百炼控制台新建的 API Key（sk- 开头）贴在这里" style="flex:1;min-width:260px"><button class="btn pri" id="lks">测试并换上</button></div>
+  <div class="row" style="margin-top:6px"><input id="lkb" autocomplete="off" placeholder="Base URL（一般不用填；提示要填时，贴控制台 API Key 页「按量付费 Base URL」的第一行）" style="flex:1;min-width:260px"></div>
   <div class="hint" style="margin-top:6px">换上之前会先试一次，试不通不会换。完整的 key 只存在服务器上，这里以后只显示头尾几位。</div>
   ${days.length ? `<table style="margin-top:10px"><tr><th>日期</th><th>模型</th><th>调用次数</th><th>读入 tokens</th><th>写出 tokens</th></tr>${days.flatMap(d => Object.entries(s.use[d]).map(([mo, v]) => `<tr><td class="mono">${d}</td><td>${h(mo)}</td><td>${v[0]}</td><td>${v[1].toLocaleString()}</td><td>${v[2].toLocaleString()}</td></tr>`)).join('')}</table>` : '<div class="hint" style="margin-top:8px">用量从 11-27 晚上开始记，还没有数据。</div>'}</div>`;
-  $('#lks').onclick = async () => { const v = $('#lkv').value.trim(); if (!v) return toast('先把 key 贴进来'); $('#lks').disabled = true; $('#lks').textContent = '正在试…'; try { const r = await api('/api/llmkey', { qwenKey: v }); toast('换好了，尾号 ' + r.tail); llmBox(box); } catch (e) { toast(e.message); $('#lks').disabled = false; $('#lks').textContent = '测试并换上'; } };
+  $('#lks').onclick = async () => { const v = $('#lkv').value.trim(); if (!v) return toast('先把 key 贴进来'); $('#lks').disabled = true; $('#lks').textContent = '正在试…'; try { const r = await api('/api/llmkey', { qwenKey: v, base: $('#lkb').value.trim() }); toast('换好了，尾号 ' + r.tail + (r.scope === 'gl' ? '（攻略平台用新的，机器人其它功能还用原来那把）' : '')); llmBox(box); } catch (e) { toast(e.message); $('#lks').disabled = false; $('#lks').textContent = '测试并换上'; } };
   const lr = $('#lkr'); if (lr) lr.onclick = async () => { if (!confirm('退回原来那把 key？')) return; await api('/api/llmkey', { reset: 1 }); llmBox(box); };
 }
 async function users(m) {
