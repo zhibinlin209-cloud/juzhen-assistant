@@ -554,7 +554,7 @@ async function settle(m) {
 // ================== 评论维护（林总 2026-11-27）：生成「一组」评论 → 放进大厅 → 评论的人自己领、传截图 → 计结算 ==================
 const CT = { tab: 'draft' };
 async function cmt(m) {
-  const [{ list, hall, pubs }, { briefs }] = await Promise.all([api('/api/ctask'), api('/api/briefs')]);
+  const [{ list, hall, pubs }, { stores: SL }] = await Promise.all([api('/api/ctask'), api('/api/stores')]); const mineS = SL.filter(x => x.planted);
   const by = st => list.filter(t => t.status === st); const T = { draft: '草稿（改完放进大厅）', open: '大厅里（进行中）', done: '已完成' };
   const fl = (t, f) => { const sh = f.shot ? `<a href="${BASE}/cshot/${f.shot}" target="_blank"><img src="${BASE}/cshot/${f.shot}" style="height:56px;border-radius:4px;vertical-align:middle"></a>` : '';
     return `<div style="display:flex;gap:8px;align-items:flex-start;margin-top:6px"><b class="mono" style="min-width:58px">${f.seat}${f.reply ? '回复' + f.reply : '（首评）'}</b>${t.status === 'draft' ? `<input data-ft="${t.id}" data-seat="${f.seat}" value="${h(f.text)}" style="flex:1">` : `<span style="flex:1">${h(f.text)}</span>`}${f.img ? `<img src="${BASE}/photo/${f.img}" style="height:56px;border-radius:4px">` : ''}${(f.bad || []).length ? `<span class="tag bad">${f.bad.map(h).join('、')}</span>` : ''}${t.status !== 'draft' ? `<span class="hint" style="min-width:150px">${f.claim ? h(f.claim.name) + (f.claim.acct ? '·' + h(f.claim.acct) : '') : '没人领'}${f.done ? (f.done.ok === false ? ' · <b style="color:var(--bad)">打回</b>' : ' · ✓已交') : ''}</span>${sh}${f.done && f.done.ok !== false ? `<button class="btn sm no" data-rj="${t.id}" data-seat="${f.seat}">打回</button>` : ''}${f.claim && !f.done ? `<button class="btn sm" data-rl="${t.id}" data-seat="${f.seat}">收回</button>` : ''}` : ''}</div>`; };
@@ -562,7 +562,7 @@ async function cmt(m) {
   m.innerHTML = `<div class="say"><h1>评论维护</h1><p>维护我们自己笔记的评论区：生成一组评论（首评＋几楼回复，像朋友聊天），改好放进大厅；评论的人打开大厅链接自己领一楼、评论完传截图，自动计进「结算」。</p></div>
   <div class="card"><div class="row"><b>大厅链接</b><span class="mono hint" style="flex:1;overflow:hidden;text-overflow:ellipsis">${h(hall)}</span><button class="btn sm pri" id="hcp">复制发到群里</button>${ME.role === 'boss' ? '<button class="btn sm" id="hrs">换一个链接</button>' : ''}</div></div>
   <div class="card" style="margin-top:12px"><h2 style="margin-top:0">生成评论</h2><div class="kv"><b>笔记链接</b><div><textarea id="tu" rows="2" placeholder="一行一条，小红书或抖音"></textarea>${pubs.length ? `<div class="hint">已发布的，点一下加进去：${pubs.slice(0, 12).map((x, i) => `<a href="javascript:void 0" data-pu="${i}">${h(x.title.slice(0, 12))}（${h(x.acct)}）</a>`).join('　')}</div>` : ''}</div>
-  <b>门店</b><select id="tb">${briefs.map(b => `<option value="${b.id}">${h(b.name)}</option>`).join('')}</select>
+  <b>门店（可不选）</b><select id="tb"><option value="">不指定，只提 yes大排档</option>${mineS.map(x => `<option value="${x.id}">${h(x.name)}</option>`).join('')}</select>
   <b>每条笔记几组</b><select id="tg">${[1, 2, 3, 4, 5].map(x => `<option ${x === 2 ? 'selected' : ''}>${x}</option>`).join('')}</select><b>每组几楼</b><select id="tf">${[3, 4, 5, 6].map(x => `<option ${x === 5 ? 'selected' : ''}>${x}</option>`).join('')}</select>
   <b>截止</b><input type="date" id="td" value="${new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10)}"></div>
   <div class="row" style="margin-top:10px"><button class="btn pri" id="tgo">生成</button><span class="hint" id="tms"></span></div></div>
@@ -571,7 +571,7 @@ async function cmt(m) {
   $('#hcp').onclick = () => copy(`评论任务大厅（领任务、拿文案和图、交截图）：${hall}`);
   if ($('#hrs')) $('#hrs').onclick = async () => { if (confirm('换链接后旧链接就打不开了，确定？')) { await api('/api/ctask', { resetHall: 1 }); show(); } };
   $('#tgo').onclick = async () => { const urls = $('#tu').value.split(/\s+/).filter(x => /^https?:/.test(x)); if (!urls.length) return toast('贴笔记链接'); $('#tgo').disabled = true; $('#tms').textContent = `AI 写评论中，一条笔记大约 1 分钟…`;
-    try { const r = await api('/api/ctask', { gen: 1, urls, brief: $('#tb').value, groups: $('#tg').value, floors: $('#tf').value, due: $('#td').value }); toast(`写好 ${r.list.length} 组，在「草稿」里`); CT.tab = 'draft'; show(); } catch (er) { toast(er.message); $('#tgo').disabled = false; $('#tms').textContent = ''; } };
+    try { const r = await api('/api/ctask', { gen: 1, urls, store: $('#tb').value, groups: $('#tg').value, floors: $('#tf').value, due: $('#td').value }); toast(`写好 ${r.list.length} 组，在「草稿」里`); CT.tab = 'draft'; show(); } catch (er) { toast(er.message); $('#tgo').disabled = false; $('#tms').textContent = ''; } };
   m.onclick = async e => { const pu = e.target.closest('[data-pu]'), ct = e.target.closest('[data-ct]'), op = e.target.closest('[data-op]'), dl = e.target.closest('[data-dl]'), rj = e.target.closest('[data-rj]'), rl = e.target.closest('[data-rl]');
     if (pu) { $('#tu').value = ($('#tu').value.trim() + '\n' + pubs[+pu.dataset.pu].url).trim(); return; }
     if (ct) { CT.tab = ct.dataset.ct; return show(); }
