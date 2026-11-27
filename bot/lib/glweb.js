@@ -543,6 +543,7 @@ ${text}`);
   const getTask = id => /^t[0-9a-z]+$/.test(id) ? rj(path.join(TD, id + '.json'), null) : null; const saveTask = t => wj(path.join(TD, t.id + '.json'), t);
   const hallKey = () => { if (!META.hallKey) { META.hallKey = crypto.randomBytes(9).toString('base64url'); saveMeta(); } return META.hallKey; };
   const hallUrl = () => `${base}h/${hallKey()}`;
+  setTimeout(() => { try { tasks().forEach(t => { let ch = false; t.floors.forEach(f => { if (t.status === 'draft' && f.img && !f.imgBy && !f.wantImg) { f.wantImg = true; f.img = ''; ch = true; } }); if (ch) saveTask(t); }); } catch (e) { } }, 5e3); // 之前自动配的图改成让领的人自己选
   const CMT_BAD = ['推荐', '种草', '必点', '必吃', '绝绝子', 'yyds', '安利', '强烈', '性价比', '广告', '探店', '宝藏', '天花板', '封神', '回购', '打卡', '上榜'];
   const SAMPLE = `【第50组】A（首评）：你看看人家，你啥时候带我去吃yes大排档的暖冬套餐啊@B ／ B回复A：周末给你安排上 ／ C回复A：也太幸福了吧，我也想吃这家yes大排档 ／ D回复A：已和闺蜜吃上了老香了哈哈哈（配图） ／ E回复D：想吃这家，看起来食欲绝了
 【第51组】A（首评）：终于把朋友骗来吃yes大排档了哈哈 ／ B回复A：哇！这家还不错哎，人均怎么样啊 ／ C回复A：感觉这家会很好吃@D ／ D回复C：找个时间带你去吃~ ／ E回复A：你是懂吃的，这家我吃过挺多次了`;
@@ -570,8 +571,8 @@ ${SAMPLE}
       for (const g of (J0.groups || []).slice(0, G)) {
         const sc = B.store ? sucaiFor(B.store) : (stores().filter(x => x.planted && yesLike(x.name)).flatMap(x => sucaiFor(x.id))); const floors = (g.floors || []).slice(0, F).map((f, i) => {
           const seat = String.fromCharCode(65 + i); let text = String(f.text || '').replace(/\s+/g, ' ').trim().slice(0, 60); let img = '';
-          if (f.img && sc.length) { const hit = (SC.items || []).filter(x => sc.includes(`sc/${x.n}.jpg`) && f.dish && (x.dish || '').includes(String(f.dish).slice(0, 3))); const pick = (hit.length ? hit.map(x => `sc/${x.n}.jpg`) : sc)[Math.floor(Math.random() * (hit.length || sc.length))]; img = pick; }
-          return { seat, reply: i ? String(f.reply || 'A').slice(0, 1).toUpperCase() : '', text, img, dish: String(f.dish || '').slice(0, 20), bad: CMT_BAD.filter(w => text.includes(w)) };
+          // 配图不替他们选（林总 2026-11-27）：只标「这楼要配图、建议配哪道菜」，领的人自己在素材库里挑
+          return { seat, reply: i ? String(f.reply || 'A').slice(0, 1).toUpperCase() : '', text, img, wantImg: !!f.img, dish: String(f.dish || '').slice(0, 20), bad: CMT_BAD.filter(w => text.includes(w)) };
         }).filter(f => f.text);
         if (floors.length < 2) continue;
         META.taskNo = (META.taskNo || 0) + 1; saveMeta();
@@ -585,18 +586,21 @@ ${SAMPLE}
   function hallView(name) {
     const today = bjDay(); const L = tasks().filter(t => t.status === 'open');
     return L.map(t => ({ id: t.id, no: t.no, url: t.url, platform: t.platform, store: t.storeName, scene: t.scene, due: t.due, late: t.due < today,
-      floors: t.floors.map(f => ({ seat: f.seat, reply: f.reply, text: f.text, img: f.img, taken: f.claim ? (f.claim.name === name ? 'me' : 'other') : '', by: f.claim && f.claim.name !== name ? f.claim.acct || '已领' : '', done: !!f.done, rejected: !!(f.done && f.done.ok === false) })) }));
+      floors: t.floors.map(f => ({ seat: f.seat, reply: f.reply, text: f.text, img: f.img, wantImg: !!f.wantImg, dish: f.dish || '', taken: f.claim ? (f.claim.name === name ? 'me' : 'other') : '', by: f.claim && f.claim.name !== name ? f.claim.acct || '已领' : '', done: !!f.done, rejected: !!(f.done && f.done.ok === false) })) }));
   }
   function hallAct(j) {
     const t = getTask(j.id); if (!t || t.status !== 'open') throw new Error('这组已经关了'); const f = t.floors.find(x => x.seat === j.seat); if (!f) throw new Error('没有这一楼');
     const name = String(j.name || '').trim().slice(0, 20), acct = String(j.acct || '').trim().slice(0, 30); if (!name) throw new Error('先填你的名字');
     if (j.act === 'claim') { if (f.claim && f.claim.name !== name) throw new Error('这一楼已经被领了'); if (t.floors.some(x => x !== f && x.claim && x.claim.name === name)) throw new Error('同一组里一个人只能领一楼（不能自己回自己）'); f.claim = { name, acct, at: Date.now() }; }
     else if (j.act === 'drop') { if (!f.claim || f.claim.name !== name || f.done) throw new Error('放不了'); delete f.claim; }
-    else if (j.act === 'done') { if (!f.claim || f.claim.name !== name) throw new Error('先领这一楼'); const dir = path.join(SHD, t.id); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, f.seat + '.jpg'), jpg(j.shot)); f.done = { at: Date.now(), ok: null }; if (t.floors.every(x => x.done)) t.status = 'done'; }
+    else if (j.act === 'img') { if (!f.claim || f.claim.name !== name) throw new Error('先领这一楼'); const im = String(j.img || ''); if (im && !(/^(sc|s[0-9a-z]+)\/\d+\.jpg$/.test(im) && fs.existsSync(path.join(PD, im)))) throw new Error('图不对'); f.img = im; f.imgBy = name; }
+    else if (j.act === 'text') { if (!f.claim || f.claim.name !== name || (f.done && f.done.ok !== false)) throw new Error('改不了'); const tx = String(j.text || '').replace(/\s+/g, ' ').trim().slice(0, 60); if (!tx) throw new Error('不能空'); if (!f.orig) f.orig = f.text; f.text = tx; f.bad = CMT_BAD.filter(w => tx.includes(w)); }
+    else if (j.act === 'done') { if (!f.claim || f.claim.name !== name) throw new Error('先领这一楼'); if (f.wantImg && !f.img) throw new Error('这一楼要配图，先在素材库里选一张'); const dir = path.join(SHD, t.id); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, f.seat + '.jpg'), jpg(j.shot)); f.done = { at: Date.now(), ok: null }; if (t.floors.every(x => x.done)) t.status = 'done'; }
     else throw new Error('不认识的操作');
     saveTask(t); return { ok: true };
   }
-  function hallLib() { const out = []; for (const st of stores().filter(x => x.planted)) { const L = [...photosOf(st.id).map(f => ({ f: `${st.id}/${f}`, dish: '' })), ...sucaiFor(st.id).slice(0, 60).map(f => { const x = (SC.items || []).find(y => `sc/${y.n}.jpg` === f) || {}; return { f, dish: x.dish || '' }; })]; if (L.length) out.push({ store: st.name, photos: L }); } return out; }
+  const imgUse = () => { const m = new Map(); tasks().forEach(t => t.floors.forEach(f => { if (f.img) m.set(f.img, (m.get(f.img) || 0) + 1); })); return m; };
+  function hallLib() { const out = []; for (const st of stores().filter(x => x.planted)) { const L = [...photosOf(st.id).map(f => ({ f: `${st.id}/${f}`, dish: '' })), ...sucaiFor(st.id).slice(0, 60).map(f => { const x = (SC.items || []).find(y => `sc/${y.n}.jpg` === f) || {}; return { f, dish: x.dish || '' }; })]; if (L.length) out.push({ id: st.id, store: st.name, photos: L }); } const U = imgUse(); out.forEach(g => g.photos.forEach(p => { p.used = U.get(p.f) || 0; })); return out; }
   // ---------- 路由 ----------
   async function handle(req, res, p, u) {
     if (p === '/login' && req.method === 'POST') {
@@ -634,7 +638,7 @@ ${SAMPLE}
       if (m[1] !== META.hallKey) return send(res, 403, shell('链接失效', '<form><h1>大厅链接已更换</h1><p>找运营要新链接。</p></form>'), 'text/html; charset=utf-8');
       const sub = m[2] || '/';
       if (sub === '/') { const h0 = page(); return h0 ? send(res, 200, h0, 'text/html; charset=utf-8') : send(res, 503, '页面更新中'); }
-      if (sub === '/data') { const name = String(u.searchParams.get('name') || '').slice(0, 20); const mine = tasks().filter(t => t.floors.some(f => f.claim && f.claim.name === name)).slice(0, 40).map(t => ({ id: t.id, no: t.no, url: t.url, status: t.status, due: t.due, floors: t.floors.filter(f => f.claim && f.claim.name === name).map(f => ({ seat: f.seat, text: f.text, img: f.img, done: f.done ? { at: f.done.at, ok: f.done.ok } : null })) }));
+      if (sub === '/data') { const name = String(u.searchParams.get('name') || '').slice(0, 20); const mine = tasks().filter(t => t.floors.some(f => f.claim && f.claim.name === name)).slice(0, 40).map(t => ({ id: t.id, no: t.no, url: t.url, status: t.status, due: t.due, floors: t.floors.filter(f => f.claim && f.claim.name === name).map(f => ({ seat: f.seat, text: f.text, img: f.img, wantImg: !!f.wantImg, dish: f.dish || '', store: t.store, done: f.done ? { at: f.done.at, ok: f.done.ok } : null })) }));
         const mon = bjDay().slice(0, 7); const doneN = tasks().reduce((a, t) => a + t.floors.filter(f => f.claim && f.claim.name === name && f.done && f.done.ok !== false && bjDay(f.done.at).slice(0, 7) === mon).length, 0);
         return J(res, { ok: true, today: bjDay(), open: hallView(name), mine, doneN }); }
       if (sub === '/lib') return J(res, { ok: true, lib: hallLib() });
