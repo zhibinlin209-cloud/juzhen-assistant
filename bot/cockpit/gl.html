@@ -71,6 +71,7 @@ table { width: 100%; border-collapse: collapse; font-size: 13px } th, td { text-
 .big { position: fixed; inset: 0; background: #000e; z-index: 60; display: flex; align-items: center; justify-content: center; cursor: zoom-out } .big img { max-height: 96vh; max-width: 96vw }
 .hint { color: var(--faint); font-size: 12px }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--cyan); padding: 8px 16px; border-radius: 8px; z-index: 99 }
+.tsep { width: 1px; height: 18px; background: var(--line); margin: 0 6px; align-self: center; flex: none }
 .kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 12px; font-size: 13px } .kv b { color: var(--faint); font-weight: 400 }
 </style>
 </head>
@@ -286,10 +287,10 @@ async function dlPages(b, n) { (await pagesOf(b, n)).forEach((u, i) => { const a
 
 // ================== 页面 ==================
 let ME = null, LAYOUTS = {}; const ST = { tab: 'dash', lib: { sort: 'heat' }, batch: null };
-const TABS = [['dash', '大盘'], ['lib', '爆款库'], ['brief', '任务书·范文'], ['gen', 'AI 出稿'], ['submit', '写手投稿'], ['review', '审稿'], ['dispatch', '派发·发布'], ['stores', '门店池'], ['settle', '结算', 1], ['users', '账号']];
-function nav() { const tabs = TABS.filter(([k]) => ME.role === 'writer' ? k === 'submit' : ME.role === 'boss' || (k !== 'users' && (ME.role !== 'review' || k === 'review'))); $('#tabs').innerHTML = tabs.map(([k, n, soon]) => `<button class="tab ${ST.tab === k ? 'on' : ''}" data-tab="${k}">${n}${soon ? '<span class="soon">下一步</span>' : ''}</button>`).join(''); }
+const TABS = [['dash', '大盘'], ['lib', '爆款库'], ['brief', '任务书·范文'], ['gen', 'AI 出稿'], ['review', 'AI 审稿'], ['|'], ['writers', '写手稿'], ['submit', '写手投稿'], ['|'], ['dispatch', '派发·发布'], ['stores', '门店池'], ['settle', '结算', 1], ['users', '账号']];
+function nav() { const tabs = TABS.filter(([k]) => k === '|' ? ME.role === 'boss' || ME.role === 'ops' : ME.role === 'writer' ? k === 'submit' : ME.role === 'review' ? ['review', 'writers'].includes(k) : ME.role === 'boss' || k !== 'users'); $('#tabs').innerHTML = tabs.map(([k, n, soon]) => k === '|' ? '<span class="tsep"></span>' : `<button class="tab ${ST.tab === k ? 'on' : ''}" data-tab="${k}">${n}${soon ? '<span class="soon">下一步</span>' : ''}</button>`).join(''); }
 document.addEventListener('click', e => { const t = e.target.closest('[data-tab]'); if (t) { ST.tab = t.dataset.tab; location.hash = ST.tab; nav(); show(); } });
-async function show() { const m = $('#main'); m.onclick = null; clearTimeout(pollT); try { m.innerHTML = '<div class="empty">加载中…</div>'; const f = ME && ME.role === 'writer' ? submitPage : { dash, lib, brief, gen, submit: submitPage, review, dispatch, stores, settle: soon, users }[ST.tab] || dash; await f(m); } catch (e) { m.innerHTML = `<div class="empty">出错了：${h(e.message)}</div>`; } }
+async function show() { const m = $('#main'); m.onclick = null; clearTimeout(pollT); try { m.innerHTML = '<div class="empty">加载中…</div>'; const f = ME && ME.role === 'writer' ? submitPage : { dash, lib, brief, gen, submit: submitPage, review, writers, dispatch, stores, settle: soon, users }[ST.tab] || dash; await f(m); } catch (e) { m.innerHTML = `<div class="empty">出错了：${h(e.message)}</div>`; } }
 
 async function dash(m) {
   const d = await api('/api/dash'); const n = d.lib.night || {};
@@ -364,11 +365,11 @@ let pollT = null;
 async function review(m) {
   clearTimeout(pollT);
   if (SHARE) { const d = await fetch(BASE + '/data').then(r => r.json()); if (!d.ok) throw new Error('链接失效'); LAYOUTS = d.layouts; PHOTOS = d.photos || []; return reviewBatch(m, d.batch, true); }
-  const { batches } = await api('/api/batches'); if (!batches.length) { m.innerHTML = '<div class="empty">还没有出过稿，去「AI 出稿」试一批。</div>'; return; }
+  const { batches } = await api('/api/batches?kind=ai'); if (!batches.length) { m.innerHTML = '<div class="empty">还没有出过稿，去「AI 出稿」试一批。</div>'; return; }
   if (!ST.batch || !batches.find(b => b.id === ST.batch)) ST.batch = batches[0].id;
   const { batch, photos } = await api('/api/batch/' + ST.batch); PHOTOS = photos || [];
   const todoAll = batches.reduce((x, b) => x + Math.max(0, b.got - b.ok - b.fix), 0);
-  m.innerHTML = `<h2>待审稿箱 <small>还有 ${todoAll} 篇没审 · 点一批打开</small></h2><div class="boxes">${batches.map(b => { const todo = Math.max(0, b.got - b.ok - b.fix); return `<div class="box ${b.id === ST.batch ? 'on' : ''}" data-b="${b.id}"><b>${h(b.briefName.slice(0, 14))} · ${h(b.layoutName.slice(0, 10))}</b><small>${day(b.at)} · ${b.status === 'running' ? `生成中 ${b.got}/${b.n}` : `${b.got} 篇`}</small><div>${todo ? `<span class="tag am">待审 ${todo}</span>` : ''}${b.ok ? `<span class="tag ok">通过 ${b.ok}</span>` : ''}${b.fix ? `<span class="tag bad">要改 ${b.fix}</span>` : ''}</div></div>`; }).join('')}</div>
+  m.innerHTML = `<h2>AI 稿 · 待审稿箱 <small>还有 ${todoAll} 篇没审 · 点一批打开 · 写手交的稿在「写手稿」</small></h2><div class="boxes">${batches.map(b => { const todo = Math.max(0, b.got - b.ok - b.fix); return `<div class="box ${b.id === ST.batch ? 'on' : ''}" data-b="${b.id}"><b>${h(b.briefName.slice(0, 14))} · ${h(b.layoutName.slice(0, 10))}</b><small>${day(b.at)} · ${b.status === 'running' ? `生成中 ${b.got}/${b.n}` : `${b.got} 篇`}</small><div>${todo ? `<span class="tag am">待审 ${todo}</span>` : ''}${b.ok ? `<span class="tag ok">通过 ${b.ok}</span>` : ''}${b.fix ? `<span class="tag bad">要改 ${b.fix}</span>` : ''}</div></div>`; }).join('')}</div>
   <div class="row" style="margin:0 0 4px"><button class="btn sm" id="share">生成商家审稿链接</button><button class="btn sm" id="dlall">下载这批全部图片</button><button class="btn sm" data-tab="gen">← 回去继续出稿</button></div><div id="rb"></div>`;
   m.querySelector('.boxes').onclick = e => { const b = e.target.closest('[data-b]'); if (b) { ST.batch = b.dataset.b; show(); } };
   $('#share').onclick = async () => { const r = await api(`/api/batch/${ST.batch}/share`, {}); copy(r.url); toast('审稿链接已复制（14 天有效），发给店长或商家'); };
@@ -376,11 +377,11 @@ async function review(m) {
   reviewBatch($('#rb'), batch, false);
   if (batch.status === 'running') { const n0 = batch.notes.length; const poll = async () => { if (ST.tab !== 'review' || ST.batch !== batch.id) return; const ae = document.activeElement; const typing = ae && ae.matches && ae.matches('input,textarea') && ae.value; const r = await api('/api/batch/' + batch.id).catch(() => null); if (r && !typing && (r.batch.notes.length !== n0 || r.batch.status !== 'running')) return show(); pollT = setTimeout(poll, 12000); }; pollT = setTimeout(poll, 12000); }
 }
-function reviewBatch(m, b, share) {
+function reviewBatch(m, b, share, compact) {
   const S = { todo: ['待审', 'am'], ok: ['通过', 'ok'], fix: ['要改', 'bad'], shop_ok: ['商家：没问题', 'ok'], shop_fix: ['商家：要改', 'bad'] };
-  m.innerHTML = (share ? `<div class="say"><h1>${h(b.briefName)} · 稿件确认</h1><p>请逐篇看图和文字，没问题点「没问题」；要改就写清楚改哪里再点「要改」。</p></div>` : `<div class="hint" style="margin:6px 0 12px">${b.status === 'running' ? `正在生成，已出 ${b.notes.length}/${b.n} 篇，页面会自动刷新…` : `共 ${b.notes.length} 篇`}${b.err ? ` · <span style="color:var(--bad)">${h(b.err)}</span>` : ''}</div>`) +
+  m.innerHTML = (compact ? '' : share ? `<div class="say"><h1>${h(b.briefName)} · 稿件确认</h1><p>请逐篇看图和文字，没问题点「没问题」；要改就写清楚改哪里再点「要改」。</p></div>` : `<div class="hint" style="margin:6px 0 12px">${b.status === 'running' ? `正在生成，已出 ${b.notes.length}/${b.n} 篇，页面会自动刷新…` : `共 ${b.notes.length} 篇`}${b.err ? ` · <span style="color:var(--bad)">${h(b.err)}</span>` : ''}</div>`) +
   (b.notes.map(n => { const errs = n.check.filter(c => c[0] === 'err'), warns = n.check.filter(c => c[0] === 'warn'); const [sl, sc] = S[n.status] || S.todo;
-    return `<div class="note ${/ok/.test(n.status) ? 'ok' : /fix/.test(n.status) ? 'fix' : ''}" data-no="${n.no}"><div class="row"><h3 style="flex:1">第 ${n.no} 篇 · ${h(n.title)}</h3><span class="tag ${sc}">${sl}</span><span class="tag">${h(n.dir)}</span></div>
+    return `<div class="note ${/ok/.test(n.status) ? 'ok' : /fix/.test(n.status) ? 'fix' : ''}" data-no="${n.no}"><div class="row"><h3 style="flex:1">${b.kind === 'manual' ? `${h(b.by)} · ${day(b.firstAt || b.at)}` : `第 ${n.no} 篇`} · ${h(n.title)}</h3><span class="tag ${sc}">${sl}</span><span class="tag">${h(n.dir)}</span></div>
     ${share ? '' : `<div class="chk">${errs.length || warns.length ? '' : '<div class="pass">✓ 任务书规则全部通过</div>'}${errs.map(c => `<div class="err">✗ ${h(c[1])}</div>`).join('')}${warns.map(c => `<div class="warn">! ${h(c[1])}</div>`).join('')}</div>`}
     <div class="pv" data-pv="${n.no}"><span class="hint">正在排版…</span></div>
     <div class="copy">${h(textOf(n))}</div>
@@ -445,10 +446,10 @@ async function users(m) {
 async function toJpg(file, max) { const im = await loadImg(URL.createObjectURL(file)); if (!im) return null; const r = Math.min(1, (max || 1440) / Math.max(im.width, im.height)); const c = document.createElement('canvas'); c.width = Math.round(im.width * r); c.height = Math.round(im.height * r); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', 0.86); }
 const SUB = { imgs: [], batch: '', title: '', body: '', tags: '', brief: '' };
 async function submitPage(m) {
-  const [{ briefs: BL }, { mine }] = await Promise.all([api('/api/briefs'), api('/api/mine')]);
+  const [{ briefs: BL }, { mine }, { writers: WL }] = await Promise.all([api('/api/briefs'), api('/api/mine'), ME.role === 'writer' ? { writers: [] } : api('/api/writerlist')]);
   const S2 = { todo: ['等审稿', 'am'], ok: ['通过', 'ok'], fix: ['要改', 'bad'], shop_ok: ['商家通过', 'ok'], shop_fix: ['商家要改', 'bad'] };
-  m.innerHTML = `<div class="say"><h1>写手投稿</h1><p>按任务书写好攻略，在这里传标题、正文和图片（建议 8–10 张：封面 1、行程＋美食 3–4、注意事项 1、住宿＋交通 1–2、实拍 1）。交了以后我们审稿，要改的意见会显示在下面「我交过的稿」里，改好点「改了重交」。</p></div>
-  <div class="card"><div class="kv"><b>任务书</b><select id="sb"><option value="">（不选）</option>${BL.map(b => `<option value="${b.id}" ${SUB.brief === b.id ? 'selected' : ''}>${h(b.name)}</option>`).join('')}</select>
+  m.innerHTML = `<div class="say"><h1>写手投稿</h1><p>${ME.role !== 'writer' ? '（运营也可以在这里替写手上传，选好写手就算在他名下；审稿、改文案、派发和每月统计在「写手稿」。）' : ''}按任务书写好攻略，在这里传标题、正文和图片（建议 8–10 张：封面 1、行程＋美食 3–4、注意事项 1、住宿＋交通 1–2、实拍 1）。交了以后我们审稿，要改的意见会显示在下面「我交过的稿」里，改好点「改了重交」。</p></div>
+  <div class="card"><div class="kv">${ME.role !== 'writer' ? `<b>算在哪个写手名下</b><select id="sw"><option value="">（我自己）</option>${(WL || []).map(w => `<option value="${w.id}" ${SUB.writer === w.id ? 'selected' : ''}>${h(w.name)}</option>`).join('')}</select>` : ''}<b>任务书</b><select id="sb"><option value="">（不选）</option>${BL.map(b => `<option value="${b.id}" ${SUB.brief === b.id ? 'selected' : ''}>${h(b.name)}</option>`).join('')}</select>
   <b>标题</b><input id="st" maxlength="40" value="${h(SUB.title)}" placeholder="小红书标题，最多 20 字">
   <b>正文</b><textarea id="sx" rows="12" placeholder="正文">${h(SUB.body)}</textarea>
   <b>话题</b><input id="sg" value="${h(SUB.tags)}" placeholder="用空格隔开，如 #深圳美食 #白石洲">
@@ -457,13 +458,27 @@ async function submitPage(m) {
   <h2>我交过的稿 <small>${mine.length} 篇</small></h2>${mine.map(x => { const n = x.note; const [sl, sc] = S2[n.status] || S2.todo; return `<div class="note"><div class="row"><h3 style="flex:1">${h(n.title)}</h3><span class="tag ${sc}">${sl}</span>${n.pub ? '<span class="tag ok">已发布</span>' : ''}<span class="hint">${day(x.at)}</span></div>${n.notes.length ? `<div class="hint">${n.notes.map(c => `${h(c.who)}：${h(c.t)}`).join('<br>')}</div>` : ''}<div class="row" style="margin-top:6px"><button class="btn sm" data-re="${x.id}">改了重交</button></div></div>`; }).join('') || '<div class="hint">还没交过</div>'}`;
   const drawImgs = () => { $('#sp').innerHTML = SUB.imgs.map((d, i) => `<img src="${d}" data-rm="${i}" title="点一下删掉" style="width:110px;cursor:pointer">`).join(''); };
   drawImgs();
-  const keep = () => { SUB.brief = $('#sb').value; SUB.title = $('#st').value; SUB.body = $('#sx').value; SUB.tags = $('#sg').value; };
+  const keep = () => { if ($('#sw')) SUB.writer = $('#sw').value; SUB.brief = $('#sb').value; SUB.title = $('#st').value; SUB.body = $('#sx').value; SUB.tags = $('#sg').value; };
   $('#sf').onchange = async e => { keep(); $('#sms').textContent = '处理图片…'; for (const f of e.target.files) { const d = await toJpg(f); if (d) SUB.imgs.push(d); } $('#sms').textContent = `已选 ${SUB.imgs.length} 张`; drawImgs(); e.target.value = ''; };
   $('#sp').onclick = e => { const r = e.target.closest('[data-rm]'); if (r) { SUB.imgs.splice(+r.dataset.rm, 1); drawImgs(); } };
   $('#sgo').onclick = async () => { keep(); if (!SUB.title || !SUB.body) return toast('标题和正文都要写'); if (!SUB.batch && !SUB.imgs.length) return toast('至少传 1 张图');
-    $('#sgo').disabled = true; $('#sms').textContent = '上传中…'; try { await api('/api/submit', { brief: SUB.brief, title: SUB.title, body: SUB.body, tags: SUB.tags, images: SUB.imgs, batch: SUB.batch }); toast(SUB.batch ? '已重交' : '交稿成功'); Object.assign(SUB, { imgs: [], batch: '', title: '', body: '', tags: '' }); show(); } catch (er) { toast(er.message); $('#sgo').disabled = false; $('#sms').textContent = ''; } };
+    $('#sgo').disabled = true; $('#sms').textContent = '上传中…'; try { await api('/api/submit', { writer: SUB.writer, brief: SUB.brief, title: SUB.title, body: SUB.body, tags: SUB.tags, images: SUB.imgs, batch: SUB.batch }); toast(SUB.batch ? '已重交' : '交稿成功'); Object.assign(SUB, { imgs: [], batch: '', title: '', body: '', tags: '' }); show(); } catch (er) { toast(er.message); $('#sgo').disabled = false; $('#sms').textContent = ''; } };
   if ($('#scl')) $('#scl').onclick = () => { Object.assign(SUB, { imgs: [], batch: '', title: '', body: '', tags: '' }); show(); };
   m.onclick = e => { const r = e.target.closest('[data-re]'); if (!r) return; const x = mine.find(y => y.id === r.dataset.re); Object.assign(SUB, { batch: x.id, brief: x.brief, title: x.note.title, body: x.note.body, tags: (x.note.tags || []).join(' '), imgs: [] }); show(); window.scrollTo(0, 0); };
+}
+
+const WS = { month: '', w: '' };
+async function writers(m) {
+  const d = await api(`/api/writers?month=${WS.month}&w=${WS.w}`); WS.month = d.month;
+  const tot = k => d.stats.reduce((a, x) => a + x[k], 0);
+  m.innerHTML = `<h2>写手稿 <small>写手交的稿在这里审、改、派发；按月统计每个写手的出稿情况</small></h2>
+  <div class="row" style="margin-bottom:10px"><select id="wm">${d.months.map(x => `<option ${x === d.month ? 'selected' : ''}>${x}</option>`).join('')}</select>${ME.role !== 'review' ? '<button class="btn sm" data-tab="submit">＋ 替写手上传</button>' + (ME.role === 'boss' ? '<button class="btn sm" data-tab="users">开写手账号</button>' : '') : ''}</div>
+  <div class="kpis"><div class="kpi"><small>${d.month} 交稿</small><b>${tot('sub')}</b></div><div class="kpi"><small>通过</small><b>${tot('ok')}</b></div><div class="kpi"><small>要改</small><b>${tot('fix')}</b></div><div class="kpi"><small>待审</small><b>${tot('todo')}</b></div><div class="kpi"><small>已发布</small><b>${tot('pub')}</b></div></div>
+  <div class="card"><table><tr><th>写手</th><th>交稿</th><th>通过</th><th>要改</th><th>待审</th><th>已派发</th><th>已发布</th><th></th></tr>${d.stats.map(x => `<tr${WS.w === x.id ? ' style="background:var(--panel2)"' : ''}><td>${h(x.name)}</td><td class="mono">${x.sub}</td><td class="mono">${x.ok}</td><td class="mono">${x.fix}</td><td class="mono">${x.todo}</td><td class="mono">${x.assigned}</td><td class="mono">${x.pub}</td><td><button class="btn sm" data-w="${x.id}">${WS.w === x.id ? '看全部' : '只看他的'}</button></td></tr>`).join('') || '<tr><td colspan="8" class="hint">还没有写手账号，去「账号」开一个（角色选「写手」）</td></tr>'}</table></div>
+  <h2>${d.month} 的稿 <small>${d.list.length} 篇${WS.w ? ' · ' + h((d.stats.find(x => x.id === WS.w) || {}).name || '') : ''}</small></h2><div id="wl">${d.list.length ? '' : '<div class="empty">这个月还没有写手交稿</div>'}</div>`;
+  const wl = $('#wl'); d.list.forEach(b => { const el = document.createElement('div'); wl.appendChild(el); reviewBatch(el, b, false, true); });
+  $('#wm').onchange = e => { WS.month = e.target.value; show(); };
+  m.onclick = e => { const w = e.target.closest('[data-w]'); if (w) { WS.w = WS.w === w.dataset.w ? '' : w.dataset.w; show(); } };
 }
 function modal(html) { const d = document.createElement('div'); d.className = 'modal'; d.innerHTML = `<div style="width:min(640px,100%)">${html}</div>`; document.body.appendChild(d); d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-cl]')) d.remove(); }); return d; }
 function editModal(b, n) {
@@ -484,7 +499,7 @@ async function dispatch(m) {
   const st = x => x.pub ? `<a class="tag ok" href="${h(x.pub.url)}" target="_blank" rel="noopener">已发 ${day(x.pub.at)}</a>` : x.late ? `<span class="tag bad">超期 ${x.late} 天</span>` : x.due ? '<span class="tag am">今天发</span>' : '<span class="tag">待发</span>';
   m.innerHTML = `<div class="say"><h1>派发 · 发布</h1><p>在「审稿」里通过的稿，点「派发给账号」填账号和日期，就会生成卡片链接发到微信。对方发完在卡片里贴笔记链接，这里自动变成「已发」；当天没发，第二天上午 10 点机器人私信提醒。</p></div>
   <div class="kpis"><div class="kpi"><small>已派发</small><b>${pubs.length}</b></div><div class="kpi"><small>今天要发</small><b>${due.length}</b></div><div class="kpi"><small>超期没发</small><b style="color:${late.length ? 'var(--bad)' : 'inherit'}">${late.length}</b></div><div class="kpi"><small>已发布</small><b>${done.length}</b></div></div>
-  <div class="card">${pubs.length ? `<table><tr><th>日期</th><th>账号</th><th>渠道</th><th>负责人</th><th>稿子</th><th>状态</th><th></th></tr>${pubs.map((x, i) => `<tr><td class="mono">${x.date.slice(5)}</td><td>${h(x.acct)}</td><td>${h(x.kind)}</td><td>${h(x.who || '')}</td><td>${h(x.title)}<div class="hint">${h(x.briefName)} · 第 ${x.no} 篇</div></td><td>${st(x)}</td><td><button class="btn sm" data-cu="${i}">复制卡片链接</button> ${x.pub ? `<button class="btn sm" data-un="${i}">撤回回填</button>` : `<button class="btn sm" data-pb="${i}">回填链接</button>`}</td></tr>`).join('')}</table>` : '<div class="hint">还没派发过。去「审稿」把通过的稿派给账号。</div>'}</div>
+  <div class="card">${pubs.length ? `<table><tr><th>日期</th><th>账号</th><th>渠道</th><th>负责人</th><th>来源</th><th>稿子</th><th>状态</th><th></th></tr>${pubs.map((x, i) => `<tr><td class="mono">${x.date.slice(5)}</td><td>${h(x.acct)}</td><td>${h(x.kind)}</td><td>${h(x.who || '')}</td><td>${h(x.src || '')}</td><td>${h(x.title)}<div class="hint">${h(x.briefName)} · 第 ${x.no} 篇</div></td><td>${st(x)}</td><td><button class="btn sm" data-cu="${i}">复制卡片链接</button> ${x.pub ? `<button class="btn sm" data-un="${i}">撤回回填</button>` : `<button class="btn sm" data-pb="${i}">回填链接</button>`}</td></tr>`).join('')}</table>` : '<div class="hint">还没派发过。去「审稿」把通过的稿派给账号。</div>'}</div>
   <p class="hint">结算（写手按通过篇数、达人按发布篇数）下一步做。</p>`;
   m.onclick = async e => { const c = e.target.closest('[data-cu],[data-pb],[data-un]'); if (!c) return; const x = pubs[+(c.dataset.cu || c.dataset.pb || c.dataset.un)];
     if (c.dataset.cu !== undefined) return copy(x.url);

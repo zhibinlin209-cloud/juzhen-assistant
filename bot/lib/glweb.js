@@ -272,6 +272,7 @@ ${shopLines}
     const title = String(j.title || '').trim().slice(0, 40), bodyT = String(j.body || '').trim().slice(0, 3000); const tags = String(j.tags || '').split(/[\s,，]+/).filter(Boolean).map(t => '#' + t.replace(/^#/, '')).slice(0, 10);
     if (!title || !bodyT) throw new Error('标题和正文都要写');
     const B = briefs().find(x => x.id === j.brief);
+    if (me.role !== 'writer' && j.writer) { const w = U.users.find(z => z.id === j.writer && z.role === 'writer'); if (w) me = { id: w.id, name: w.name, role: 'writer', proxy: true }; } // 运营代写手上传，记在写手名下
     if (j.batch) { // 改了重交
       const b = getBatch(j.batch); if (!b || b.kind !== 'manual') throw new Error('没有这篇稿'); if (me.role === 'writer' && b.byId !== me.id) throw new Error('只能改自己的稿');
       const n = b.notes[0]; Object.assign(n, { title, body: bodyT, tags, status: 'todo' }); if (Array.isArray(j.images) && j.images.length) n.images = saveUp(b.id, j.images);
@@ -280,9 +281,9 @@ ${shopLines}
     if (!Array.isArray(j.images) || !j.images.length) throw new Error('至少传 1 张图');
     const id = 'g' + Date.now().toString(36); const images = saveUp(id, j.images);
     const n = { no: 1, title, body: bodyT, tags, images, status: 'todo', notes: [], dir: me.name, ending: '' }; n.check = checkManual(n, B);
-    const b = { id, kind: 'manual', brief: B ? B.id : '', briefName: B ? B.name : '写手投稿', layout: 'manual', layoutName: '写手投稿 · ' + me.name, by: me.name, byId: me.id, at: Date.now(), n: 1, status: 'done', notes: [n], err: '' };
+    const b = { id, kind: 'manual', brief: B ? B.id : '', briefName: B ? B.name : '写手投稿', layout: 'manual', layoutName: '写手投稿 · ' + me.name, by: me.name, byId: me.id, at: Date.now(), firstAt: Date.now(), n: 1, status: 'done', notes: [n], err: '' };
     wj(path.join(BD, id + '.json'), b); log(`[攻略平台] ${me.name} 交了一篇稿《${title}》`);
-    if (bossDm && me.role === 'writer') bossDm(`✍️ 写手 ${me.name} 在攻略平台交了一篇稿《${title}》，去「审稿」看：${base}#review`).catch(() => { });
+    if (bossDm && me.role === 'writer' && !me.proxy) bossDm(`✍️ 写手 ${me.name} 在攻略平台交了一篇稿《${title}》，去「审稿」看：${base}#review`).catch(() => { });
     return b;
   }
   function edit(bid, j, who) { const f = path.join(BD, bid + '.json'); const b = getBatch(bid); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +j.no); if (!n) throw new Error('没有这一篇');
@@ -300,7 +301,7 @@ ${shopLines}
     const m = String(url || '').match(/https?:\/\/[^\s，。]*(xiaohongshu\.com|xhslink\.com)[^\s，。]*/); if (!m) throw new Error('贴小红书笔记链接（App 里点分享→复制链接）');
     n.pub = { url: m[0], at: Date.now(), who }; wj(path.join(BD, bid + '.json'), b); log(`[攻略平台] 第 ${n.no} 篇已发布（${(n.assign || {}).acct || ''}）`); return n.pub; }
   function pubs() { const today = bjDay(); const L = []; for (const b of batches()) for (const n of b.notes) { if (!n.assign) continue; const late = !n.pub && n.assign.date < today ? Math.round((Date.parse(today) - Date.parse(n.assign.date)) / DAY) : 0;
-    L.push({ bid: b.id, no: n.no, title: n.title, briefName: b.briefName, ...n.assign, pub: n.pub || null, late, due: !n.pub && n.assign.date === today, url: cardUrl(b.id, n.no) }); }
+    L.push({ bid: b.id, no: n.no, title: n.title, briefName: b.briefName, src: b.kind === 'manual' ? '写手·' + b.by : 'AI', ...n.assign, pub: n.pub || null, late, due: !n.pub && n.assign.date === today, url: cardUrl(b.id, n.no) }); }
     return L.sort((a, c) => (a.pub ? 1 : 0) - (c.pub ? 1 : 0) || a.date.localeCompare(c.date)); }
   // 自动提醒：每天上午 10 点后，把「排到昨天及以前还没发」的和「今天要发」的私信给老板
   setInterval(() => { try { const h = new Date(Date.now() + 8 * 3600e3).getUTCHours(); const today = bjDay(); if (h < 10 || META.remindDay === today) return; META.remindDay = today; saveMeta();
@@ -370,6 +371,16 @@ ${shopLines}
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/pages$/); if (m && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req, 40e6)); savePages(m[1], j.no, j.pages); return J(res, { ok: true }); }
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/assign$/); if (m && req.method === 'POST' && canWork) return J(res, assign(m[1], JSON.parse(await body(req, 4000)), me.name));
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/pub$/); if (m && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req, 4000)); return J(res, { ok: true, pub: j.clear ? (() => { const b = getBatch(m[1]); const n = b && b.notes.find(x => x.no === +j.no); if (n) { delete n.pub; wj(path.join(BD, m[1] + '.json'), b); } return null; })() : pub(m[1], j.no, j.url, me.name) }); }
+      if (p === '/api/writers') { // 写手稿：按月统计每个写手交稿/通过/要改/已发布，和这个月的稿
+        const mon = /^\d{4}-\d{2}$/.test(u.searchParams.get('month') || '') ? u.searchParams.get('month') : bjDay().slice(0, 7); const who = u.searchParams.get('w') || '';
+        const L = batches().filter(b => b.kind === 'manual' && bjDay(b.firstAt || b.at).slice(0, 7) === mon); const W = new Map();
+        U.users.filter(x => x.role === 'writer' && !x.off).forEach(x => W.set(x.id, { id: x.id, name: x.name, sub: 0, ok: 0, fix: 0, todo: 0, assigned: 0, pub: 0 }));
+        L.forEach(b => { const n = b.notes[0]; const w = W.get(b.byId) || (W.set(b.byId, { id: b.byId, name: b.by, sub: 0, ok: 0, fix: 0, todo: 0, assigned: 0, pub: 0 }), W.get(b.byId)); w.sub++; if (/ok/.test(n.status)) w.ok++; else if (/fix/.test(n.status)) w.fix++; else w.todo++; if (n.assign) w.assigned++; if (n.pub) w.pub++; });
+        const list = L.filter(b => !who || b.byId === who).map(b => { const B = briefs().find(x => x.id === b.brief); b.notes.forEach(n => { n.check = checkManual(n, B); }); return b; });
+        const months = [...new Set(batches().filter(b => b.kind === 'manual').map(b => bjDay(b.firstAt || b.at).slice(0, 7)))].sort().reverse();
+        return J(res, { ok: true, month: mon, months: months.includes(mon) ? months : [mon, ...months], stats: [...W.values()].sort((a, c) => c.sub - a.sub), list, writers: U.users.filter(x => x.role === 'writer' && !x.off).map(x => ({ id: x.id, name: x.name })) });
+      }
+      if (p === '/api/writerlist') return J(res, { ok: true, writers: me.role === 'writer' ? [] : U.users.filter(x => x.role === 'writer' && !x.off).map(x => ({ id: x.id, name: x.name })) });
       if (p === '/api/pubs') return J(res, { ok: true, pubs: pubs(), today: bjDay() });
       if (p === '/api/lib') return J(res, glib.query(Object.fromEntries(u.searchParams)));
       m = p.match(/^\/api\/lib\/([0-9a-f]{24})$/); if (m) { const n = glib.get(m[1]); return J(res, n ? { ok: true, note: n } : { ok: false, error: '没有这篇' }); }
@@ -389,7 +400,7 @@ ${shopLines}
       if (p === '/api/briefs' && req.method === 'GET') return J(res, { ok: true, briefs: briefs() });
       if (p === '/api/briefs' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const L = briefs(); const b = j.brief || {}; const i = L.findIndex(x => x.id === b.id); if (i >= 0) L[i] = Object.assign(L[i], b); else L.push(Object.assign({}, L[0] || {}, b, { id: 'b' + Date.now().toString(36) })); wj(BF, L); return J(res, { ok: true }); }
       if (p === '/api/gen' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const n = Math.max(1, Math.min(10, +j.n || 3)); return J(res, { ok: true, batch: await generate(j.brief, j.layout, n, me.name) }); }
-      if (p === '/api/batches') return J(res, { ok: true, batches: batches().map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.n, got: b.notes.length, status: b.status, err: b.err, ok: b.notes.filter(x => /ok/.test(x.status)).length, fix: b.notes.filter(x => /fix/.test(x.status)).length, errs: b.notes.filter(x => x.check.some(c => c[0] === 'err')).length })) });
+      if (p === '/api/batches') return J(res, { ok: true, batches: batches().filter(b => u.searchParams.get('kind') === 'manual' ? b.kind === 'manual' : u.searchParams.get('kind') === 'ai' ? b.kind !== 'manual' : true).map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.n, got: b.notes.length, status: b.status, err: b.err, ok: b.notes.filter(x => /ok/.test(x.status)).length, fix: b.notes.filter(x => /fix/.test(x.status)).length, errs: b.notes.filter(x => x.check.some(c => c[0] === 'err')).length })) });
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)$/); if (m) { const b = getBatch(m[1]); if (b) { const B = briefs().find(x => x.id === b.brief); if (B || b.kind === 'manual') b.notes.forEach(n => { n.check = checkOf(n, B, b); }); } return J(res, b ? { ok: true, batch: b, layouts: LAYOUTS, photos: (sid => photosOf(sid).map(f => `${sid}/${f}`).concat(sucaiFor(sid)))((briefs().find(x => x.id === b.brief) || {}).store) } : { ok: false, error: '没有这个批次' }); } // 按最新任务书重新核对
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/mark$/); if (m && req.method === 'POST') { const j = JSON.parse(await body(req, 20000)); return J(res, { ok: true, note: mark(m[1], j.no, ['ok', 'fix', 'todo'].includes(j.status) ? j.status : '', j.note, me.name) }); }
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/share$/); if (m && req.method === 'POST' && canWork) { if (!getBatch(m[1])) throw new Error('没有这个批次'); return J(res, { ok: true, url: `${base}r/${sign(`R|${m[1]}|${Date.now() + 14 * DAY}`)}` }); }
