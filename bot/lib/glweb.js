@@ -161,7 +161,8 @@ ${JSON.stringify(pick(got)).slice(0, 9000)}`;
     if (J0.fixed && J0.fixed.body) {
       const fx = J0.fixed; fx.sections = (fx.sections || []).map(sc => ({ h: sc.h, items: (sc.items || []).map(i => ({ shop: i.shop || i.name, say: i.say, stars: i.stars })) }));
       fx.tags = (fx.tags || []).filter(t => !B.tagsMust.includes(t) && !((plan && plan.tags) || []).includes(t));
-      const fixed = build(Object.assign({}, fx, { yes: Object.assign({}, got.yes, fx.yes || {}) }), B, pool, main, plan);
+      const fy = Object.assign({}, got.yes, fx.yes && typeof fx.yes === 'object' ? fx.yes : {}); if (!Array.isArray(fy.dishes)) fy.dishes = got.yes.dishes; ['route', 'stay', 'traffic', 'tips', 'navs', 'good', 'skip', 'spots', 'cover', 'tags'].forEach(k => { if (fx[k] !== undefined && !Array.isArray(fx[k])) fx[k] = got[k]; });
+      const fixed = build(Object.assign({}, fx, { yes: fy }), B, pool, main, plan);
       const errs = n => check(n, B, batch).filter(c => c[0] === 'err').length;
       const names = n => new Set(n.sections.flatMap(sc => sc.items.map(i => i.name))); const a = names(got), b2 = names(fixed); const lost = [...a].filter(x => !b2.has(x)).length, added = [...b2].filter(x => !a.has(x)).length;
       const warns = n => check(n, B, batch).filter(c => c[0] === 'warn').length; const len = n => [...String(n.body)].length;
@@ -295,6 +296,8 @@ ${shopLines}
     const yes = j.yes || {}; const dishes = (yes.dishes || []).map(d => ({ name: String(d.name || '').trim(), line: String(d.line || '').slice(0, 40) })).filter(d => d.name);
     if (!dishes.some(d => d.name === B.mustDish)) dishes.unshift({ name: B.mustDish, line: '奶油香裹着虾膏，趁热先吃' });
     if (plan && plan.lead) { const i = dishes.findIndex(d => d.name === plan.lead); if (i > 0) dishes.unshift(dishes.splice(i, 1)[0]); }
+    const full = /YES|也是大排档/i.test(B.brand || B.storeTitle || '') ? s0 => String(s0 || '').replace(/(?<!也是)(YES|Yes|yes)\s*!?\s*(也是)?\s*大排档/g, 'YES也是大排档') : s0 => String(s0 || '');
+    j.body = full(j.body); j.ending = full(j.ending); if (j.yes && j.yes.blurb) j.yes.blurb = full(j.yes.blurb);
     return { title: String(j.title || '').trim(), cover: (j.cover || []).map(String).filter(l => !brandRe(B).test(l)).slice(0, 4), place: placeWordsOf(B).find(w => String(j.title || '').includes(w) && w !== (B.city || '深圳')) || B.district, city: B.city || '深圳', body: String(j.body || '').trim(), ending: String(j.ending || '').trim(), tags, sections, dropped,
       route: (j.route || []).slice(0, 10).map(r => ({ t: String(r.t || ''), place: String(r.place || ''), do: String(r.do || ''), tip: String(r.tip || '').slice(0, 40) })), stay: (j.stay || []).slice(0, 4).map(x => ({ area: String(x.area || '').slice(0, 16), why: String(x.why || '').slice(0, 60), fit: String(x.fit || '').slice(0, 20) })).filter(x => x.area), traffic: (j.traffic || []).slice(0, 6).map(x => ({ how: String(x.how || '').slice(0, 20), detail: String(x.detail || '').slice(0, 70) })).filter(x => x.how), spots: (j.spots || []).slice(0, 3).map(s => ({ place: String(s.place || ''), tip: String(s.tip || '') })),
       yes: { dishes: dishes.slice(0, 5), order: (yes.order || []).map(String).slice(0, 3), when: String(yes.when || ''), fit: String(yes.fit || ''), blurb: String(yes.blurb || '').slice(0, 120) },
