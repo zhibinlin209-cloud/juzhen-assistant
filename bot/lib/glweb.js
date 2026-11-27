@@ -208,9 +208,19 @@ ${shopLines}
     const all = stores(); const main = all.find(s => s.id === B.store); if (!main) throw new Error('任务书的主店不在门店池');
     const pool = all.filter(s => s.district === B.district && s.id !== main.id && !(s.planted && /YES/.test(s.name)));
     const id = 'g' + Date.now().toString(36); const batch = { id, brief: B.id, briefName: B.name, layout, layoutName: LAYOUTS[layout].name, by, at: Date.now(), n, status: 'running', notes: [], err: '' };
-    const f = path.join(BD, id + '.json'); wj(f, batch); jobs.set(id, true);
+    wj(path.join(BD, id + '.json'), batch); runBatch(batch);
+    return batch;
+  }
+  // 出稿在后台一篇篇跑；服务器重启（更新代码）打断的批次，启动后从断的那篇接着跑
+  function runBatch(batch) {
+    const B = briefs().find(b => b.id === batch.brief); const all = stores(); const main = B && all.find(s => s.id === B.store);
+    const id = batch.id, n = batch.n, layout = batch.layout, f = path.join(BD, id + '.json');
+    if (!B || !main) { batch.status = 'error'; batch.err = '任务书或主店不见了'; wj(f, batch); return; }
+    const pool = all.filter(s => s.district === B.district && s.id !== main.id && !(s.planted && /YES/.test(s.name)));
+    const save = () => { const d = rj(f, null); if (d && d.notes) d.notes.forEach(o => { const x = batch.notes.find(y => y.no === o.no); if (x) { x.status = o.status; x.notes = o.notes; } }); wj(f, batch); }; // 跑的过程中审稿标记不被覆盖
+    jobs.set(id, true);
     (async () => {
-      for (let k = 1; k <= n; k++) {
+      for (let k = (batch.k || 0) + 1; k <= n; k++) {
         const dir = B.directions[(k - 1) % B.directions.length];
         const shuffled = pool.slice().sort(() => Math.random() - 0.5).slice(0, 14);
         const spots = [...B.mustSpots, ...B.optSpots.slice().sort(() => Math.random() - 0.5).slice(0, 2)];
@@ -219,14 +229,15 @@ ${shopLines}
           try { const r = await llm(promptFor(B, layout, dir, shuffled, spots, batch.notes.map(x => ({ title: x.title, ending: x.ending })), k)); got = build(parseJ(r.text), B, pool, main); got.model = r.model; }
           catch (e) { err = e.message; }
         }
-        if (!got) { batch.err = `第 ${k} 篇失败：${err}`; log('[攻略平台] 出稿失败：' + err); continue; }
+        batch.k = k;
+        if (!got) { batch.err = `第 ${k} 篇失败：${err}`; log('[攻略平台] 出稿失败：' + err); save(); continue; }
         got.no = k; got.dir = dir.name; got.status = 'todo'; got.notes = []; batch.notes.push(got); got.check = check(got, B, batch);
-        batch.notes.forEach(x => { x.check = check(x, B, batch); }); wj(f, batch);
+        batch.notes.forEach(x => { x.check = check(x, B, batch); }); save();
       }
-      batch.status = 'done'; batch.doneAt = Date.now(); wj(f, batch); jobs.delete(id); log(`[攻略平台] 出稿完成：${B.name} ${batch.notes.length}/${n} 篇`);
-    })().catch(e => { batch.status = 'error'; batch.err = e.message; wj(f, batch); jobs.delete(id); });
-    return batch;
+      batch.status = 'done'; batch.doneAt = Date.now(); save(); jobs.delete(id); log(`[攻略平台] 出稿完成：${B.name} ${batch.notes.length}/${n} 篇`);
+    })().catch(e => { batch.status = 'error'; batch.err = e.message; save(); jobs.delete(id); });
   }
+  setTimeout(() => { for (const b of batches()) { if (b.status !== 'running' || jobs.has(b.id)) continue; const full = rj(path.join(BD, b.id + '.json'), null); if (!full) continue; if (full.k === undefined) full.k = Math.max(0, ...(full.notes || []).map(x => x.no || 0)); log(`[攻略平台] 接着跑被重启打断的批次 ${b.id}（已出 ${full.notes.length}/${full.n}）`); runBatch(full); } }, 15e3);
   const batches = () => fs.readdirSync(BD).filter(x => x.endsWith('.json')).map(x => rj(path.join(BD, x), null)).filter(Boolean).sort((a, b) => b.at - a.at);
   const getBatch = id => /^g[0-9a-z]+$/.test(id) ? rj(path.join(BD, id + '.json'), null) : null;
   function mark(id, i, st, note, who) {
