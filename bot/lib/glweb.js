@@ -405,8 +405,10 @@ ${shopLines}
   // 出稿后的硬门槛（林总 2026-11-27：店太少图空空的、照抄范文原句、行程住宿交通空着）：不过就带着原因重写，最多 3 次
   function copiedFrom(tpl, n) { if (!tpl) return ''; const src = String(tpl.title || '') + String(tpl.text || ''); const txt = String(n.title || '') + '\n' + String(n.body || ''); const norm = t => t.replace(/[\s，。！？、～~｜|：:；;“”"'（）()【】\[\]…·\-—]+/g, '');
     const a = norm(src); if (a.length < 8) return ''; for (const seg of txt.split(/[，。！？\n｜|]/)) { const b = norm(seg); for (let i = 0; i + 7 <= b.length; i++) { const w = b.slice(i, i + 7); if (a.includes(w) && !/深圳|广州|珠海|惠州|佛山|美食|攻略|推荐|大排档|一定|真的/.test(w)) return w; } } return ''; }
-  function gate(n, tpl, layout) { const bad = []; const others = n.sections.flatMap(sc => sc.items).filter(i => !i.main).length;
-    if (others < 5) bad.push(`清单只写了 ${others} 家别的店，至少要 6 家（按品类分好）`);
+  function gate(n, tpl, layout, avail) { const bad = []; const others = n.sections.flatMap(sc => sc.items).filter(i => !i.main).length;
+    const need = Math.max(3, Math.min((LAYOUTS[layout] || {}).list ? 8 : 5, (avail || 99) - 1)); // 清单类版式店少了一页都排不满；可用的店本来就少的门店不强求
+    if (others < need) bad.push(`清单只写了 ${others} 家别的店，至少要 ${need + 1} 家（按品类分好）`);
+    const cv = (n.cover || []).find(l => [...String(l)].length > 10); if (cv) bad.push(`封面「${cv}」太长，每行最多 9 个字`);
     if (layout !== 'list' && !(LAYOUTS[layout] || {}).list) { if ((n.route || []).length < 4) bad.push('route 行程至少 5 站'); if (!(n.stay || []).length) bad.push('stay 住宿建议没写'); if (!(n.traffic || []).length) bad.push('traffic 交通没写'); }
     const cp = copiedFrom(tpl, n); if (cp) bad.push(`照抄了范文原句「${cp}」，要用自己的话`);
     if (/搬走|已关门|关门了|倒闭|被清退|早已清退|拆了/.test(String(n.body))) bad.push('写了哪家店搬走/关门/被清退这种拿不准的事');
@@ -431,7 +433,7 @@ ${shopLines}
         let got = null, err = '', best = null, bestBad = 99;
         for (let t = 0; t < 3 && !got; t++) {
           try { const r = await llm(promptFor(B, layout, dir, shuffled, spots, batch.notes.map(x => ({ title: x.title, ending: x.ending })), k, tpl, plan) + (err && /^不合格/.test(err) ? `\n【上一次写的不合格，这次一定避开】${err.slice(4)}` : '')); const g = build(parseJ(r.text), B, pool, main, plan); g.model = r.model;
-            const bad = gate(g, tpl, layout); if (!bad.length) got = g; else { err = '不合格：' + bad.join('；'); if (bad.length < bestBad) { best = g; bestBad = bad.length; } log(`[攻略平台] 第 ${k} 篇重写：${bad.join('；')}`); } }
+            const bad = gate(g, tpl, layout, plan && plan.shops ? plan.shops.length : pool.length); if (!bad.length) got = g; else { err = '不合格：' + bad.join('；'); if (bad.length < bestBad) { best = g; bestBad = bad.length; } log(`[攻略平台] 第 ${k} 篇重写：${bad.join('；')}`); } }
           catch (e) { err = e.message; }
         }
         if (!got && best) { got = best; got.gateWarn = err; }
