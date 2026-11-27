@@ -605,7 +605,7 @@ async function hallPage(m) {
     if (ht) { HL.tab = ht.dataset.ht; return hallPage(m); }
     if (c2) { if (await act({ act: 'claim', id: c2.dataset.cl2, seat: c2.dataset.seat })) { toast('领到了，去「我的」看文案'); HL.tab = 'mine'; hallPage(m); } return; }
     if (cp) return copy(cp.dataset.cp2);
-    const ed2 = e.target.closest('[data-ed2]'); if (ed2) { const tx = prompt('改成你平时会说的话（意思别变，别加推荐、必点这类词）', ed2.dataset.tx); if (tx && tx.trim() && tx.trim() !== ed2.dataset.tx) { if (await act({ act: 'text', id: ed2.dataset.ed2, seat: ed2.dataset.seat, text: tx })) hallPage(m); } return; }
+    const ed2 = e.target.closest('[data-ed2]'); if (ed2) { const tx = prompt('改成你平时会说的话（意思别变，别加推荐、必点这类词；句子里有「YES也是大排档」的要保留全称）', ed2.dataset.tx); if (tx && tx.trim() && tx.trim() !== ed2.dataset.tx) { if (await act({ act: 'text', id: ed2.dataset.ed2, seat: ed2.dataset.seat, text: tx })) hallPage(m); } return; }
     const pk = e.target.closest('[data-pk]'); if (pk) return pickImg(pk.dataset, async img => { if (await act({ act: 'img', id: pk.dataset.pk, seat: pk.dataset.seat, img })) { toast('选好了，记得长按图片保存'); hallPage(m); } });
     if (dr && confirm('不做这一楼了？')) { if (await act({ act: 'drop', id: dr.dataset.dr, seat: dr.dataset.seat })) hallPage(m); } };
   m.querySelectorAll('[data-up]').forEach(inp => { inp.onchange = async () => { const f = inp.files[0]; if (!f) return; toast('上传中…'); const shot = await toJpg(f, 1600); if (await act({ act: 'done', id: inp.dataset.up, seat: inp.dataset.seat, shot })) { toast('交好了，计进结算'); hallPage(m); } }; });
