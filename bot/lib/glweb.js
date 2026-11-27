@@ -356,7 +356,7 @@ ${shopLines}
       for (const x of r.rows || []) {
         const name = pick(x, ['发布人员', '人员', '负责人', '运营人员']); const acct = pick(x, [plat + '昵称', '账号昵称', '账号名称', '昵称', '账号']); if (!name && !acct) continue;
         const k = plat + '|' + (acct || name); const o = M.get(k) || { name, acct, plat, kinds: [], home: '', posts: 0 };
-        if (!o.name && name) o.name = name; if (!o.kinds.includes(kind)) o.kinds.push(kind); if (!o.home) o.home = pick(x, [plat + '主页链接', '主页链接', '主页']); if (kind !== '分发名单') o.posts++; M.set(k, o);
+        if (!o.name && name) o.name = name; if (!o.kinds.includes(kind)) o.kinds.push(kind); if (!o.home) o.home = pick(x, [plat + '主页链接', '主页链接', '账号主页', '主页']); if (kind !== '分发名单') o.posts++; M.set(k, o);
       }
     }
     RO = { diag: RO.diag, at: M.size ? Date.now() : 0, list: [...M.values()].sort((a, c) => a.plat.localeCompare(c.plat) || (a.name || '').localeCompare(c.name || '')) }; return RO.list;
