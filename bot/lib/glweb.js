@@ -100,47 +100,73 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
     const subs = [...groups.keys()].map(k => ({ k, n: groups.get(k).length, used: used.get(k) || 0, heat: Math.max(...groups.get(k).map(t => t.daily)) })).sort((a, c) => a.used - c.used || c.heat - a.heat).slice(0, Math.max(n * 3, 12)).sort(() => Math.random() - 0.5);
     return subs.slice(0, n).map(s => { const L = groups.get(s.k).sort((a, c) => (c.pages ? 1 : 0) - (a.pages ? 1 : 0) || c.daily - a.daily); return L[Math.floor(Math.random() * Math.min(3, L.length))]; });
   }
-  function promptFor(B, layout, dir, pool, spots, prev, k, tpl) {
-    const dishes = Object.entries(B.dishes).map(([c, l]) => `${c}：${l.join('、')}`).join('；');
-    const shopLines = pool.map(s => `- ${s.name}｜${s.area}${s.far ? '（离主店远，要坐地铁，只能写成另找时间去/第二天，不能写成步行顺路）' : '（主店附近）'}｜${s.cat}｜人均${s.price}｜营业${s.hours}｜招牌：${s.dishes}`).join('\n');
-    const L = LAYOUTS[layout];
-    const refText = refs().slice().sort(() => Math.random() - 0.5).slice(0, 2).map((r, i) => `——范文${i + 1}——\n${String(r.text).slice(0, 1200)}${r.imgDesc ? `\n（这篇原稿的图片版式：\n${r.imgDesc.slice(0, 700)}）` : ''}`).join('\n') || '（暂无）';
-    return `你是小红书本地生活博主，替${B.city || '深圳'}一家${B.storeType || '海鲜大排档'}写一篇「${dir.name}」方向的图文攻略，读起来要像真实游客或本地人自己整理的，不能像广告。
-【版式】${L.name}：${L.desc}。你只写文字内容，排版由程序完成。
-【读者】${B.audience}${tpl ? `\n【这篇学这个爆款的写法】套路「${tpl.sub}」｜原标题：${tpl.title}\n原正文：${tpl.text.slice(0, 600)}${tpl.pages ? '\n原图内页结构：' + tpl.pages.slice(0, 500) : ''}\n——学它的切入角度、标题句式、开头口吻和分段结构（把它的城市、店、景点换成我们的），不要照抄原句，不能借用它的榜单名义、官方背书或数字（如 必吃榜、XX 家）；这篇的角度以这个套路为准，下面第 6 条里的角度列表只在它不适用时参考。` : ''}${B.facts ? `\n【固定事实，每篇都照这个写，不能改、不能编别的版本】${B.facts}` : ''}
-【必须做到】
-1. 标题 ≤20 字，必须同时有地点词和需求词（${B.titleRule}），本篇优先往「${dir.words.join('」「')}」这类搜索词靠，不要用感叹号堆砌。
-2. 主店是「${B.storeTitle}」，程序会把它单独放成一个分类「${B.mainCat || '晚饭·' + (B.storeType || '海鲜大排档')}」、排在美食清单第 2 家，你在 sections 里不要写它。
-3. 美食清单 sections 只能用下面门店池里的店（店名照抄，不要编新店）。第一个分类固定叫「中午垫一口」、只放 1 家（粉面/小吃/茶点类）；后面再分 2–3 个分类（如 糖水甜品、夜宵续摊、下午茶），分类名要和店的品类对得上，不要把不同品类混在一起，一共 6–9 家；每家一句话（≤18 字）写招牌菜或特点，不要写具体价格以外编造的信息。
-4. 主店介绍 yes：${B.mustDish}必写，再从这些菜里选 2–3 道：${dishes}；每道一句话（≤22 字，具体到口感/吃法，不夸大，不能写“只只爆膏”）。再写 2 条点菜建议（按人数）、1 句什么时候去、1 句适合什么聚会。
-5. 景点必须有${(B.mustSpots || []).join('、') || '1 个当地景点'}；可以再选 0–2 个：${B.optSpots.join('、')}。景点只写游玩建议，不写门票价格、开放时间等数字（这些我们没核实）。
-6. 正文 body 一般 300–550 字（纯美食清单角度可以短到 150 字），照【参考范文】的写法：先从这几种角度里挑一种（同一批里换着用）——纯美食清单（按小吃/海鲜大排档/糖水等分类列店名，主店单独一类，开头一两句纠结口吻就够，正文可以 150 字左右）、景点红黑榜（闭眼冲／顺路打卡／不建议专程去，敢说缺点才可信）、去 X 的大实话（交通怎么到、哪里别自驾）、导航避坑（别只搜「某某」，导航到哪个门/出口最近）、一天路线怎么走。开头 1–2 句钩子，说清这篇帮读者解决什么问题；景点和出行信息是正文主体，用 emoji 或「1、2、3」分段，每条写具体可用的信息；吃的放在最后一段，用 ✅ 或 📍 列 2–5 家（顺序和 sections 一致，主店是第 2 家，店名后面可以跟一句具体的菜），最后一句提示看图。语气像整理攻略的游客或本地人，不要编造太具体的亲身经历，不要像广告；景点信息只写常识性、不会错的内容，拿不准的（门票价格、开放时间、地铁出口编号）不要写；ending 就是正文最后一句，不能和下面已经用过的重复。
-7. 禁用词：${B.banned.join('、')}；不要说“无广”“自费”“不是广告”。
-8. 话题 tags 写 ${(B.tagsTotal || 9) - B.tagsMust.length} 个（另外 ${B.tagsMust.join(' ')} 程序会固定加上，总共 ${B.tagsTotal || 9} 个）：优先从这里选：${B.tagsOpt.join(' ')}；也可以自己加 2–3 个贴合这篇内容的（地点、景点、菜名、场景，如 #深圳湾 #生腌），不要带别的店名、品牌名。
-9. cover 是封面大字，一般只写 2 行（导航避坑版式可以 3–4 行），每行 ≤9 字，像真人随手记的一句话，${layout === 'clean' ? '如「落地深圳」「第1️⃣顿直奔谁家」，可以带 1 个 emoji' : layout === 'green' ? '如「去了南山5次」「我的建议是😪」' : layout === 'nav' ? '写 3–4 行短句，如「（南山）」「可能会遇到的」「一点小麻烦」「自存」'  : layout === 'memo' ? '如「存一下 下周去南山」「要吃的东西」' : layout === 'hand' ? '如「逛完世界之窗」「去哪吃夜宵」' : layout === 'star' ? '如「南山美食」「个人打分」' : '如「南山一日游」「不走回头路」'}。封面和标题里都不要出现任何店名、品牌名，也不要写「大排档」，否则像广告，别人不会点进来。
-10. navs 写 4–6 个（只用导航避坑版式时最重要），good 写 3–5 个、skip 写 2–3 个（不建议的要写真实原因，别黑景点本身，写“节假日太挤、门口特产贵”这类）、streets 写 2–3 个，全部在 ${B.district} 或附近；tips 不写门票价格、具体开放时间、地铁出口编号这类拿不准的数字。
-14. route 里排到某家店的时间，必须在它的营业时间内（看门店池里写的营业时间）；路线按地理顺序走，不要来回折返；标了「离主店远」的店不能排进同一天的步行路线。
-13. 正文里写导航避坑、路线、游玩建议这类分条内容时，每段写 4–6 条，别只写 3 条。
-12. 每篇要做成 8–10 页图（君游 2026-11-27）：route 写 7–9 站的一天行程（上午、中午、下午、傍晚、晚饭、夜宵都有）（每站带吃什么或注意什么）；tips 当「旅程注意事项」写 6–8 条；stay 写 2–3 个住宿区域建议（只写区域和为什么住这，不写具体酒店名和价格）；traffic 写 3–5 条交通（机场/高铁站怎么过来、景点之间怎么串、夜宵后怎么回，只写你确定的线路站名，不写票价）；sections 里每家店的 say 写成 18–30 字的具体推荐（招牌菜＋口感），会单独排成美食详解页。
-11. 这是同一批的第 ${k} 篇，标题、开头、结尾、选的店和菜都要和前面的不一样。前面用过的：${prev.length ? prev.map(p => `《${p.title}》结尾「${p.ending}」`).join('；') : '无'}
-【参考范文（我们之前发过的文字攻略，学它的结构、语气、emoji 小标题和信息密度；不要照抄句子，不要照抄它的地名和店）】
-${refText}
-【主店资料（程序会照抄，不用你写）】${B.storeTitle}｜${B.address}｜人均${B.price}｜${B.hours}
-【门店池（${B.district}）】
+  // ---------- 每篇的变量由程序分配（林总 2026-11-27：重复率高的根子是输入一样、规则锁死骨架、没人管差异）----------
+  const ANGLES = {
+    list: ['纯清单', '按品类分组列店名，开头一两句纠结/求助口吻就够，正文短', [150, 230]],
+    order: ['点单清单', '按店分段，写几个人去、点了什么、怎么点不浪费，像吃完回来记的账', [260, 380]],
+    qa: ['问答式', '用 3–5 个读者真会问的问题当小标题（如「出来几点去不排队？」），每个问题下面直接给答案', [280, 420]],
+    rank: ['红黑榜', '分「值得去 / 顺路打卡 / 不建议专程」三档，每档说清楚理由，敢说缺点', [300, 450]],
+    nav: ['导航避坑', '列 4–6 个会走错、会白跑的点：只搜名字会导到哪、该导航到哪、几点去', [320, 480]],
+    truth: ['大实话', '「去之前希望有人告诉我的几件事」，一条一个真实可用的提醒', [260, 400]],
+    route: ['时间轴', '按一天的时间顺序写，几点到哪、做什么、在哪吃，路线不走回头路', [360, 550]]
+  };
+  const LAYOUT_ANGLE = { clean: ['list', 'order'], green: ['rank', 'truth'], nav: ['nav'], memo: ['list', 'qa'], hand: ['qa', 'order'], star: ['rank', 'list'], route: ['route'] };
+  const CLICHE = ['嘬手指', '舔', '鲜掉眉毛', '不踩雷', '天花板', '封神', '绝绝子', '救命', 'yyds', '闭眼冲', '前胸贴后背', '完美收官', '一绝', '无限回购', '谁懂啊'];
+  function makePlans(n, B, layout, pool) {
+    const recent = batches().filter(b => b.brief === B.id).slice(0, 6).flatMap(b => b.notes);
+    const useOf = f => { const m = new Map(); recent.forEach(x => [].concat(f(x) || []).forEach(v => m.set(v, (m.get(v) || 0) + 1))); return m; };
+    const angU = useOf(x => x.plan && x.plan.angle), tagU = useOf(x => x.tags), leadU = useOf(x => x.plan && x.plan.lead), shopU = useOf(x => x.sections && x.sections.flatMap(sc => sc.items.map(i => i.name)));
+    const pref = LAYOUT_ANGLE[layout] || []; const angles = [...pref, ...Object.keys(ANGLES).filter(a => !pref.includes(a)).sort((a, c) => (angU.get(a) || 0) - (angU.get(c) || 0) || Math.random() - 0.5)];
+    const dishes = [...new Set([B.mustDish, ...Object.entries(B.dishes || {}).filter(([c]) => !/饮|甜品|主食|酒|茶/.test(c)).flatMap(([, l]) => l)])].filter(Boolean).sort((a, c) => (leadU.get(a) || 0) - (leadU.get(c) || 0) || Math.random() - 0.5);
+    const opt = (B.tagsOpt || []).filter(t => !(B.tagsMust || []).includes(t)); const nOpt = Math.max(2, Math.min(4, (B.tagsTotal || 9) - (B.tagsMust || []).length - 3));
+    const plans = []; const usedTags = new Map();
+    for (let k = 0; k < n; k++) {
+      const angle = angles[k % angles.length]; const A = ANGLES[angle];
+      const tags = opt.slice().sort((a, c) => (usedTags.get(a) || 0) - (usedTags.get(c) || 0) || (tagU.get(a) || 0) - (tagU.get(c) || 0) || Math.random() - 0.5).slice(0, nOpt); tags.forEach(t => usedTags.set(t, (usedTags.get(t) || 0) + 1));
+      const near = pool.filter(sh => !sh.far), far = pool.filter(sh => sh.far).sort((a, c) => (shopU.get(a.name) || 0) - (shopU.get(c.name) || 0) || Math.random() - 0.5);
+      const shops = [...near, ...far.slice(k * 3 % Math.max(1, far.length)), ...far].filter((v, i, arr) => arr.indexOf(v) === i).slice(0, Math.max(near.length, 10));
+      plans.push({ angle, angleName: A[0], angleHow: A[1], len: A[2], lead: dishes[k % dishes.length], tags, aiTags: (B.tagsTotal || 9) - (B.tagsMust || []).length - tags.length, nextDay: k === 0 && Math.random() < 0.5, shops: shops.map(sh => sh.name) });
+    }
+    return plans;
+  }
+  function promptFor(B, layout, dir, pool, spots, prev, k, tpl, plan) {
+    const P = plan || {}; const dishes = Object.entries(B.dishes).map(([c, l]) => `${c}：${l.join('、')}`).join('；');
+    const shops = P.shops ? pool.filter(sh => P.shops.includes(sh.name)) : pool;
+    const shopLines = shops.map(sh => `- ${sh.name}｜${sh.area}${sh.far ? '｜离主店远（坐地铁才到，只能写成另找时间去，不能写成步行顺路）' : '｜主店附近'}｜${sh.cat}｜人均${sh.price}｜营业${sh.hours}｜招牌：${sh.dishes}`).join('\n');
+    const L = LAYOUTS[layout]; const ref = refs().slice().sort(() => Math.random() - 0.5)[0];
+    return `你是小红书本地生活博主，写一篇「${dir.name}」方向的图文攻略（顺带推荐${B.city || '深圳'}一家${B.storeType || '海鲜大排档'}），要像真实游客或本地人自己整理的，不能像广告。版式「${L.name}」只决定图怎么排，你只写文字。
+【读者】${B.audience}
+【这篇的写法（程序已定，必须照做）】
+- 角度：${P.angleName || '自选'}——${P.angleHow || ''}；正文 ${P.len ? P.len[0] + '–' + P.len[1] : '300–500'} 字。
+${tpl ? `- 学这篇真实爆款的标题句式和开头口吻（套路「${tpl.sub}」）：《${tpl.title}》 ${tpl.text.replace(/\s+/g, ' ').slice(0, 260)}\n  只学句式和口吻，城市、店、原句都不能照搬，不借它的榜单名义和数字。\n` : ''}- 主店这篇主推「${P.lead || B.mustDish}」，yes.dishes 第一道写它${P.lead && P.lead !== B.mustDish ? `；「${B.mustDish}」也要写，放后面` : ''}，再从菜单里挑 1–2 道。菜单：${dishes}
+- ${P.nextDay ? '可以有 1 个「第二天早餐」分类。' : '不要写「第二天早餐」。'}
+${B.facts ? `【固定事实，原样写，不能改】${B.facts}\n` : ''}【规则】
+1. 标题 ≤20 字，有地点词＋需求词（${B.titleRule}），往「${dir.words.join('」「')}」靠。封面和标题不能出现店名、品牌名、「大排档」。
+2. 主店「${B.storeTitle}」程序会单独放成「${B.mainCat || '晚饭·' + (B.storeType || '海鲜大排档')}」排第 2 家，sections 里不要写它；正文里提它时用一句具体的话（菜＋什么时候去），不能写「见图片」这种话，全文提主店不超过 2 次。
+3. sections 只用下面列的店（店名照抄）：第一类叫「中午垫一口」放 1 家粉面/小吃，后面 2–3 类按真实品类分（不同品类别混一起），共 6–9 家，每家 say 写 18–30 字招牌菜＋口感。正文里提到的店也要写全名。
+4. route 7–9 站，时间要在各店营业时间内，按地理顺序走不折返，「离主店远」的店不能进同一天步行路线；spots 必须有 ${(B.mustSpots || []).join('、') || '1 个景点'}，可再加：${B.optSpots.join('、')}。
+5. 只写常识性、不会错的信息：不写门票价格、开放时间、具体门/出口编号（固定事实里给的除外），不编亲身经历细节（「刚好碰上」「土著朋友甩来」这类别写）。
+6. 不用这些词：${[...B.banned, ...CLICHE].join('、')}；也不说「无广」「自费」「不是广告」。分条内容每段 4–6 条。
+7. tags 只写 ${P.aiTags || 3} 个跟这篇内容贴的（地点、景点、菜名、场景，如 #白石洲夜宵 #生腌），不带别家店名品牌名；固定话题 ${[...B.tagsMust, ...(P.tags || [])].join(' ')} 程序会加，你不要重复写。
+8. cover 2 行（导航避坑可 3–4 行），每行 ≤9 字，像随手记的一句话。
+9. 同一批前面写过的标题和结尾不能再用：${prev.length ? prev.map(p => `《${p.title}》「${p.ending}」`).join('；') : '无'}
+${ref ? `【我们以前发过的一篇（只学信息密度和 emoji 小标题，不抄）】\n${String(ref.text).slice(0, 700)}\n` : ''}【主店（程序照抄）】${B.storeTitle}｜${B.address}｜人均${B.price}｜${B.hours}
+【可用的店】
 ${shopLines}
 【景点】${spots.join('、')}
-只输出 JSON，不要解释：
-{"title":"","cover":["",""],"body":"","ending":"正文最后一句","tags":["#",""],
-"sections":[{"h":"分类名","items":[{"shop":"门店池店名","say":"一句话","stars":4}]}],
-"route":[{"t":"10:00","place":"世界之窗","do":"≤16字","tip":"≤24字，这一站吃什么或注意什么"}],
-"stay":[{"area":"住宿区域","why":"≤36字为什么住这（离哪近、方便什么）","fit":"≤14字适合谁"}],"traffic":[{"how":"如 从深圳北站过来","detail":"≤45字具体怎么走"}],
-"spots":[{"place":"世界之窗","tip":"≤24字游玩建议"}],
-"yes":{"dishes":[{"name":"爆膏奶油虾","line":""}],"order":["2人：…","4人：…"],"when":"","fit":"","blurb":"≤70字，一段像朋友安利的话，写 2–3 道菜的具体口感，放在实拍拼图上"},
-"coverSub":"≤14字，如「11月要去南山的姐妹们：」","intro":["第一段 60–100 字：这地方好在哪、要注意什么（季节、人多、温差这类常识）","第二段 40–70 字：如果你是第1️⃣次来，存下来能少踩坑"],"tagline":"≤16字，如「保姆级别，不用带脑子都能看懂！」",
-"good":[{"place":"值得去的地方","why":"≤26字具体理由"}],"skip":[{"place":"不建议专程去的地方或做法","why":"≤26字真实原因"}],"streets":[{"place":"美食街区","why":"≤22字"}],
-"tips":["6–10 条实用建议，每条 ≤40 字，写常识性、不会错的（穿衣、错峰、避坑、怎么串路线）"],
-"navs":[{"place":"景点名","why":"只搜名字会被导到哪、会遇到什么麻烦（≤40字）","nav":"导航【更准确的入口/门/方向】，进去后怎么走（≤40字，只写你确定的，拿不准就写到景区正门/游客中心）","tip":"什么时候去更好（≤30字）"}]}`;
+只输出 JSON：
+{"title":"","cover":["",""],"body":"","ending":"正文最后一句","tags":["#"],
+"sections":[{"h":"分类名","items":[{"shop":"店名","say":"","stars":4}]}],
+"route":[{"t":"10:00","place":"","do":"≤16字","tip":"≤24字"}],
+"stay":[{"area":"住宿区域（不写酒店名和价格）","why":"≤36字","fit":"≤14字"}],"traffic":[{"how":"如 从深圳北站过来","detail":"≤45字，只写确定的线路站名，不写票价"}],
+"spots":[{"place":"","tip":"≤24字"}],
+"yes":{"dishes":[{"name":"","line":"≤22字口感/吃法"}],"order":["2人：…","4人：…"],"when":"","fit":"","blurb":"≤70字，像朋友安利，写 2–3 道菜的口感"},
+"coverSub":"≤14字","intro":["60–100字","40–70字"],"tagline":"≤16字",
+"good":[{"place":"","why":"≤26字"}],"skip":[{"place":"","why":"≤26字真实原因"}],"streets":[{"place":"","why":"≤22字"}],
+"tips":["6–8 条，每条 ≤40 字"],
+"navs":[{"place":"","why":"≤40字","nav":"≤40字，拿不准就写到正门/游客中心","tip":"≤30字"}]}`;
   }
+
   function check(n, B, batch) {
     const out = []; const allText = [n.title, n.body, ...(n.cover || []), ...n.sections.flatMap(s => s.items.map(i => i.say)), ...(n.yes.dishes || []).map(d => d.line), ...(n.yes.order || []), n.yes.when, n.yes.fit, ...(n.spots || []).map(s => s.tip), n.yes.blurb, ...(n.intro || []), n.tagline, ...(n.tips || []), ...(n.navs || []).map(v => v.why + v.nav + v.tip), ...['good', 'skip', 'streets'].flatMap(k => (n[k] || []).map(x => x.place + x.why)), ...(n.route || []).map(r => r.do + (r.tip || '')), ...(n.stay || []).map(x => x.area + x.why + x.fit), ...(n.traffic || []).map(x => x.how + x.detail)].join('\n');
     B.banned.forEach(w => { if (allText.includes(w)) out.push(['err', `出现禁用词「${w}」`]); });
@@ -164,6 +190,11 @@ ${shopLines}
     if (flat.length < 5) out.push(['warn', `清单只有 ${flat.length} 家店`]);
     const bl = [...String(n.body || '')].length; if (bl < 120 || bl > 750) out.push(['warn', `正文 ${bl} 字`]);
     const yesMentions = (String(n.body).match(new RegExp(brandWordsOf(B).filter(w => w !== '大排档').map(reEsc).join('|') || 'YES', 'gi')) || []).length; if (yesMentions > 3) out.push(['warn', `正文提主店 ${yesMentions} 次，像广告`]);
+    const cl = CLICHE.filter(w => String(n.body).includes(w)); if (cl.length) out.push(['warn', `套话：${cl.join('、')}`]);
+    if (/见图|看图片|主店部分/.test(String(n.body).slice(0, -40))) out.push(['err', '正文里写了「见图片」这类话']);
+    if (/龙虾/.test(allText) && /大排档|YES/.test(B.brand || B.storeTitle)) out.push(['err', '写了「龙虾」，我们用的是罗氏虾']);
+    const fixed = new Set(B.tagsMust); batch.notes.forEach(o => { if (o === n) return; const ov = n.tags.filter(t => !fixed.has(t) && o.tags.includes(t)); if (ov.length > 3) out.push(['warn', `话题和第 ${o.no} 篇重了 ${ov.length} 个`]); });
+    if (batch.notes.filter(o => o.sections.some(sc => /第二天/.test(sc.h))).length > 1 && n.sections.some(sc => /第二天/.test(sc.h))) out.push(['warn', '同批不止一篇写了第二天早餐']);
     batch.notes.forEach(o => { if (o !== n && o.ending && o.ending === n.ending) out.push(['err', '结尾和本批另一篇重复']); if (o !== n && o.title === n.title) out.push(['err', '标题和本批另一篇重复']); });
     return out;
   }
@@ -176,7 +207,7 @@ ${shopLines}
     if (rest.length) { const same = secs.slice(1).find(x => x.h === f.h); if (same) same.items.unshift(...rest); else out.push({ h: f.h, items: rest }); }
     return out.concat(secs.slice(1));
   }
-  function build(j, B, pool, main) {
+  function build(j, B, pool, main, plan) {
     const dropped = []; const used = new Set();
     const sections = (j.sections || []).map(s => ({ h: String(s.h || '').slice(0, 10), items: (s.items || []).map(it => { const sh = matchShop(it.shop, pool); if (!sh) { if (it.shop && !/YES|也是大排档/.test(it.shop)) dropped.push(it.shop); return null; } if (used.has(sh.id)) return null; used.add(sh.id); return { id: sh.id, name: sh.name, area: sh.area, price: sh.price, say: String(it.say || '').slice(0, 40), stars: Math.max(3, Math.min(5, +it.stars || 4)) }; }).filter(Boolean) })).filter(s => s.items.length);
     if (!sections.length) sections.push({ h: '吃饭', items: [] });
@@ -185,10 +216,11 @@ ${shopLines}
     sections.length = 0; secs2.forEach(x => sections.push(x));
     const TT = B.tagsTotal || (B.tagsMust.length + B.tagsOptN); const shopNames = pool.map(x => x.name.replace(/[（(].*$/, '')).filter(x => x.length >= 2);
     const okTag = t => /^#[\u4e00-\u9fa5A-Za-z0-9]{2,14}$/.test(t) && !B.banned.some(w => t.includes(w)) && !shopNames.some(x => t.includes(x)) && !/广告|无广|自费/.test(t);
-    const tags = [...B.tagsMust]; for (const t of (j.tags || []).map(t => '#' + String(t).trim().replace(/^#/, ''))) { if (tags.length >= TT) break; if (!tags.includes(t) && okTag(t)) tags.push(t); }
-    for (const t of B.tagsOpt) { if (tags.length >= TT) break; if (!tags.includes(t)) tags.push(t); }
+    const tags = [...B.tagsMust, ...((plan && plan.tags) || [])]; for (const t of (j.tags || []).map(t => '#' + String(t).trim().replace(/^#/, ''))) { if (tags.length >= TT) break; if (!tags.includes(t) && okTag(t)) tags.push(t); }
+    for (const t of B.tagsOpt.slice().sort(() => Math.random() - 0.5)) { if (tags.length >= TT) break; if (!tags.includes(t)) tags.push(t); }
     const yes = j.yes || {}; const dishes = (yes.dishes || []).map(d => ({ name: String(d.name || '').trim(), line: String(d.line || '').slice(0, 40) })).filter(d => d.name);
     if (!dishes.some(d => d.name === B.mustDish)) dishes.unshift({ name: B.mustDish, line: '奶油香裹着虾膏，趁热先吃' });
+    if (plan && plan.lead) { const i = dishes.findIndex(d => d.name === plan.lead); if (i > 0) dishes.unshift(dishes.splice(i, 1)[0]); }
     return { title: String(j.title || '').trim(), cover: (j.cover || []).map(String).filter(l => !brandRe(B).test(l)).slice(0, 4), place: placeWordsOf(B).find(w => String(j.title || '').includes(w) && w !== (B.city || '深圳')) || B.district, city: B.city || '深圳', body: String(j.body || '').trim(), ending: String(j.ending || '').trim(), tags, sections, dropped,
       route: (j.route || []).slice(0, 10).map(r => ({ t: String(r.t || ''), place: String(r.place || ''), do: String(r.do || ''), tip: String(r.tip || '').slice(0, 40) })), stay: (j.stay || []).slice(0, 4).map(x => ({ area: String(x.area || '').slice(0, 16), why: String(x.why || '').slice(0, 60), fit: String(x.fit || '').slice(0, 20) })).filter(x => x.area), traffic: (j.traffic || []).slice(0, 6).map(x => ({ how: String(x.how || '').slice(0, 20), detail: String(x.detail || '').slice(0, 70) })).filter(x => x.how), spots: (j.spots || []).slice(0, 3).map(s => ({ place: String(s.place || ''), tip: String(s.tip || '') })),
       yes: { dishes: dishes.slice(0, 5), order: (yes.order || []).map(String).slice(0, 3), when: String(yes.when || ''), fit: String(yes.fit || ''), blurb: String(yes.blurb || '').slice(0, 120) },
@@ -265,16 +297,18 @@ ${shopLines}
         const dir = B.directions[(k - 1) % B.directions.length];
         if (!batch.tpls) { try { batch.tpls = pickTpls(n, B, layout).map(t => t && { id: t.id, sub: t.sub, title: t.title, text: t.text, pages: t.pages || '', src: t.src }); } catch (e) { batch.tpls = []; } }
         const tpl = (batch.tpls || [])[k - 1];
-        const shuffled = pool.slice().sort(() => Math.random() - 0.5).slice(0, 14);
+        if (!batch.plans) { try { batch.plans = makePlans(n, B, layout, pool); } catch (e) { batch.plans = []; log('[攻略平台] 分配变量出错：' + e.message); } }
+        const plan = (batch.plans || [])[k - 1];
+        const shuffled = pool.slice().sort(() => Math.random() - 0.5);
         const spots = [...B.mustSpots, ...B.optSpots.slice().sort(() => Math.random() - 0.5).slice(0, 2)];
         let got = null, err = '';
         for (let t = 0; t < 3 && !got; t++) {
-          try { const r = await llm(promptFor(B, layout, dir, shuffled, spots, batch.notes.map(x => ({ title: x.title, ending: x.ending })), k, tpl)); got = build(parseJ(r.text), B, pool, main); got.model = r.model; }
+          try { const r = await llm(promptFor(B, layout, dir, shuffled, spots, batch.notes.map(x => ({ title: x.title, ending: x.ending })), k, tpl, plan)); got = build(parseJ(r.text), B, pool, main, plan); got.model = r.model; }
           catch (e) { err = e.message; }
         }
         batch.k = k;
         if (!got) { batch.err = `第 ${k} 篇失败：${err}`; log('[攻略平台] 出稿失败：' + err); save(); continue; }
-        got.no = k; got.dir = dir.name; if (tpl) got.tpl = { sub: tpl.sub, title: tpl.title, id: tpl.id, src: tpl.src }; got.status = 'todo'; got.notes = []; batch.notes.push(got); got.check = check(got, B, batch);
+        got.no = k; got.dir = dir.name; if (plan) got.plan = { angle: plan.angle, angleName: plan.angleName, lead: plan.lead }; if (tpl) got.tpl = { sub: tpl.sub, title: tpl.title, id: tpl.id, src: tpl.src }; got.status = 'todo'; got.notes = []; batch.notes.push(got); got.check = check(got, B, batch);
         batch.notes.forEach(x => { x.check = check(x, B, batch); }); save();
       }
       batch.status = 'done'; batch.doneAt = Date.now(); save(); jobs.delete(id); log(`[攻略平台] 出稿完成：${B.name} ${batch.notes.length}/${n} 篇`);
@@ -616,6 +650,6 @@ ${text}`);
   // 第一次出样稿有几篇失败（模型 JSON 不规范，已修）：把没出满的系统样稿重出一次
   setTimeout(() => { try { if (META.sampled2 || !META.sampled) return; META.sampled2 = Date.now(); saveMeta(); let i = 0; for (const b of batches()) { if (b.by !== '系统样稿' || b.status === 'running' || b.notes.length >= b.n) continue; try { fs.unlinkSync(path.join(BD, b.id + '.json')); } catch (e) { } const l = b.layout; setTimeout(() => generate(b.brief, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), (i++) * 20e3); } } catch (e) { log('[攻略平台] 补样稿出错：' + e.message); } }, 60e3);
   setTimeout(() => { try { if (batches().length || !(cfg.qwenKey || cfg.deepseekKey) || META.sampled) return; META.sampled = Date.now(); saveMeta(); const b = briefs()[0]; if (!b) return; ['clean', 'green', 'nav', 'memo'].forEach((l, i) => setTimeout(() => generate(b.id, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), i * 20e3)); log('[攻略平台] 开始出样稿'); } catch (e) { log('[攻略平台] 样稿出错：' + e.message); } }, 90e3);
-  return { genCmt, handle, generate, LAYOUTS, syncSucai, sucaiFor, _t: { submit, assign, pubs, pub, edit, getBatch, checkManual }, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
+  return { genCmt, handle, generate, LAYOUTS, syncSucai, sucaiFor, _t: { submit, assign, pubs, pub, edit, getBatch, checkManual, makePlans, promptFor, poolOf, briefs, stores }, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
 }
 module.exports = { createGlweb };
