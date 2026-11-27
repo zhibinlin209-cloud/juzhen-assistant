@@ -563,12 +563,26 @@ function storeEdit(s) {
   document.body.appendChild(d);
 }
 
+// 大模型 key 和用量（只有老板能看）：换 key 自己贴进来，页面和聊天里都不显示完整的 key
+async function llmBox(box) { box.innerHTML = '<h2>大模型（出稿、审稿、改稿用的千问 / DeepSeek）</h2><div class="card hint">正在检查…</div>';
+  let s; try { s = await api('/api/llmstat'); } catch (e) { box.querySelector('.card').textContent = e.message; return; }
+  const days = Object.keys(s.use || {}).sort().slice(-7).reverse(); const q = s.qwen || {};
+  box.innerHTML = `<h2>大模型（出稿、审稿、改稿用的千问 / DeepSeek） <small>都走阿里云百炼这一把 key，充值也只充这个账号</small></h2>
+  <div class="card"><div>现在用的 key：<b class="mono">${h(q.tail || '没有')}</b> ${q.changed ? `<span class="tag ok">已换成新的</span> <span class="hint">原来那把 ${h(q.origTail)} 留作备用</span> <button class="btn sm" id="lkr">退回原来那把</button>` : '<span class="tag">原来那把</span>'}</div>
+  <div style="margin-top:6px">${(q.models || []).map(x => `<span class="tag ${x.ok ? 'ok' : 'bad'}">${h(x.model)} ${x.ok ? '正常' : '不可用：' + h(x.err)}</span>`).join(' ')}</div>
+  <div class="row" style="margin-top:10px"><input id="lkv" type="password" autocomplete="off" placeholder="换 key：把百炼控制台新建的 API Key（sk- 开头）贴在这里" style="flex:1;min-width:260px"><button class="btn pri" id="lks">测试并换上</button></div>
+  <div class="hint" style="margin-top:6px">换上之前会先试一次，试不通不会换。完整的 key 只存在服务器上，这里以后只显示头尾几位。</div>
+  ${days.length ? `<table style="margin-top:10px"><tr><th>日期</th><th>模型</th><th>调用次数</th><th>读入 tokens</th><th>写出 tokens</th></tr>${days.flatMap(d => Object.entries(s.use[d]).map(([mo, v]) => `<tr><td class="mono">${d}</td><td>${h(mo)}</td><td>${v[0]}</td><td>${v[1].toLocaleString()}</td><td>${v[2].toLocaleString()}</td></tr>`)).join('')}</table>` : '<div class="hint" style="margin-top:8px">用量从 11-27 晚上开始记，还没有数据。</div>'}</div>`;
+  $('#lks').onclick = async () => { const v = $('#lkv').value.trim(); if (!v) return toast('先把 key 贴进来'); $('#lks').disabled = true; $('#lks').textContent = '正在试…'; try { const r = await api('/api/llmkey', { qwenKey: v }); toast('换好了，尾号 ' + r.tail); llmBox(box); } catch (e) { toast(e.message); $('#lks').disabled = false; $('#lks').textContent = '测试并换上'; } };
+  const lr = $('#lkr'); if (lr) lr.onclick = async () => { if (!confirm('退回原来那把 key？')) return; await api('/api/llmkey', { reset: 1 }); llmBox(box); };
+}
 async function users(m) {
   const { users: UL } = await api('/api/users');
   m.innerHTML = `<h2>账号 <small>员工只能看攻略平台，看不到驾驶舱和任何经营数据</small></h2>
   <div class="card"><table><tr><th>名字</th><th>角色</th><th>登录账号</th><th>上次登录</th><th></th></tr>${UL.map(u => `<tr><td>${h(u.name)}</td><td>${h(u.roleName)}</td><td class="mono">${u.set ? h(u.login) : '<span class="tag am">还没设置</span>'}</td><td class="hint">${ago(u.last)}</td><td>${u.role === 'boss' ? '' : u.off ? `<button class="btn sm" data-rs="${u.id}">恢复并重发链接</button>` : `<button class="btn sm" data-rs="${u.id}">重发设置链接</button> <button class="btn sm no" data-off="${u.id}">停用</button>`}</td></tr>`).join('')}</table></div>
   <h2>开新账号</h2><div class="card row"><input id="un" placeholder="名字（如 小卢）"><select id="ur"><option value="ops">运营/策划：爆款库、出稿、审稿、门店池</option><option value="review">审稿：只能审稿</option><option value="writer">写手：只能投稿、看自己稿子的审稿意见</option></select><button class="btn pri" id="ua">生成设置链接</button></div><div id="ul"></div>
   <h2>员工怎么登录</h2><p class="hint">点「生成设置链接」后把链接发给他（24 小时内有效、只能用一次），他自己设置账号和密码。以后登录网址：${h(location.origin + BASE + '/')}</p>`;
+  if (ME.role === 'boss') { const box = document.createElement('div'); m.appendChild(box); llmBox(box); }
   const showLink = l => { $('#ul').innerHTML = `<div class="say"><p>设置链接（已复制，24 小时内有效、只能用一次）：<br><span class="mono" style="word-break:break-all">${h(l)}</span></p></div>`; copy(l); };
   $('#ua').onclick = async () => { const name = $('#un').value.trim(); if (!name) return toast('先写名字'); const r = await api('/api/users', { name, role: $('#ur').value }); await users(m); showLink(r.link); };
   m.onclick = async e => { const rs = e.target.closest('[data-rs]'), off = e.target.closest('[data-off]'); if (rs) { const r = await api('/api/users', { id: rs.dataset.rs, reset: 1 }); await users(m); showLink(r.link); } if (off && confirm('停用后他就登录不了，确定？')) { await api('/api/users', { id: off.dataset.off, off: 1 }); users(m); } };
