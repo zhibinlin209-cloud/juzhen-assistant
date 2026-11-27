@@ -13,7 +13,22 @@ const LAYOUTS = {
   memo: { name: '存一下（纯文字备忘录）', desc: '黄底大字封面＋备忘录空心圆清单，按类分，最后一页实拍' },
   hand: { name: 'X吃什么（手写批注）', desc: '手机备忘录：吃什么/玩什么分组，编号店名＋紫色手写招牌菜' },
   star: { name: '星级＋短评', desc: '星级图例封面＋备忘录：店名⭐＋一句短评（招牌、人均、位置）' },
-  route: { name: '一日游路线表', desc: '路线时间表＋景点小贴士＋吃饭清单＋主店介绍' }
+  route: { name: '一日游路线表', desc: '路线时间表＋景点小贴士＋吃饭清单＋主店介绍' },
+  // 以下照爆文工厂模板库里的文字类爆款版式做（林总 2026-11-27）：多是纯清单，一般 2–5 页＋最后实拍
+  allcheck: { name: '美食超全合集', desc: '白底多页：品类小标题，黄色打勾圆圈＋店名（位置）', list: 1 },
+  treat: { name: '招待外地朋友', desc: '备忘录按品类分，店名（一句短评），最后实拍', list: 1 },
+  friends: { name: '和朋友一致认为（按区域）', desc: '按商圈分组：店名（招牌菜、招牌菜）', list: 1 },
+  icloud: { name: '和朋友一致认为（iCloud 按区）', desc: 'iCloud 备忘录：一、二、三…区域彩色标签，下面列店名', list: 1 },
+  chat: { name: '聊天气泡「X最好吃的XX」', desc: '灰底聊天截图：绿色气泡「X最好吃的品类：店名」＋头像，一页 8–9 条', list: 1 },
+  helpme: { name: '大家帮我看看这些店可以吃吗', desc: '一页求助口吻：「品类：店（菜）/店（菜）」密排，引评论', list: 1 },
+  tier: { name: 'X美食分级表', desc: '一页分级表：夯／顶级／人上人／宝藏四级色块，右边店名', list: 1 },
+  kraft: { name: 'X最值得吃的好饭（牛皮纸）', desc: '牛皮纸笔记本手写：一行一家「X最值得吃的品类：店名」', list: 1 },
+  table: { name: 'X各区特色美食（表格）', desc: '渐变大标题＋表格「区域｜特色美食（店名）」', list: 1 },
+  news: { name: '最近想去吃的（报纸风）', desc: '米黄报纸风：宋体大标题，两栏编号，店名＋品类｜人均＋推荐菜', list: 1 },
+  mint: { name: 'X人的嘴真的很会挑（绿底卡片）', desc: '薄荷绿底两列卡片：01 店名，品类｜人均，推荐菜', list: 1 },
+  greyblock: { name: '分类编号灰底块', desc: '手机备忘录：一、二、三…品类，灰底块里 1、店名（短评）', list: 1 },
+  thumbs: { name: '朋友一致认为👍', desc: '备忘录宋体：按区域每组几家，后面 👍 个数', list: 1 },
+  bigarea: { name: '按区 品类＋店名（大字）', desc: '白底大字：区域，下面一行「品类 店名 店名」', list: 1 }
 };
 
 function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, roster: rosterSrc }) {
@@ -122,7 +137,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
     truth: ['大实话', '「去之前希望有人告诉我的几件事」，一条一个真实可用的提醒', [260, 400]],
     route: ['时间轴', '按一天的时间顺序写，几点到哪、做什么、在哪吃，路线不走回头路', [360, 550]]
   };
-  const LAYOUT_ANGLE = { clean: ['list', 'order'], green: ['rank', 'truth'], nav: ['nav'], memo: ['list', 'qa'], hand: ['qa', 'order'], star: ['rank', 'list'], route: ['route'] };
+  const LAYOUT_ANGLE = { allcheck: ['list'], treat: ['list', 'order'], friends: ['list'], icloud: ['list'], chat: ['list'], helpme: ['qa'], tier: ['rank'], kraft: ['list'], table: ['list'], news: ['order'], mint: ['order'], greyblock: ['list'], thumbs: ['list'], bigarea: ['list'], clean: ['list', 'order'], green: ['rank', 'truth'], nav: ['nav'], memo: ['list', 'qa'], hand: ['qa', 'order'], star: ['rank', 'list'], route: ['route'] };
   const CLICHE = ['嘬手指', '舔', '鲜掉眉毛', '不踩雷', '天花板', '封神', '绝绝子', '救命', 'yyds', '闭眼冲', '前胸贴后背', '完美收官', '一绝', '无限回购', '谁懂啊'];
   function makePlans(n, B, layout, pool) {
     const recent = batches().filter(b => b.brief === B.id).slice(0, 6).flatMap(b => b.notes);
@@ -156,7 +171,7 @@ ${tpl ? `- 学这篇真实爆款的标题句式和开头口吻（套路「${tpl.
 ${B.facts ? `【固定事实，原样写，不能改】${B.facts}\n` : ''}【规则】
 1. 标题 ≤20 字，有地点词＋需求词（${B.titleRule}），往「${dir.words.join('」「')}」靠。封面和标题不能出现店名、品牌名、「大排档」。
 2. 主店「${B.storeTitle}」程序会单独放成「${B.mainCat || '晚饭·' + (B.storeType || '海鲜大排档')}」排第 2 家，sections 里不要写它；正文里提它时用一句具体的话（菜＋什么时候去），不能写「见图片」这种话，全文提主店不超过 2 次。
-3. sections 只用下面列的店（店名照抄）：第一类叫「中午垫一口」放 1 家粉面/小吃，后面 2–3 类按真实品类分（不同品类别混一起），共 6–9 家，每家 say 写 18–30 字招牌菜＋口感。正文里提到的店也要写全名。
+3. sections 只用下面列的店（店名照抄）：第一类叫「中午垫一口」放 1 家粉面/小吃，后面 2–3 类按真实品类分（不同品类别混一起），共 ${L.list ? '8–14' : '6–9'} 家，每家 say 写 18–30 字招牌菜＋口感。正文里提到的店也要写全名。
 4. route 7–9 站，时间要在各店营业时间内，按地理顺序走不折返，「离主店远」的店不能进同一天步行路线；spots 必须有 ${(B.mustSpots || []).join('、') || '1 个景点'}，可再加：${B.optSpots.join('、')}。
 5. 只写常识性、不会错的信息：不写门票价格、开放时间、具体门/出口编号（固定事实里给的除外），不编亲身经历细节（「刚好碰上」「土著朋友甩来」这类别写）。
 6. 不用这些词：${[...B.banned, ...CLICHE].join('、')}；也不说「无广」「自费」「不是广告」。分条内容每段 4–6 条。
