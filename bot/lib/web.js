@@ -195,6 +195,8 @@ function createWeb({ feat, cfg, brief, log, activity, bossId, port, dispatch, do
             if (p === '/lib/gl/ingest' && req.method === 'POST') return sendc(res, 200, JSON.stringify(await glib.ingest(await body())));
             if (p === '/lib/gl/blocked' && req.method === 'POST') return sendc(res, 200, JSON.stringify(glib.blocked(await body())));
             if (p === '/lib/gl/round' && req.method === 'POST') return sendc(res, 200, JSON.stringify(glib.roundDone(await body())));
+            if (p === '/lib/gl/seedfail' && req.method === 'POST') return sendc(res, 200, JSON.stringify(glib.seedFail(await body())));
+            if (p === '/lib/gl/seedfetch') return sendc(res, 200, JSON.stringify(await glib.seedFetch(true)));
             if (p === '/lib/gl/status') return sendc(res, 200, JSON.stringify(glib.status()));
           } catch (e) { return sendc(res, 200, JSON.stringify({ ok: false, error: e.message.slice(0, 200) })); }
         }

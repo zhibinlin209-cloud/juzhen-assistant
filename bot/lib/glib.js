@@ -33,6 +33,7 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
   const wj = (f, v) => { const tmp = f + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(v)); fs.renameSync(tmp, f); };
   const NF = path.join(D, 'night.json'), DF = path.join(D, 'day.json'), KF = path.join(D, 'kw.json'), AF = path.join(D, 'authors.json'), PF = path.join(D, 'pause.json');
   let N = rj(NF, {}); let DY = rj(DF, {}); let K = rj(KF, {}); let AU = rj(AF, {}); let PA = rj(PF, {});
+  const SF = path.join(D, 'seed.json'); let SD = rj(SF, { items: [] }); const saveS = () => wj(SF, SD);
   const saveN = () => { wj(NF, N); wj(DF, DY); }, saveK = () => wj(KF, K), saveA = () => wj(AF, AU);
   // 内存索引：所有笔记（不含正文和评论，列表页够用）
   const IDX = new Map();
@@ -54,6 +55,24 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
     return all.filter(x => !used.has(x.kw)).sort((a, b) => score(b) - score(a)).slice(0, n).map(x => x.kw);
   }
 
+
+  // ---------- 模板库导入（林总 2026-11-27）：朋友的爆文工厂模板库里文字类爆款的小红书链接，排队让插件慢慢回小红书重新读（图和分类都用我们自己的） ----------
+  const SEED_TYPES = new Set(['美食清单', '文字页', '指南排版', '行程排版', '美食手账排版', '求推荐大字报']);
+  async function seedFetch(force) {
+    if (SD.fetched && !force) return { ok: true, n: SD.items.length };
+    const r = await fetch(cfg.glSeedUrl || 'https://pai.kyrinflow.com/data.json', { signal: AbortSignal.timeout(30000) }); if (!r.ok) throw new Error('HTTP ' + r.status);
+    const arr = await r.json(); const have = new Set(SD.items.map(x => x.id)); let add = 0;
+    for (const x of Array.isArray(arr) ? arr : []) {
+      if (!x || !SEED_TYPES.has(x.type)) continue; const m = String(x.url || '').match(/xiaohongshu\.com\/(?:explore|discovery\/item)\/([0-9a-f]{24})[^#]*?[?&]xsec_token=([^&#]+)/); if (!m || have.has(m[1])) continue;
+      have.add(m[1]); add++; SD.items.push({ id: m[1], tok: decodeURIComponent(m[2]), title: String(x.title || '').slice(0, 60), type: x.type, sub: x.sub || '', cat: x.cat || '', date: x.date || '', fav: num(x.fav), share: num(x.share), daily: num(x.daily), st: IDX.has(m[1]) ? 1 : 0, tries: 0 });
+    }
+    SD.items.sort((a, b) => (b.st === 0) - (a.st === 0) || b.daily - a.daily || b.fav - a.fav); SD.fetched = Date.now(); saveS(); log(`[爆款库] 模板库导入队列 +${add}，共 ${SD.items.length}`); return { ok: true, add, n: SD.items.length };
+  }
+  setTimeout(() => seedFetch().catch(e => log('[爆款库] 模板库拉取出错：' + e.message)), 20e3);
+  function seedPick(k) { const L = SD.items.filter(x => x.st === 0 && x.tries < 2 && !IDX.has(x.id)).slice(0, k); L.forEach(x => { x.tries++; x.at = Date.now(); }); if (L.length) saveS(); return L.map(x => ({ id: x.id, url: `https://www.xiaohongshu.com/explore/${x.id}?xsec_token=${encodeURIComponent(x.tok)}&xsec_source=pc_share`, type: x.type, sub: x.sub })); }
+  function seedFail(b) { const x = SD.items.find(i => i.id === String(b.id || '')); if (x) { if (x.tries >= 2) x.st = 2; x.why = String(b.why || '').slice(0, 40); saveS(); } return { ok: true }; }
+  const seedStat = () => { const c = { q: 0, ok: 0, bad: 0 }; SD.items.forEach(x => { if (x.st === 1 || IDX.has(x.id)) c.ok++; else if (x.st === 2) c.bad++; else c.q++; }); return c; };
+
   // ---------- 插件接口 ----------
   function need() {
     const now = Date.now(); const n = cur(); const CAP = capOf(); const isNight = inWindow(now);
@@ -64,10 +83,12 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
     if (n.kw >= CAP.kw || n.detail >= CAP.detail) return { ok: true, task: 'none', why: (isNight ? '今晚' : '白天') + '额度用完' };
     if (n.nextAt && now < n.nextAt) return { ok: true, task: 'none', why: '休息中，下一轮 ' + bj(n.nextAt).toISOString().slice(11, 16) };
     if (n.running && now - n.running < 40 * 60e3) return { ok: true, task: 'none', why: '上一轮还没跑完' };
-    const k = CAP.perRound[0] + Math.floor(Math.random() * (CAP.perRound[1] - CAP.perRound[0] + 1));
-    const kws = pickKws(Math.min(k, CAP.kw - n.kw)); if (!kws.length) return { ok: true, task: 'none', why: '没有可跑的词' };
-    n.running = now; n.rounds++; n.kws.push(...kws); n.kw += kws.length; saveN(); nlog(`第 ${n.rounds} 轮：${kws.join('、')}`);
-    return { ok: true, task: 'round', kws, perKw: CAP.perKw, detailLeft: CAP.detail - n.detail };
+    let k = CAP.perRound[0] + Math.floor(Math.random() * (CAP.perRound[1] - CAP.perRound[0] + 1));
+    // 模板库导入：每轮夹带几篇（晚上 3 篇、白天 1 篇），同时少搜 1 个词，总动作量不变
+    const reads = seedPick(Math.min(isNight ? 3 : 1, Math.max(0, CAP.detail - n.detail - 2))); if (reads.length) k = Math.max(isNight ? 1 : 0, k - 1);
+    const kws = k ? pickKws(Math.min(k, CAP.kw - n.kw)) : []; if (!kws.length && !reads.length) return { ok: true, task: 'none', why: '没有可跑的词' };
+    n.running = now; n.rounds++; n.kws.push(...kws); n.kw += kws.length; saveN(); nlog(`第 ${n.rounds} 轮：${kws.join('、') || '（不搜词）'}${reads.length ? `；模板库导入 ${reads.length} 篇` : ''}`);
+    return { ok: true, task: 'round', kws, reads, perKw: CAP.perKw, detailLeft: CAP.detail - n.detail };
   }
   // 插件交来搜索列表：记关键词效果、挑要点进去读的
   function list(b) {
@@ -104,6 +125,7 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
       topComments: (Array.isArray(b.comments) ? b.comments : []).filter(c => c && c.text).sort((a, c) => num(c.likes) - num(a.likes)).slice(0, 12).map(c => ({ t: String(c.text).slice(0, 150), l: num(c.likes), a: !!c.author }))
     });
     if (b.kw && !note.kws.includes(b.kw)) note.kws.push(String(b.kw).slice(0, 40));
+    { const sx = SD.items.find(i => i.id === id); if (sx) { sx.st = 1; saveS(); note.seed = { from: '模板库', type: sx.type, sub: sx.sub }; } }
     Object.assign(note, heatOf(note, Date.now()));
     wj(path.join(ND, id + '.json'), note); IDX.set(id, slim(note));
     if (n) { n.added++; saveN(); nlog(`入库《${note.title.slice(0, 18)}》藏 ${note.collects} 图 ${files.length}`); }
@@ -170,7 +192,7 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
   }
   function get(id) { const n = rj(path.join(ND, id + '.json'), null); if (!n) return null; const a = AU[n.authorId]; return Object.assign(n, { tplAuthor: !!(a && a.tpl), authorNotes: a ? a.notes.length : 0 }); }
   function imgPath(id, f) { if (!/^[0-9a-f]{24}$/.test(id) || !/^\d+\.(jpg|png|webp)$/.test(f)) return null; const p = path.join(ID, id, f); return fs.existsSync(p) ? p : null; }
-  function status() { const n = night(), d = dayS(); return { ok: true, night: Object.assign({}, n, { log: n.log.slice(0, 30) }), day: Object.assign({}, d, { log: d.log.slice(0, 20) }), pause: PA.until > Date.now() ? PA : null, window: inWindow(Date.now()), total: IDX.size, authors: Object.values(AU).filter(a => a.tpl).map(a => ({ name: a.name, n: a.notes.length, why: a.why })), caps: CAP }; }
-  return { need, list, ingest, blocked, roundDone, query, get, imgPath, status, summary, reload: load, count: () => IDX.size };
+  function status() { const n = night(), d = dayS(); return { ok: true, night: Object.assign({}, n, { log: n.log.slice(0, 30) }), day: Object.assign({}, d, { log: d.log.slice(0, 20) }), pause: PA.until > Date.now() ? PA : null, window: inWindow(Date.now()), total: IDX.size, seed: seedStat(), authors: Object.values(AU).filter(a => a.tpl).map(a => ({ name: a.name, n: a.notes.length, why: a.why })), caps: CAP }; }
+  return { need, list, ingest, blocked, roundDone, seedFetch, seedFail, query, get, imgPath, status, summary, reload: load, count: () => IDX.size };
 }
 module.exports = { createGlib, heatOf };

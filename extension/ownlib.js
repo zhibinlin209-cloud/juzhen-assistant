@@ -296,6 +296,19 @@
     try {
       try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null;
       let left = need.detailLeft || 0;
+      // 模板库导入：直接打开笔记（带分享 token），读不到就告诉服务器，下次再试一次
+      for (const it of (need.reads || [])) {
+        if (left-- <= 0) break;
+        await nav(it.url); const s1 = await msg({ type: 'rm:status' }, 8000); if (s1 && s1.blocked) { await stopBlocked(s1.blocked); throw new Error('blocked'); }
+        await sleep(rand(4000, 8000));
+        let note = await ssr(); let comments = [];
+        const rp = await msg({ type: 'rm:readPost', maxComments: 12 }, 60000);
+        if (rp && rp.blocked) { await stopBlocked(rp.blocked); throw new Error('blocked'); }
+        if (rp && rp.ok) { comments = (rp.comments || []).map(c => ({ text: c.text, likes: c.likes, author: c.author })); if ((!note || note.none) && rp.post) { const p = rp.post; note = { id: it.id, type: p.type, title: p.title, desc: p.desc, tags: p.tags || [], images: p.images || [], likes: p.likes, collects: p.collects, comments: p.comments, shares: p.shares, author: p.author, time: p.time }; } }
+        if (!note || note.none) { gllog('✗ 模板库这篇没读到（可能删了或链接过期）：' + it.id); try { await srv('/lib/gl/seedfail', { id: it.id, why: '没读到' }); } catch (e) { } }
+        else { if (!note.id) note.id = it.id; try { const j = await srv('/lib/gl/ingest', { src: 'night', kw: '模板库导入', note, comments }); gllog(`✓ 模板库《${String(note.title || '').slice(0, 16)}》图 ${j.images}`); } catch (e) { gllog('✗ 入库失败：' + e.message); } }
+        await sleep(rand(10000, 20000));
+      }
       outer: for (const kw of need.kws || []) {
         await nav(xs(kw)); await sleep(rand(2000, 4000));
         const st = await msg({ type: 'rm:status' }, 8000); if (st && st.blocked) { await stopBlocked(st.blocked); break; }
@@ -318,7 +331,7 @@
         }
         await sleep(rand(15000, 30000));
       }
-    } catch (e) { err = e.message; gllog('出错：' + e.message); }
+    } catch (e) { if (e.message !== 'blocked') { err = e.message; gllog('出错：' + e.message); } }
     finally { try { if (win) await chrome.windows.remove(win.id); } catch (e) { } win = null; try { await srv('/lib/gl/round', { err }); } catch (e) { } GL.busy = false; }
   }
   setTimeout(() => autoGlNight(), 7 * 60e3); setInterval(() => autoGlNight(), 5 * 60e3); // 服务器按北京时间 22:00–07:00 放行，每轮之间歇 20–40 分钟

@@ -274,7 +274,7 @@ async function dash(m) {
   <div class="kpi"><small>待审稿</small><b>${d.todo}</b><div class="c">点「审稿」处理</div></div>
   <div class="kpi"><small>门店池</small><b>${d.stores}</b><div class="c">任务书 ${d.briefs} 份</div></div></div>
   <div class="grid2"><div class="card"><h2 style="margin-top:0">爆款采集 <small>${d.lib.pause ? '<span class="dot bad"></span>碰到验证，暂停中' : d.lib.window ? '<span class="dot on"></span>夜间（22:00–07:00，每 20–40 分钟一轮）' : '<span class="dot off"></span>白天（少量，每 60–90 分钟一轮）'}</small></h2>
-  <div class="hint">今天白天：${(d.lib.day || {}).rounds || 0} 轮、新入库 ${(d.lib.day || {}).added || 0} 篇</div><div class="log">${h([...((d.lib.day || {}).log || []), ...(n.log || [])].join('\n') || '还没开始。插件每 5 分钟问一次服务器。')}</div></div>
+  <div class="hint">今天白天：${(d.lib.day || {}).rounds || 0} 轮、新入库 ${(d.lib.day || {}).added || 0} 篇</div>${d.lib.seed && (d.lib.seed.q + d.lib.seed.ok + d.lib.seed.bad) ? `<div class="hint">模板库导入（爆文工厂文字类爆款，回小红书重新读）：已入库 ${d.lib.seed.ok}、排队 ${d.lib.seed.q}、读不到 ${d.lib.seed.bad}</div>` : ''}<div class="log">${h([...((d.lib.day || {}).log || []), ...(n.log || [])].join('\n') || '还没开始。插件每 5 分钟问一次服务器。')}</div></div>
   <div class="card"><h2 style="margin-top:0">最近出稿</h2>${d.recent.length ? `<table>${d.recent.map(b => `<tr><td>${h(b.briefName)}<div class="hint">${h(b.layoutName)}</div></td><td class="mono">${b.n} 篇</td><td>${b.status === 'running' ? '<span class="tag am">生成中</span>' : '<span class="tag ok">完成</span>'}</td><td class="hint">${ago(b.at)}</td></tr>`).join('')}</table>` : '<div class="hint">还没有出过稿。去「AI 出稿」试一批。</div>'}
   ${d.lib.authors.length ? `<h2>模板号（自动发现）</h2><div class="chips">${d.lib.authors.map(a => `<span class="chip">${h(a.name)}<i>${a.n}篇</i></span>`).join('')}</div>` : ''}</div></div>`;
 }
