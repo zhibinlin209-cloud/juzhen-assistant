@@ -89,9 +89,9 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
     if (cfg.deepseekKey && !models) tries.push(['https://api.deepseek.com/chat/completions', cfg.deepseekKey, 'deepseek-chat']);
     for (const m of models || cfg.glModels || ['deepseek-v4-pro', 'deepseek-v4.1-flash', 'qwen-plus']) for (const k of qwenKeys()) tries.push(['https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', k, m]); // 同一个模型先用新 key，被拒再用原来那把
     let last = '没有配置大模型';
-    for (const [u, k, model] of tries) {
-      try { const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + k }, signal: AbortSignal.timeout(240000), body: JSON.stringify({ model, temperature: 0.85, max_tokens: 8000, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }) });
-        const j = await r.json().catch(() => ({})); if (r.ok) { useAdd(model, j.usage); const t = (((j.choices || [])[0] || {}).message || {}).content || ''; if (t) return { text: t, model }; last = '返回空内容（' + (((j.choices || [])[0] || {}).finish_reason || '') + '）'; log(`[攻略平台] 模型 ${model} ${last}`); continue; }
+    for (const [u, k, model, big] of tries) {
+      try { const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + k }, signal: AbortSignal.timeout(big ? 360000 : 240000), body: JSON.stringify({ model, temperature: 0.85, max_tokens: big ? 16000 : 8000, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }) });
+        const j = await r.json().catch(() => ({})); if (r.ok) { useAdd(model, j.usage); const t = (((j.choices || [])[0] || {}).message || {}).content || ''; if (t) return { text: t, model }; const fr = ((j.choices || [])[0] || {}).finish_reason || ''; last = '返回空内容（' + fr + '）'; log(`[攻略平台] 模型 ${model} ${last}${big ? '（已加大额度）' : ''}`); if (fr === 'length' && !big) tries.splice(tries.indexOf(tries.find(t => t[1] === k && t[2] === model)) + 1, 0, [u, k, model, true]); continue; } // 会思考的模型把字数额度用在思考上、正文一个字没出：同一个模型加大额度再来一次，别直接降级
         last = (j.error && (j.error.message || j.error.code)) || ('HTTP ' + r.status); log(`[攻略平台] 模型 ${model} 不可用：${last}`); LLMERR[model] = { at: Date.now(), msg: String(last).slice(0, 160) }; if (/Arrearage|FreeTierOnly|insufficient|overdue|欠费|余额不足|Quota/i.test(String(last)) && bossDm && Date.now() - (META.llmAlertAt || 0) > 6 * 3600e3) { META.llmAlertAt = Date.now(); saveMeta(); bossDm(`⚠️ 攻略平台的大模型调用被拒了（${model}）：${String(last).slice(0, 120)}\n多半是阿里云百炼欠费或免费额度用完，要去充值，不然出稿和审稿会停。`).catch(() => { }); }
       } catch (e) { last = e.message; }
     }
@@ -196,6 +196,7 @@ ${shops}
 【同一批别的篇已经用过的标题】${batch.notes.map(x => x.title).join('；') || '无'}
 【程序已经查出来的硬伤（必须改掉）】${check(got, B, batch).filter(c => c[0] === 'err').map(c => c[1]).join('；') || '无'}
 【这些不算问题，别改】话题里的 ${B.tagsMust.join(' ')} 是固定话题；正文和清单里写「${B.storeTitle}」全称是对的、必须保留（只是封面和标题不能有），别把它改成「那家排档」；周边店营业时间写「不详」的照常可以写，只是不写具体几点；sections 里没有主店是对的（程序会自己放进去）。
+【标题】程序已经查过标题（地点词、需求词、长度、店名、重复）。上面「硬伤」里没提标题，就说明标题合格，不要给 title、也不要把标题列进 problems；口语化、带标点表情的标题是故意学的爆款句式。
 【要检查的】
 1. 事实：地址、地铁口、营业时间、价格、菜名和上面对不上的；把罗氏虾写成龙虾的；说上了什么榜但事实里没写的。
 2. 地理和时间：路线来回折返；「离主店远」的店被写成步行顺路；排的时间不在店的营业时间里；正文和清单里的店对不上。
@@ -212,6 +213,7 @@ ${JSON.stringify(pick(got)).slice(0, 9000)}`;
     // 只按「原话→新话」逐处替换，其余字段（店单、路线、景点、话题）原样保留，改不坏结构
     const edits = (Array.isArray(J0.edits) ? J0.edits : []).map(e => ({ old: String((e && e.old) || ''), new: String((e && e.new) || '') })).filter(e => e.old.length >= 2 && e.old !== e.new && !(/YES也是大排档/i.test(e.old) && !/YES也是大排档/i.test(e.new))).slice(0, 12); // 正文里的全称要留着（林总：关键词要完整的 YES也是大排档）
     let nt = J0.title && String(J0.title).trim() !== got.title ? String(J0.title).trim().slice(0, 24) : ''; if (nt && (CLICHE.some(w => nt.includes(w)) || brandRe(B).test(nt) || /不踩雷|避雷|闭眼/.test(nt))) nt = '';
+    if (nt && !check(got, B, batch).some(c => /标题/.test(c[1]))) { nt = ''; out.titleKept = true; } // 程序没查出标题有毛病就不让审稿员换标题：它爱把学来的爆款句式改成「XX美食推荐清单」这种平的
     if (edits.length || nt) {
       const fixed = JSON.parse(JSON.stringify(got)); let hit = 0;
       const walk = (o, k) => { const v = o[k]; if (typeof v === 'string') { let t = v; edits.forEach(e => { if (t.includes(e.old)) { t = t.split(e.old).join(e.new); hit++; } }); o[k] = t.replace(/[，,]{2,}/g, '，').replace(/^[，,]\s*/, ''); } else if (v && typeof v === 'object') Object.keys(v).forEach(x => walk(v, x)); };
@@ -421,8 +423,8 @@ ${shopLines}
     return batch;
   }
   // 出稿后的硬门槛（林总 2026-11-27：店太少图空空的、照抄范文原句、行程住宿交通空着）：不过就带着原因重写，最多 3 次
-  function copiedFrom(tpl, n) { if (!tpl) return ''; const src = String(tpl.title || '') + String(tpl.text || ''); const txt = String(n.title || '') + '\n' + String(n.body || ''); const norm = t => t.replace(/[\s，。！？、～~｜|：:；;“”"'（）()【】\[\]…·\-—]+/g, '');
-    const a = norm(src); if (a.length < 8) return ''; for (const seg of txt.split(/[，。！？\n｜|]/)) { const b = norm(seg); for (let i = 0; i + 7 <= b.length; i++) { const w = b.slice(i, i + 7); if (a.includes(w) && !/深圳|广州|珠海|惠州|佛山|美食|攻略|推荐|大排档|一定|真的/.test(w)) return w; } } return ''; }
+  function copiedFrom(tpl, n) { if (!tpl) return ''; const norm = t => String(t || '').replace(/[\s，。！？、～~｜|：:；;“”"'（）()【】\[\]…·\-—]+/g, ''); // 标题句式本来就是要学的（换城市换内容），只拦正文里整句照搬范文的：连着 12 个字一样才算
+    const a = norm(String(tpl.title || '') + String(tpl.text || '')); if (a.length < 12) return ''; for (const seg of String(n.body || '').split(/[。！？\n]/)) { const b = norm(seg); for (let i = 0; i + 12 <= b.length; i++) { const w = b.slice(i, i + 12); if (a.includes(w)) return w; } } return ''; }
   function gate(n, tpl, layout, avail) { const bad = []; const others = n.sections.flatMap(sc => sc.items).filter(i => !i.main).length;
     const need = Math.max(3, Math.min((LAYOUTS[layout] || {}).list ? 8 : 5, (avail || 99) - 1)); // 清单类版式店少了一页都排不满；可用的店本来就少的门店不强求
     if (others < need) bad.push(`清单只写了 ${others} 家别的店，至少要 ${need + 1} 家（按品类分好）`);
