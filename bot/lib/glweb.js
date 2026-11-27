@@ -349,16 +349,17 @@ ${shopLines}
   const pick = (o, ks) => { for (const k of ks) { const v = String(o[k] === undefined || o[k] === null ? '' : o[k]).trim(); if (v) return v; } return ''; };
   async function roster() {
     if (!rosterSrc) return []; if (Date.now() - RO.at < 10 * 60e3 && RO.list.length) return RO.list;
-    const M = new Map();
+    const M = new Map(); RO.diag = [];
     for (const [t, plat, kind] of ROSTER_T) {
-      let r; try { r = await rosterSrc(t); } catch (e) { log(`[攻略平台] 读「${t}」出错：` + e.message); continue; }
+      let r; try { r = await rosterSrc(t); } catch (e) { RO.diag.push(`${t}：${e.message}`); log(`[攻略平台] 读「${t}」出错：` + e.message); continue; }
+      RO.diag.push(`${t}：${(r.rows || []).length} 行，列 ${(r.fields || []).map(f => f.name).slice(0, 12).join('/')}`);
       for (const x of r.rows || []) {
         const name = pick(x, ['发布人员', '人员', '负责人', '运营人员']); const acct = pick(x, [plat + '昵称', '账号昵称', '账号名称', '昵称', '账号']); if (!name && !acct) continue;
         const k = plat + '|' + (acct || name); const o = M.get(k) || { name, acct, plat, kinds: [], home: '', posts: 0 };
         if (!o.name && name) o.name = name; if (!o.kinds.includes(kind)) o.kinds.push(kind); if (!o.home) o.home = pick(x, [plat + '主页链接', '主页链接', '主页']); if (kind !== '分发名单') o.posts++; M.set(k, o);
       }
     }
-    RO = { at: Date.now(), list: [...M.values()].sort((a, c) => a.plat.localeCompare(c.plat) || (a.name || '').localeCompare(c.name || '')) }; return RO.list;
+    RO = { diag: RO.diag, at: M.size ? Date.now() : 0, list: [...M.values()].sort((a, c) => a.plat.localeCompare(c.plat) || (a.name || '').localeCompare(c.name || '')) }; return RO.list;
   }
 
   // ---------- 结算（林总 2026-11-27）：写手按「通过」篇数，发布按「已发布」篇数；单价在页面上设，外部达人按派发时填的报价 ----------
@@ -492,7 +493,7 @@ ${plays.map(k => `- ${k}｜${PLAYS[k][0]}：${PLAYS[k][1]}`).join('\n')}
         return J(res, { ok: true, month: mon, months: months.includes(mon) ? months : [mon, ...months], stats: [...W.values()].sort((a, c) => c.sub - a.sub), list, writers: U.users.filter(x => x.role === 'writer' && !x.off).map(x => ({ id: x.id, name: x.name })) });
       }
       if (p === '/api/writerlist') return J(res, { ok: true, writers: me.role === 'writer' ? [] : U.users.filter(x => x.role === 'writer' && !x.off).map(x => ({ id: x.id, name: x.name })) });
-      if (p === '/api/roster') return J(res, { ok: true, roster: await roster() });
+      if (p === '/api/roster') { const L = await roster(); return J(res, { ok: true, roster: L, diag: isBoss ? RO.diag : undefined }); }
       if (p === '/api/settle' && req.method === 'GET') { const mon = /^\d{4}-\d{2}$/.test(u.searchParams.get('month') || '') ? u.searchParams.get('month') : bjDay().slice(0, 7); return J(res, { ok: true, month: mon, rates: rates(), rows: settle(mon) }); }
       if (p === '/api/settle' && req.method === 'POST' && isBoss) { const j = JSON.parse(await body(req, 20000));
         if (j.rates) { const R = {}; for (const k of Object.keys(RATE0)) if (j.rates[k] !== undefined) R[k] = Math.max(0, Math.round(+j.rates[k] * 100) / 100 || 0); META.rates = Object.assign(rates(), R); }
