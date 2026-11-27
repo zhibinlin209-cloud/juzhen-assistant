@@ -70,10 +70,10 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
   const page = () => { try { return fs.readFileSync(path.join(__dirname, '..', 'cockpit', 'gl.html')); } catch (e) { return null; } };
 
   // ---------- AI 出稿 ----------
-  async function llm(prompt) {
+  async function llm(prompt, models) {
     const tries = [];
-    if (cfg.deepseekKey) tries.push(['https://api.deepseek.com/chat/completions', cfg.deepseekKey, 'deepseek-chat']);
-    if (cfg.qwenKey) for (const m of cfg.glModels || ['deepseek-v4-pro', 'deepseek-v3.2', 'qwen-plus']) tries.push(['https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', cfg.qwenKey, m]);
+    if (cfg.deepseekKey && !models) tries.push(['https://api.deepseek.com/chat/completions', cfg.deepseekKey, 'deepseek-chat']);
+    if (cfg.qwenKey) for (const m of models || cfg.glModels || ['deepseek-v4-pro', 'deepseek-v3.2', 'qwen-plus']) tries.push(['https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', cfg.qwenKey, m]);
     let last = '没有配置大模型';
     for (const [u, k, model] of tries) {
       try { const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + k }, signal: AbortSignal.timeout(240000), body: JSON.stringify({ model, temperature: 0.85, max_tokens: 8000, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }) });
@@ -132,6 +132,40 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
       S5.briefs.forEach(b => { if (!L.some(x => x.id === b.id || x.store === b.store)) L.push(Object.assign({}, b, { menu: YES_MENU, dishes: b1.dishes || {} })); });
       wj(SF, ST0); wj(BF, L); META.seed5 = Date.now(); saveMeta(); log(`[攻略平台] 新建 ${S5.briefs.length} 份门店任务书，门店池补 ${S5.pool.length} 家周边店（待核对）`); } catch (e) { log('[攻略平台] 建门店任务书出错：' + e.message); } } }
   const menuText = B => B.menu ? Object.entries(B.menu).map(([c, l]) => `${c}：${l.map(([n, pz]) => `${n}${pz}`).join('、')}`).join('；') : '';
+
+  // ---------- AI 复审（林总 2026-11-27）：写完交给另一个模型当审稿员挑错并改一版；改完程序再核一遍，错更少才采用，改前改后都留着给人看 ----------
+  async function aiReview(got, B, pool, main, batch, plan) {
+    const pick = n => ({ title: n.title, cover: n.cover, body: n.body, ending: n.ending, tags: n.tags, sections: n.sections.map(sc => ({ h: sc.h, items: sc.items.filter(i => !i.main).map(i => ({ shop: i.name, say: i.say })) })), route: n.route, spots: n.spots, yes: n.yes, stay: n.stay, traffic: n.traffic, tips: n.tips, navs: n.navs, good: n.good, skip: n.skip });
+    const shops = pool.map(sh => `${sh.name}｜${sh.area}${sh.far ? '｜离主店远（要坐车）' : '｜主店附近'}｜营业${sh.hours || '不详'}`).join('\n');
+    const prompt = `你是小红书攻略的审稿编辑，专门挑会被本地人挑错、会被平台判成广告或 AI 文的地方。下面是一篇刚写好的稿子（JSON），请逐项检查，然后给出改好的版本。
+【门店事实（以这个为准）】${B.storeTitle}｜${B.address}｜营业${B.hours}｜人均${B.price}｜${B.facts || ''}
+【菜单（菜名价格只能用这些）】${menuText(B) || ''}
+【可用的周边店（店名、位置、营业时间以这个为准）】
+${shops}
+【同一批别的篇已经用过的标题】${batch.notes.map(x => x.title).join('；') || '无'}
+【要检查的】
+1. 事实：地址、地铁口、营业时间、价格、菜名和上面对不上的；把罗氏虾写成龙虾的；说上了什么榜但事实里没写的。
+2. 地理和时间：路线来回折返；「离主店远」的店被写成步行顺路；排的时间不在店的营业时间里；正文和清单里的店对不上。
+3. 不像真人：套话（嘬手指、不踩雷、天花板、封神、绝绝子、救命、谁懂啊等）、排比堆砌、每段一个格式、太书面；编造的亲身经历细节（刚好碰上、土著朋友甩来）；正文里提主店超过 2 次或写「见图片」。
+4. 规则：标题 ≤20 字要有地点词和需求词；封面和标题不能有店名/大排档；禁用词：${(B.banned || []).join('、')}。
+5. 同批重复：标题、开头和别的篇太像。
+改的时候：只改有问题的地方，没问题的保持原样；不要加新店、新菜、新景点；不确定的事实宁可删掉也别编。
+只输出 JSON：{"problems":[{"level":"err 或 warn","where":"title/body/route/…","text":"问题，≤40字"}],"fixed":{和原稿一样的字段，改好后的完整内容}}
+原稿：
+${JSON.stringify(pick(got)).slice(0, 9000)}`;
+    const r = await llm(prompt, cfg.glReviewModels || ['qwen-plus', 'deepseek-v3.2', 'qwen-max']); const J0 = parseJ(r.text);
+    const problems = (J0.problems || []).slice(0, 20).map(x => ({ level: x.level === 'err' ? 'err' : 'warn', where: String(x.where || '').slice(0, 16), text: String(x.text || '').slice(0, 80) })).filter(x => x.text);
+    const out = { model: r.model, problems, adopted: false, at: Date.now() };
+    if (J0.fixed && J0.fixed.body) {
+      const fx = J0.fixed; fx.sections = (fx.sections || []).map(sc => ({ h: sc.h, items: (sc.items || []).map(i => ({ shop: i.shop || i.name, say: i.say, stars: i.stars })) }));
+      fx.tags = (fx.tags || []).filter(t => !B.tagsMust.includes(t) && !((plan && plan.tags) || []).includes(t));
+      const fixed = build(Object.assign({}, fx, { yes: Object.assign({}, got.yes, fx.yes || {}) }), B, pool, main, plan);
+      const errs = n => check(n, B, batch).filter(c => c[0] === 'err').length;
+      if (fixed.title && fixed.body && errs(fixed) <= errs(got)) { out.adopted = true; out.before = { title: got.title, body: got.body }; return { note: fixed, review: out }; }
+      out.why = '改完的版本错更多，没采用';
+    }
+    return { note: got, review: out };
+  }
   // ---------- 每篇的变量由程序分配（林总 2026-11-27：重复率高的根子是输入一样、规则锁死骨架、没人管差异）----------
   const ANGLES = {
     list: ['纯清单', '按品类分组列店名，开头一两句纠结/求助口吻就够，正文短', [150, 230]],
@@ -342,6 +376,7 @@ ${shopLines}
         }
         batch.k = k;
         if (!got) { batch.err = `第 ${k} 篇失败：${err}`; log('[攻略平台] 出稿失败：' + err); save(); continue; }
+        if (cfg.glReview !== false && B.aiReview !== false) { try { const rv = await aiReview(got, B, pool, main, batch, plan); const keepModel = got.model; got = rv.note; got.model = keepModel; got.aiReview = rv.review; } catch (e) { got.aiReview = { error: e.message.slice(0, 80), at: Date.now() }; } }
         got.no = k; got.dir = dir.name; if (plan) got.plan = { angle: plan.angle, angleName: plan.angleName, lead: plan.lead }; if (tpl) got.tpl = { sub: tpl.sub, title: tpl.title, id: tpl.id, src: tpl.src }; got.status = 'todo'; got.notes = []; batch.notes.push(got); got.check = check(got, B, batch);
         batch.notes.forEach(x => { x.check = check(x, B, batch); }); save();
       }
