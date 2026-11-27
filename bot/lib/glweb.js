@@ -543,17 +543,17 @@ ${text}`);
   const getTask = id => /^t[0-9a-z]+$/.test(id) ? rj(path.join(TD, id + '.json'), null) : null; const saveTask = t => wj(path.join(TD, t.id + '.json'), t);
   const hallKey = () => { if (!META.hallKey) { META.hallKey = crypto.randomBytes(9).toString('base64url'); saveMeta(); } return META.hallKey; };
   const hallUrl = () => `${base}h/${hallKey()}`;
-  setTimeout(() => { try { tasks().forEach(t => { let ch = false; t.floors.forEach(f => { if (t.status === 'draft' && f.img && !f.imgBy && !f.wantImg) { f.wantImg = true; f.img = ''; ch = true; } }); if (ch) saveTask(t); }); } catch (e) { } }, 5e3); // 之前自动配的图改成让领的人自己选
+  setTimeout(() => { try { tasks().forEach(t => { let ch = false; t.floors.forEach(f => { if (t.status === 'draft' && f.img && !f.imgBy && !f.wantImg) { f.wantImg = true; f.img = ''; ch = true; } if (t.status !== 'done' && !f.done && /yes\s*大排档/i.test(f.text)) { f.text = f.text.replace(/(yes|YES|Yes)\s*(也是)?\s*大排档/g, 'YES也是大排档'); ch = true; } }); if (ch) saveTask(t); }); } catch (e) { } }, 5e3); // 之前自动配的图改成让领的人自己选
   const CMT_BAD = ['推荐', '种草', '必点', '必吃', '绝绝子', 'yyds', '安利', '强烈', '性价比', '广告', '探店', '宝藏', '天花板', '封神', '回购', '打卡', '上榜'];
-  const SAMPLE = `【第50组】A（首评）：你看看人家，你啥时候带我去吃yes大排档的暖冬套餐啊@B ／ B回复A：周末给你安排上 ／ C回复A：也太幸福了吧，我也想吃这家yes大排档 ／ D回复A：已和闺蜜吃上了老香了哈哈哈（配图） ／ E回复D：想吃这家，看起来食欲绝了
-【第51组】A（首评）：终于把朋友骗来吃yes大排档了哈哈 ／ B回复A：哇！这家还不错哎，人均怎么样啊 ／ C回复A：感觉这家会很好吃@D ／ D回复C：找个时间带你去吃~ ／ E回复A：你是懂吃的，这家我吃过挺多次了`;
+  const SAMPLE = `【第50组】A（首评）：你看看人家，你啥时候带我去吃YES也是大排档的暖冬套餐啊@B ／ B回复A：周末给你安排上 ／ C回复A：也太幸福了吧，我也想吃这家YES也是大排档 ／ D回复A：已和闺蜜吃上了老香了哈哈哈（配图） ／ E回复D：想吃这家，看起来食欲绝了
+【第51组】A（首评）：终于把朋友骗来吃YES也是大排档了哈哈 ／ B回复A：哇！这家还不错哎，人均怎么样啊 ／ C回复A：感觉这家会很好吃@D ／ D回复C：找个时间带你去吃~ ／ E回复A：你是懂吃的，这家我吃过挺多次了`;
   async function genTasks(j, who) {
     // 不一定要任务书（林总 2026-11-27）：选门店就用这家店的资料；不选就只提品牌，不提分店
     const st = stores().find(x => x.id === j.store && x.planted); const B0 = st ? briefs().find(x => x.store === st.id) : null; const yesLike = n => /YES|也是大排档/i.test(n || '');
     const B = B0 || (st ? { id: '', store: st.id, storeTitle: st.name, brand: st.name.replace(/[（(].*$/, ''), price: st.price || '', banned: (briefs()[0] || {}).banned || [], menu: yesLike(st.name) ? YES_MENU : null, dishes: { 招牌: String(st.dishes || '').split(/[、,，]/).filter(Boolean) } } : { id: '', store: '', storeTitle: 'YES也是大排档', brand: 'YES也是大排档', price: '85-100', banned: (briefs()[0] || {}).banned || [], menu: YES_MENU, dishes: {} });
     const urls = [].concat(j.urls || []).map(u => String(u).trim()).filter(Boolean).slice(0, 10); if (!urls.length) throw new Error('贴至少一条笔记链接');
     const G = Math.max(1, Math.min(8, +j.groups || 2)), F = Math.max(3, Math.min(7, +j.floors || 5)); const dy = j.platform === 'dy' || urls.every(u => /douyin/.test(u));
-    const short = String(B.brand || 'yes大排档').replace(/YES也是大排档/i, 'yes大排档'); const out = [];
+    const short = /YES|也是大排档/i.test(B.brand || B.storeTitle || '') ? 'YES也是大排档' : String(B.brand || B.storeTitle).replace(/[（(].*$/, ''); const out = []; // 林总 2026-11-27：评论里的关键词用全称「YES也是大排档」
     for (const url of urls) {
       const known = noteTextOf(url); const recent = tasks().slice(0, 12).flatMap(t => t.floors.filter(f => f.seat === 'A').map(f => f.text));
       const prompt = `我们在维护自己店「${st ? B.storeTitle : 'YES也是大排档（不指定哪家分店，评论里不要提分店和地址）'}」发出去的${dy ? '抖音' : '小红书'}笔记评论区。写 ${G} 组评论，每组 ${F} 楼：A 是首评，后面每一楼都回复前面的某一楼（写清回复谁），像几个朋友在评论区随口聊天，让刷到的人觉得这家店有人去、有人想去。
@@ -561,7 +561,7 @@ ${known ? `笔记内容：${known.title} ${String(known.text || '').slice(0, 300
 ${SAMPLE}
 要求：
 1. 每楼 4–25 个字，像手机上随手打的，口语，可以用「哈哈」「~」「@某楼」，标点随意，别写成通顺的作文。
-2. 店名只写「${short}」，一组里最多出现 2 次；有的组首评可以不提店名，让后面的人问「这是哪家」再说。
+2. 店名只写全称「${short}」（一个字都不能少，不能写成 yes大排档、也是大排档、大排档），这是要让人搜到的关键词；一组里出现 1–2 次；有的组首评可以不提店名，让后面的人问「这是哪家」再说。
 3. 一组里最多 1 楼提到一道菜，菜名只能用菜单上的：${menuText(B) || Object.values(B.dishes || {}).flat().join('、')}；价格只能说菜单价或人均 ${B.price}，没把握就不说价格。
 4. 每组有 1 楼要配图（img 写 "1"，dish 写配哪道菜），那一楼的话要和图对得上（如「已和闺蜜吃上了（配图）」）。
 5. 每组换一个场景：约朋友、带对象、带爸妈、下班宵夜、生日、下雨天、加班后、看完球……${G} 组之间首评的说法不能像，也不能和这些已经用过的首评像：${recent.slice(0, 8).join(' ／ ') || '无'}
@@ -570,13 +570,14 @@ ${SAMPLE}
       const r = await llm(prompt); const J0 = parseJ(r.text);
       for (const g of (J0.groups || []).slice(0, G)) {
         const sc = B.store ? sucaiFor(B.store) : (stores().filter(x => x.planted && yesLike(x.name)).flatMap(x => sucaiFor(x.id))); const floors = (g.floors || []).slice(0, F).map((f, i) => {
-          const seat = String.fromCharCode(65 + i); let text = String(f.text || '').replace(/\s+/g, ' ').trim().slice(0, 60); let img = '';
+          const seat = String.fromCharCode(65 + i); let text = String(f.text || '').replace(/\s+/g, ' ').trim().slice(0, 60); if (short === 'YES也是大排档') text = text.replace(/(?<!也是)(yes|YES|Yes)\s*(也是)?\s*大排档/g, 'YES也是大排档'); let img = '';
           // 配图不替他们选（林总 2026-11-27）：只标「这楼要配图、建议配哪道菜」，领的人自己在素材库里挑
           return { seat, reply: i ? String(f.reply || 'A').slice(0, 1).toUpperCase() : '', text, img, wantImg: !!f.img, dish: String(f.dish || '').slice(0, 20), bad: CMT_BAD.filter(w => text.includes(w)) };
         }).filter(f => f.text);
         if (floors.length < 2) continue;
+        const noKw = !floors.some(f => f.text.includes(short));
         META.taskNo = (META.taskNo || 0) + 1; saveMeta();
-        const t = { id: 't' + Date.now().toString(36) + out.length, no: META.taskNo, url, brief: B.id, store: B.store, storeName: st ? st.name : '不指定分店', platform: dy ? 'dy' : 'xhs', scene: String(g.scene || '').slice(0, 12), due: /^\d{4}-\d{2}-\d{2}$/.test(j.due || '') ? j.due : bjDay(), floors, status: 'draft', by: who, at: Date.now(), model: r.model };
+        const t = { id: 't' + Date.now().toString(36) + out.length, no: META.taskNo, url, brief: B.id, store: B.store, storeName: st ? st.name : '不指定分店', platform: dy ? 'dy' : 'xhs', scene: String(g.scene || '').slice(0, 12), noKw, kw: short, due: /^\d{4}-\d{2}-\d{2}$/.test(j.due || '') ? j.due : bjDay(), floors, status: 'draft', by: who, at: Date.now(), model: r.model };
         saveTask(t); out.push(t);
       }
     }
