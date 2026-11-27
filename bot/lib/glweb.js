@@ -100,6 +100,18 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
     const subs = [...groups.keys()].map(k => ({ k, n: groups.get(k).length, used: used.get(k) || 0, heat: Math.max(...groups.get(k).map(t => t.daily)) })).sort((a, c) => a.used - c.used || c.heat - a.heat).slice(0, Math.max(n * 3, 12)).sort(() => Math.random() - 0.5);
     return subs.slice(0, n).map(s => { const L = groups.get(s.k).sort((a, c) => (c.pages ? 1 : 0) - (a.pages ? 1 : 0) || c.daily - a.daily); return L[Math.floor(Math.random() * Math.min(3, L.length))]; });
   }
+
+  // 林总 2026-11-27 发的 YES 菜单（各店通用；必吃榜是水东街店、宝藏榜是华强北店的，别的店不能说上榜）
+  const YES_MENU = { '王牌推荐': [['爆膏奶油虾', 99], ['蒜巴掌大生蚝', 29], ['椒盐玉米', 32], ['秘汁捞花甲', 38], ['XO酱啫花菜煲', 38], ['榨菜蒸鲜吊龙', 49], ['古法酥脆黄花鱼', 58], ['爆炒鱿鱼须', 65], ['黑椒雪花牛肉粒', 68], ['海胆炒饭2.0', 58], ['椒盐皮皮虾', 108]],
+    '海鲜粥': [['青虾粥', 88], ['青虾蟹粥', 118]],
+    '粤味海鲜': [['蒜蓉粉丝蒸扇贝', 16], ['金不换炒海瓜子', 26], ['金银蒜蓉蒸黄金贝', 48], ['椒盐鱿鱼须', 49], ['白灼火箭鱿鱼筒', 58], ['豉汁炒花甲', 58], ['古法盐焗海螺', 68], ['紫苏豉汁炒圣子王', 78], ['咸蛋黄鸡翅虾', 78], ['秘汁捞花螺', 98], ['港式避风塘炒肉蟹', 178], ['牛油黑椒波龙', 238], ['椒盐九肚鱼', 49], ['秋葵捞鱿筒', 56], ['藤椒蒸鲈鱼', 58], ['吊龙牛肉粥', 68], ['台式胡椒花螺', 98], ['招牌胡椒虾', 98], ['爆膏奶油蟹', 99], ['生猛姜葱炒蟹', 108]],
+    '锅气小炒': [['反沙凤梨', 26], ['白切鲜粉肠', 38], ['姜葱爆炒猪肝', 38], ['沙姜猪手', 38], ['避风塘鸡中翅', 48], ['椒盐鸭下巴', 49], ['姜葱爆炒鲜吊龙', 58], ['韭菜爆炒鱿鱼筒', 59], ['爽脆拌鱼皮', 26], ['金不换炒白贝', 28], ['串串香鱿鱼须', 28], ['胜瓜滑蛋浸鲜贝', 36]],
+    '啫煲': [['枸杞猪肝瘦肉汤', 33], ['咸蛋黄焗贝贝南瓜', 36], ['猛火啫大肠', 49], ['猛火啫靓鱼扣', 56], ['广式牛杂煲', 58]],
+    '蔬菜': [['猪油渣炒菜心', 29], ['瑶柱金蒜蒸胜瓜', 35], ['豆豉鲮鱼炒油麦菜', 35], ['铁板姜汁芥兰吊龙', 42]],
+    '主食': [['碎碎蛋爆炒米粉', 26], ['老广干炒牛河', 29]],
+    '饮品': [['清甜茅根竹蔗', 15], ['爆打柠檬茶', 19]] };
+  { const L = briefs(); let ch = false; L.forEach(b => { if (!b.menu && /YES|也是大排档/.test((b.brand || '') + b.storeTitle)) { b.menu = YES_MENU; b.dishes = { '海鲜': ['秘汁捞花甲', '蒜巴掌大生蚝', '椒盐皮皮虾', '台式胡椒花螺', '金不换炒海瓜子', '咸蛋黄鸡翅虾'], '小炒': ['椒盐玉米', '反沙凤梨', '椒盐鸭下巴', '黑椒雪花牛肉粒', '避风塘鸡中翅', '猛火啫大肠'], '主食': ['海胆炒饭2.0', '碎碎蛋爆炒米粉', '老广干炒牛河', '青虾粥'], '饮品': ['爆打柠檬茶', '清甜茅根竹蔗'] }; b.facts = String(b.facts || '').replace(/；?爆膏奶油虾用的是罗氏虾（不是龙虾）/, '') + '；爆膏奶油虾 99 元，用的是罗氏虾（不能写成龙虾）；这家店没有上必吃榜/宝藏榜（那是水东街店、华强北店的），不能写上榜'; ch = true; } }); if (ch) wj(BF, L); }
+  const menuText = B => B.menu ? Object.entries(B.menu).map(([c, l]) => `${c}：${l.map(([n, pz]) => `${n}${pz}`).join('、')}`).join('；') : '';
   // ---------- 每篇的变量由程序分配（林总 2026-11-27：重复率高的根子是输入一样、规则锁死骨架、没人管差异）----------
   const ANGLES = {
     list: ['纯清单', '按品类分组列店名，开头一两句纠结/求助口吻就够，正文短', [150, 230]],
@@ -138,7 +150,8 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
 【读者】${B.audience}
 【这篇的写法（程序已定，必须照做）】
 - 角度：${P.angleName || '自选'}——${P.angleHow || ''}；正文 ${P.len ? P.len[0] + '–' + P.len[1] : '300–500'} 字。
-${tpl ? `- 学这篇真实爆款的标题句式和开头口吻（套路「${tpl.sub}」）：《${tpl.title}》 ${tpl.text.replace(/\s+/g, ' ').slice(0, 260)}\n  只学句式和口吻，城市、店、原句都不能照搬，不借它的榜单名义和数字。\n` : ''}- 主店这篇主推「${P.lead || B.mustDish}」，yes.dishes 第一道写它${P.lead && P.lead !== B.mustDish ? `；「${B.mustDish}」也要写，放后面` : ''}，再从菜单里挑 1–2 道。菜单：${dishes}
+${tpl ? `- 学这篇真实爆款的标题句式和开头口吻（套路「${tpl.sub}」）：《${tpl.title}》 ${tpl.text.replace(/\s+/g, ' ').slice(0, 260)}\n  只学句式和口吻，城市、店、原句都不能照搬，不借它的榜单名义和数字。\n` : ''}- 菜名、价格只能用菜单上的（不能编菜名）：${menuText(B) || dishes}
+- 主店这篇主推「${P.lead || B.mustDish}」，yes.dishes 第一道写它${P.lead && P.lead !== B.mustDish ? `；「${B.mustDish}」也要写，放后面` : ''}，再从菜单里挑 1–2 道。菜单：${dishes}
 - ${P.nextDay ? '可以有 1 个「第二天早餐」分类。' : '不要写「第二天早餐」。'}
 ${B.facts ? `【固定事实，原样写，不能改】${B.facts}\n` : ''}【规则】
 1. 标题 ≤20 字，有地点词＋需求词（${B.titleRule}），往「${dir.words.join('」「')}」靠。封面和标题不能出现店名、品牌名、「大排档」。
@@ -192,7 +205,8 @@ ${shopLines}
     const yesMentions = (String(n.body).match(new RegExp(brandWordsOf(B).filter(w => w !== '大排档').map(reEsc).join('|') || 'YES', 'gi')) || []).length; if (yesMentions > 3) out.push(['warn', `正文提主店 ${yesMentions} 次，像广告`]);
     const cl = CLICHE.filter(w => String(n.body).includes(w)); if (cl.length) out.push(['warn', `套话：${cl.join('、')}`]);
     if (/见图|看图片|主店部分/.test(String(n.body).slice(0, -40))) out.push(['err', '正文里写了「见图片」这类话']);
-    if (/龙虾/.test(allText) && /大排档|YES/.test(B.brand || B.storeTitle)) out.push(['err', '写了「龙虾」，我们用的是罗氏虾']);
+    if (/龙虾[^，。！\n]{0,6}(奶油|爆膏)|(奶油|爆膏)[^，。！\n]{0,6}龙虾/.test(allText)) out.push(['err', '把爆膏奶油虾写成了龙虾（用的是罗氏虾）']);
+    if (/必吃榜|宝藏榜|上榜/.test(allText) && B.honors !== true) out.push(['err', '写了上榜（必吃榜/宝藏榜是水东街店、华强北店的，这家店没有）']);
     const fixed = new Set(B.tagsMust); batch.notes.forEach(o => { if (o === n) return; const ov = n.tags.filter(t => !fixed.has(t) && o.tags.includes(t)); if (ov.length > 3) out.push(['warn', `话题和第 ${o.no} 篇重了 ${ov.length} 个`]); });
     if (batch.notes.filter(o => o.sections.some(sc => /第二天/.test(sc.h))).length > 1 && n.sections.some(sc => /第二天/.test(sc.h))) out.push(['warn', '同批不止一篇写了第二天早餐']);
     batch.notes.forEach(o => { if (o !== n && o.ending && o.ending === n.ending) out.push(['err', '结尾和本批另一篇重复']); if (o !== n && o.title === n.title) out.push(['err', '标题和本批另一篇重复']); });
@@ -425,7 +439,7 @@ ${shopLines}
   }
 
   // ---------- 结算（林总 2026-11-27）：写手按「通过」篇数，发布按「已发布」篇数；单价在页面上设，外部达人按派发时填的报价 ----------
-  const RATE0 = { writer: 0, staff: 0, kol: 0, self: 0 };
+  const RATE0 = { writer: 0, staff: 0, kol: 0, self: 0, comment: 0 };
   const rates = () => Object.assign({}, RATE0, META.rates || {});
   function settle(mon) {
     const R = rates(); const P = new Map(); const add = (key, o, item, amt) => { if (!P.has(key)) P.set(key, Object.assign({ key, n: 0, amt: 0, items: [] }, o)); const x = P.get(key); x.n++; x.amt += amt; x.items.push(item); };
@@ -434,6 +448,7 @@ ${shopLines}
       if (n.assign && n.pub && bjDay(n.pub.at).slice(0, 7) === mon) { const a = n.assign; const kind = a.kind || '员工代发'; const unit = kind === '外部达人' ? (+a.fee || R.kol) : kind === '自己的号' ? R.self : R.staff;
         add('p:' + kind + ':' + (a.who || a.acct), { role: kind, name: a.who || a.acct, acct: a.acct, unit: kind === '外部达人' ? null : unit }, { bid: b.id, no: n.no, title: n.title, day: bjDay(n.pub.at), url: n.pub.url, acct: a.acct, fee: unit }, unit); }
     }
+    for (const t of tasks()) for (const f of t.floors) if (f.claim && f.done && f.done.ok !== false && bjDay(f.done.at).slice(0, 7) === mon) add('c:' + f.claim.name, { role: '评论', name: f.claim.name, acct: f.claim.acct, unit: R.comment || 0 }, { title: `第${t.no}组 ${f.seat}楼：${f.text}`, day: bjDay(f.done.at), url: t.url, acct: f.claim.acct, fee: R.comment || 0 }, R.comment || 0);
     const paid = (META.paid || {})[mon] || {};
     return [...P.values()].map(x => Object.assign(x, { paid: paid[x.key] || null })).sort((a, c) => a.role.localeCompare(c.role) || c.amt - a.amt);
   }
@@ -520,6 +535,66 @@ ${text}`);
   setInterval(() => extractCands().catch(() => { }), 3 * 3600e3); setTimeout(() => extractCands().catch(() => { }), 120e3);
   function candList(bid) { const B = briefs().find(x => x.id === bid) || briefs()[0] || {}; const near = nearOf(B); const same = sameCatRe(B);
     return CA.items.filter(c => c.st === 'new').map(c => Object.assign({}, c, { near: near.some(a => (c.area + c.addr + c.name).includes(a)), same: same.test(c.cat + c.name) })).sort((a, c) => (c.near - a.near) || (a.same - c.same) || c.notes.length - a.notes.length); }
+
+  // ---------- 评论任务大厅（林总 2026-11-27）：我们维护自己的评论区。运营生成「一组」评论（首评＋几楼回复），放进大厅；
+  // 评论的人打开大厅链接（不用登录）自己领一楼、复制文案、存配图、评论完传截图，自动计进结算。文案照君游现在的写法：短、口语、像朋友聊天。
+  const TD = path.join(D, 'ctask'); fs.mkdirSync(TD, { recursive: true }); const SHD = path.join(D, 'cshots'); fs.mkdirSync(SHD, { recursive: true });
+  const tasks = () => fs.readdirSync(TD).filter(f => f.endsWith('.json')).map(f => rj(path.join(TD, f), null)).filter(Boolean).sort((a, c) => c.no - a.no);
+  const getTask = id => /^t[0-9a-z]+$/.test(id) ? rj(path.join(TD, id + '.json'), null) : null; const saveTask = t => wj(path.join(TD, t.id + '.json'), t);
+  const hallKey = () => { if (!META.hallKey) { META.hallKey = crypto.randomBytes(9).toString('base64url'); saveMeta(); } return META.hallKey; };
+  const hallUrl = () => `${base}h/${hallKey()}`;
+  const CMT_BAD = ['推荐', '种草', '必点', '必吃', '绝绝子', 'yyds', '安利', '强烈', '性价比', '广告', '探店', '宝藏', '天花板', '封神', '回购', '打卡', '上榜'];
+  const SAMPLE = `【第50组】A（首评）：你看看人家，你啥时候带我去吃yes大排档的暖冬套餐啊@B ／ B回复A：周末给你安排上 ／ C回复A：也太幸福了吧，我也想吃这家yes大排档 ／ D回复A：已和闺蜜吃上了老香了哈哈哈（配图） ／ E回复D：想吃这家，看起来食欲绝了
+【第51组】A（首评）：终于把朋友骗来吃yes大排档了哈哈 ／ B回复A：哇！这家还不错哎，人均怎么样啊 ／ C回复A：感觉这家会很好吃@D ／ D回复C：找个时间带你去吃~ ／ E回复A：你是懂吃的，这家我吃过挺多次了`;
+  async function genTasks(j, who) {
+    const B = briefs().find(x => x.id === j.brief) || briefs()[0]; if (!B) throw new Error('先建任务书');
+    const urls = [].concat(j.urls || []).map(u => String(u).trim()).filter(Boolean).slice(0, 10); if (!urls.length) throw new Error('贴至少一条笔记链接');
+    const G = Math.max(1, Math.min(8, +j.groups || 2)), F = Math.max(3, Math.min(7, +j.floors || 5)); const dy = j.platform === 'dy' || urls.every(u => /douyin/.test(u));
+    const short = String(B.brand || 'yes大排档').replace(/YES也是大排档/i, 'yes大排档'); const out = [];
+    for (const url of urls) {
+      const known = noteTextOf(url); const recent = tasks().slice(0, 12).flatMap(t => t.floors.filter(f => f.seat === 'A').map(f => f.text));
+      const prompt = `我们在维护自己店「${B.storeTitle}」发出去的${dy ? '抖音' : '小红书'}笔记评论区。写 ${G} 组评论，每组 ${F} 楼：A 是首评，后面每一楼都回复前面的某一楼（写清回复谁），像几个朋友在评论区随口聊天，让刷到的人觉得这家店有人去、有人想去。
+${known ? `笔记内容：${known.title} ${String(known.text || '').slice(0, 300)}\n` : ''}照我们现在的真实写法（这是同事写的，评论区效果好）：
+${SAMPLE}
+要求：
+1. 每楼 4–25 个字，像手机上随手打的，口语，可以用「哈哈」「~」「@某楼」，标点随意，别写成通顺的作文。
+2. 店名只写「${short}」，一组里最多出现 2 次；有的组首评可以不提店名，让后面的人问「这是哪家」再说。
+3. 一组里最多 1 楼提到一道菜，菜名只能用菜单上的：${menuText(B) || Object.values(B.dishes || {}).flat().join('、')}；价格只能说菜单价或人均 ${B.price}，没把握就不说价格。
+4. 每组有 1 楼要配图（img 写 "1"，dish 写配哪道菜），那一楼的话要和图对得上（如「已和闺蜜吃上了（配图）」）。
+5. 每组换一个场景：约朋友、带对象、带爸妈、下班宵夜、生日、下雨天、加班后、看完球……${G} 组之间首评的说法不能像，也不能和这些已经用过的首评像：${recent.slice(0, 8).join(' ／ ') || '无'}
+6. 不能出现：${[...CMT_BAD, ...(B.banned || [])].join('、')}；不写地址导航，不写长句夸菜，不写「不是广告」这类话；不能说上了什么榜。
+只输出 JSON：{"groups":[{"scene":"场景","floors":[{"seat":"A","reply":"","text":"","img":"","dish":""},{"seat":"B","reply":"A","text":"","img":"","dish":""}]}]}`;
+      const r = await llm(prompt); const J0 = parseJ(r.text);
+      for (const g of (J0.groups || []).slice(0, G)) {
+        const sc = sucaiFor(B.store); const floors = (g.floors || []).slice(0, F).map((f, i) => {
+          const seat = String.fromCharCode(65 + i); let text = String(f.text || '').replace(/\s+/g, ' ').trim().slice(0, 60); let img = '';
+          if (f.img && sc.length) { const hit = (SC.items || []).filter(x => sc.includes(`sc/${x.n}.jpg`) && f.dish && (x.dish || '').includes(String(f.dish).slice(0, 3))); const pick = (hit.length ? hit.map(x => `sc/${x.n}.jpg`) : sc)[Math.floor(Math.random() * (hit.length || sc.length))]; img = pick; }
+          return { seat, reply: i ? String(f.reply || 'A').slice(0, 1).toUpperCase() : '', text, img, dish: String(f.dish || '').slice(0, 20), bad: CMT_BAD.filter(w => text.includes(w)) };
+        }).filter(f => f.text);
+        if (floors.length < 2) continue;
+        META.taskNo = (META.taskNo || 0) + 1; saveMeta();
+        const t = { id: 't' + Date.now().toString(36) + out.length, no: META.taskNo, url, brief: B.id, store: B.store, storeName: B.storeTitle, platform: dy ? 'dy' : 'xhs', scene: String(g.scene || '').slice(0, 12), due: /^\d{4}-\d{2}-\d{2}$/.test(j.due || '') ? j.due : bjDay(), floors, status: 'draft', by: who, at: Date.now(), model: r.model };
+        saveTask(t); out.push(t);
+      }
+    }
+    log(`[攻略平台] 评论任务 ${out.length} 组（草稿）`); return out;
+  }
+  // 大厅给评论的人看的：只给开放中的组，不给截图和别人的账号细节
+  function hallView(name) {
+    const today = bjDay(); const L = tasks().filter(t => t.status === 'open');
+    return L.map(t => ({ id: t.id, no: t.no, url: t.url, platform: t.platform, store: t.storeName, scene: t.scene, due: t.due, late: t.due < today,
+      floors: t.floors.map(f => ({ seat: f.seat, reply: f.reply, text: f.text, img: f.img, taken: f.claim ? (f.claim.name === name ? 'me' : 'other') : '', by: f.claim && f.claim.name !== name ? f.claim.acct || '已领' : '', done: !!f.done, rejected: !!(f.done && f.done.ok === false) })) }));
+  }
+  function hallAct(j) {
+    const t = getTask(j.id); if (!t || t.status !== 'open') throw new Error('这组已经关了'); const f = t.floors.find(x => x.seat === j.seat); if (!f) throw new Error('没有这一楼');
+    const name = String(j.name || '').trim().slice(0, 20), acct = String(j.acct || '').trim().slice(0, 30); if (!name) throw new Error('先填你的名字');
+    if (j.act === 'claim') { if (f.claim && f.claim.name !== name) throw new Error('这一楼已经被领了'); if (t.floors.some(x => x !== f && x.claim && x.claim.name === name)) throw new Error('同一组里一个人只能领一楼（不能自己回自己）'); f.claim = { name, acct, at: Date.now() }; }
+    else if (j.act === 'drop') { if (!f.claim || f.claim.name !== name || f.done) throw new Error('放不了'); delete f.claim; }
+    else if (j.act === 'done') { if (!f.claim || f.claim.name !== name) throw new Error('先领这一楼'); const dir = path.join(SHD, t.id); fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, f.seat + '.jpg'), jpg(j.shot)); f.done = { at: Date.now(), ok: null }; if (t.floors.every(x => x.done)) t.status = 'done'; }
+    else throw new Error('不认识的操作');
+    saveTask(t); return { ok: true };
+  }
+  function hallLib() { const out = []; for (const st of stores().filter(x => x.planted)) { const L = [...photosOf(st.id).map(f => ({ f: `${st.id}/${f}`, dish: '' })), ...sucaiFor(st.id).slice(0, 60).map(f => { const x = (SC.items || []).find(y => `sc/${y.n}.jpg` === f) || {}; return { f, dish: x.dish || '' }; })]; if (L.length) out.push({ store: st.name, photos: L }); } return out; }
   // ---------- 路由 ----------
   async function handle(req, res, p, u) {
     if (p === '/login' && req.method === 'POST') {
@@ -549,6 +624,20 @@ ${text}`);
       const pm = sub.match(/^\/photo\/([A-Za-z0-9_-]+)\/(\d+\.jpg)$/); if (pm) { const f = path.join(PD, pm[1], pm[2]); if (!fs.existsSync(f)) return send(res, 404, ''); const buf = fs.readFileSync(f); res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'private, max-age=86400' }); return res.end(buf); }
       { const um = sub.match(/^\/up\/(\d+\.jpg)$/); if (um) return serveJpg(res, upFile(bid, um[1])); }
       if (sub === '/mark' && req.method === 'POST') { const j = JSON.parse(await body(req, 20000) || '{}'); return J(res, { ok: true, note: mark(bid, j.no, j.status === 'ok' ? 'shop_ok' : j.status === 'fix' ? 'shop_fix' : '', j.note ? '【商家】' + j.note : '', '商家') }); }
+      return send(res, 404, '{}');
+    }
+    // 评论任务大厅（不用登录，凭大厅链接）
+    m = p.match(/^\/h\/([A-Za-z0-9_-]{8,})(\/.*)?$/);
+    if (m) {
+      if (m[1] !== META.hallKey) return send(res, 403, shell('链接失效', '<form><h1>大厅链接已更换</h1><p>找运营要新链接。</p></form>'), 'text/html; charset=utf-8');
+      const sub = m[2] || '/';
+      if (sub === '/') { const h0 = page(); return h0 ? send(res, 200, h0, 'text/html; charset=utf-8') : send(res, 503, '页面更新中'); }
+      if (sub === '/data') { const name = String(u.searchParams.get('name') || '').slice(0, 20); const mine = tasks().filter(t => t.floors.some(f => f.claim && f.claim.name === name)).slice(0, 40).map(t => ({ id: t.id, no: t.no, url: t.url, status: t.status, due: t.due, floors: t.floors.filter(f => f.claim && f.claim.name === name).map(f => ({ seat: f.seat, text: f.text, img: f.img, done: f.done ? { at: f.done.at, ok: f.done.ok } : null })) }));
+        const mon = bjDay().slice(0, 7); const doneN = tasks().reduce((a, t) => a + t.floors.filter(f => f.claim && f.claim.name === name && f.done && f.done.ok !== false && bjDay(f.done.at).slice(0, 7) === mon).length, 0);
+        return J(res, { ok: true, today: bjDay(), open: hallView(name), mine, doneN }); }
+      if (sub === '/lib') return J(res, { ok: true, lib: hallLib() });
+      if (sub === '/act' && req.method === 'POST') { try { return J(res, hallAct(JSON.parse(await body(req, 8e6) || '{}'))); } catch (e) { return J(res, { ok: false, error: e.message }); } }
+      const pm2 = sub.match(/^\/photo\/([A-Za-z0-9_-]+)\/(\d+\.jpg)$/); if (pm2) return serveJpg(res, path.join(PD, pm2[1], pm2[2]));
       return send(res, 404, '{}');
     }
     // 派发卡片（不用登录，只能看这一篇：存图、复制文案、发完贴链接）
@@ -604,6 +693,18 @@ ${text}`);
         if (j.rates) { const R = {}; for (const k of Object.keys(RATE0)) if (j.rates[k] !== undefined) R[k] = Math.max(0, Math.round(+j.rates[k] * 100) / 100 || 0); META.rates = Object.assign(rates(), R); }
         if (j.paid && /^\d{4}-\d{2}$/.test(j.month)) { META.paid = META.paid || {}; const m2 = META.paid[j.month] = META.paid[j.month] || {}; if (j.undo) delete m2[j.paid]; else m2[j.paid] = { at: Date.now(), who: me.name, amt: +j.amt || 0 }; }
         saveMeta(); return J(res, { ok: true }); }
+      if (p === '/api/ctask' && req.method === 'GET') { const L = tasks().slice(0, 120).map(t => Object.assign({}, t, { floors: t.floors.map(f => Object.assign({}, f, { shot: f.done ? `${t.id}/${f.seat}.jpg` : '' })) })); return J(res, { ok: true, list: L, hall: canWork ? hallUrl() : '', pubs: pubs().filter(x => x.pub).slice(0, 40).map(x => ({ url: x.pub.url, title: x.title, acct: x.acct })), plays: Object.fromEntries(Object.entries(PLAYS).map(([k, v]) => [k, v[0]])) }); }
+      if (p === '/api/ctask' && req.method === 'POST' && me.role !== 'writer') { const j = JSON.parse(await body(req, 200000));
+        if (j.gen) return J(res, { ok: true, list: await genTasks(j, me.name) });
+        if (j.resetHall && isBoss) { META.hallKey = ''; return J(res, { ok: true, hall: hallUrl() }); }
+        const t = getTask(j.id); if (!t) throw new Error('没有这组');
+        if (j.del) { fs.unlinkSync(path.join(TD, t.id + '.json')); return J(res, { ok: true }); }
+        if (j.floors) t.floors.forEach(f => { const e = j.floors.find(x => x.seat === f.seat); if (e && e.text !== undefined) { f.text = String(e.text).slice(0, 80); f.bad = CMT_BAD.filter(w => f.text.includes(w)); } if (e && e.img !== undefined) f.img = String(e.img).slice(0, 40); });
+        if (j.status && ['draft', 'open', 'done'].includes(j.status)) t.status = j.status; if (j.due) t.due = String(j.due).slice(0, 10); if (j.url) t.url = String(j.url).slice(0, 500);
+        if (j.review) { const f = t.floors.find(x => x.seat === j.review.seat); if (f && f.done) { f.done.ok = !!j.review.ok; f.done.by = me.name; if (!f.done.ok) t.status = 'open'; } }
+        if (j.release) { const f = t.floors.find(x => x.seat === j.release); if (f && !f.done) delete f.claim; }
+        saveTask(t); return J(res, { ok: true }); }
+      m = p.match(/^\/cshot\/(t[0-9a-z]+)\/([A-Z])\.jpg$/); if (m) return serveJpg(res, path.join(SHD, m[1], m[2] + '.jpg'));
       if (p === '/api/cmt' && req.method === 'GET') return J(res, { ok: true, list: cmtList().slice(0, 60), plays: Object.fromEntries(Object.entries(PLAYS).map(([k, v]) => [k, v[0]])) });
       if (p === '/api/cmt' && req.method === 'POST' && me.role !== 'writer') { const j = JSON.parse(await body(req, 20000)); if (j.del) { try { fs.unlinkSync(path.join(CD2, String(j.del).replace(/[^a-z0-9]/g, '') + '.json')); } catch (e) { } return J(res, { ok: true }); } return J(res, { ok: true, rec: await genCmt(j, me.name) }); }
       if (p === '/api/cmt/peek') return J(res, { ok: true, known: noteTextOf(u.searchParams.get('url') || '') });
@@ -650,6 +751,6 @@ ${text}`);
   // 第一次出样稿有几篇失败（模型 JSON 不规范，已修）：把没出满的系统样稿重出一次
   setTimeout(() => { try { if (META.sampled2 || !META.sampled) return; META.sampled2 = Date.now(); saveMeta(); let i = 0; for (const b of batches()) { if (b.by !== '系统样稿' || b.status === 'running' || b.notes.length >= b.n) continue; try { fs.unlinkSync(path.join(BD, b.id + '.json')); } catch (e) { } const l = b.layout; setTimeout(() => generate(b.brief, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), (i++) * 20e3); } } catch (e) { log('[攻略平台] 补样稿出错：' + e.message); } }, 60e3);
   setTimeout(() => { try { if (batches().length || !(cfg.qwenKey || cfg.deepseekKey) || META.sampled) return; META.sampled = Date.now(); saveMeta(); const b = briefs()[0]; if (!b) return; ['clean', 'green', 'nav', 'memo'].forEach((l, i) => setTimeout(() => generate(b.id, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), i * 20e3)); log('[攻略平台] 开始出样稿'); } catch (e) { log('[攻略平台] 样稿出错：' + e.message); } }, 90e3);
-  return { genCmt, handle, generate, LAYOUTS, syncSucai, sucaiFor, _t: { submit, assign, pubs, pub, edit, getBatch, checkManual, makePlans, promptFor, poolOf, briefs, stores }, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
+  return { genCmt, genTasks, handle, generate, LAYOUTS, syncSucai, sucaiFor, _t: { submit, assign, pubs, pub, edit, getBatch, checkManual, makePlans, promptFor, poolOf, briefs, stores }, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
 }
 module.exports = { createGlweb };

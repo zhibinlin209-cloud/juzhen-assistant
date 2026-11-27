@@ -86,8 +86,8 @@ table { width: 100%; border-collapse: collapse; font-size: 13px } th, td { text-
 </div>
 <script>
 'use strict';
-const SHARE = /\/gl\/r\//.test(location.pathname), CARD = /\/gl\/c\//.test(location.pathname);
-const BASE = SHARE || CARD ? location.pathname.replace(/\/$/, '') : location.pathname.replace(/\/(index\.html)?$/, '');
+const SHARE = /\/gl\/r\//.test(location.pathname), CARD = /\/gl\/c\//.test(location.pathname), HALL = /\/gl\/h\//.test(location.pathname);
+const BASE = SHARE || CARD || HALL ? location.pathname.replace(/\/$/, '') : location.pathname.replace(/\/(index\.html)?$/, '');
 const $ = s => document.querySelector(s);
 const h = s => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fmt = n => n === null || n === undefined ? '—' : n >= 1e4 ? (n / 1e4).toFixed(1) + '万' : String(Math.round(n));
@@ -537,10 +537,10 @@ async function settle(m) {
   const tot = d.rows.reduce((a, x) => a + x.amt, 0), paidT = d.rows.filter(x => x.paid).reduce((a, x) => a + x.amt, 0);
   const mons = []; for (let i = 0; i < 6; i++) { const t = new Date(Date.now() + 8 * 3600e3); t.setUTCDate(1); t.setUTCMonth(t.getUTCMonth() - i); mons.push(t.toISOString().slice(0, 7)); }
   const yuan = v => v === null || v === undefined ? '按单' : '¥' + (+v).toLocaleString('zh-CN', { maximumFractionDigits: 2 });
-  m.innerHTML = `<div class="say"><h1>结算</h1><p>写手按「通过」的篇数算（月份按通过那天），发布按「已发布」的篇数算（月份按回填链接那天）：员工代发、自己的号按下面的单价，外部达人按派发时填的报价。发布人和账号来自派发时选的名单（飞书营销部的分发名单、矩阵号、素人号表）。</p></div>
+  m.innerHTML = `<div class="say"><h1>结算</h1><p>写手按「通过」的篇数算（月份按通过那天），评论按大厅里交了截图、没被打回的条数算，发布按「已发布」的篇数算（月份按回填链接那天）：员工代发、自己的号按下面的单价，外部达人按派发时填的报价。发布人和账号来自派发时选的名单（飞书营销部的分发名单、矩阵号、素人号表）。</p></div>
   <div class="row" style="margin-bottom:10px"><select id="sm">${mons.map(x => `<option ${x === d.month ? 'selected' : ''}>${x}</option>`).join('')}</select><button class="btn sm" id="scsv">导出表格</button></div>
   <div class="kpis"><div class="kpi"><small>${d.month} 应结</small><b>${yuan(tot)}</b></div><div class="kpi"><small>已结</small><b>${yuan(paidT)}</b></div><div class="kpi"><small>未结</small><b style="color:${tot - paidT > 0 ? 'var(--warn, #f5a623)' : 'inherit'}">${yuan(tot - paidT)}</b></div><div class="kpi"><small>人数</small><b>${d.rows.length}</b></div></div>
-  <div class="card"><h2 style="margin-top:0">单价 <small>${boss ? '改完点保存，当月和以后都按新单价算' : '只有老板能改'}</small></h2><div class="row">${[['writer', '写手每篇通过'], ['staff', '员工代发每篇'], ['self', '自己的号每篇'], ['kol', '外部达人默认报价']].map(([k, n]) => `<label class="hint">${n} ¥<input type="number" data-r="${k}" value="${R[k]}" style="width:80px" ${boss ? '' : 'disabled'}></label>`).join('')}${boss ? '<button class="btn sm pri" id="srs">保存单价</button>' : ''}</div></div>
+  <div class="card"><h2 style="margin-top:0">单价 <small>${boss ? '改完点保存，当月和以后都按新单价算' : '只有老板能改'}</small></h2><div class="row">${[['writer', '写手每篇通过'], ['staff', '员工代发每篇'], ['self', '自己的号每篇'], ['kol', '外部达人默认报价'], ['comment', '评论每条']].map(([k, n]) => `<label class="hint">${n} ¥<input type="number" data-r="${k}" value="${R[k]}" style="width:80px" ${boss ? '' : 'disabled'}></label>`).join('')}${boss ? '<button class="btn sm pri" id="srs">保存单价</button>' : ''}</div></div>
   <div class="card" style="margin-top:12px">${d.rows.length ? `<table><tr><th>类型</th><th>人</th><th>账号</th><th>篇数</th><th>单价</th><th>金额</th><th>状态</th><th></th></tr>${d.rows.map((x, i) => `<tr><td>${h(x.role)}</td><td>${h(x.name || '')}</td><td>${h(x.acct || '')}</td><td class="mono">${x.n}</td><td class="mono">${yuan(x.unit)}</td><td class="mono"><b>${yuan(x.amt)}</b></td><td>${x.paid ? `<span class="tag ok">已结 ${day(x.paid.at)}</span>` : '<span class="tag am">未结</span>'}</td><td><button class="btn sm" data-dt="${i}">明细</button> ${boss ? `<button class="btn sm" data-pd="${i}">${x.paid ? '撤回' : '标记已结'}</button>` : ''}</td></tr><tr data-dr="${i}" style="display:none"><td colspan="8"><div class="hint">${x.items.map(t => `${t.day.slice(5)} · ${h(t.title)}${t.acct ? ' · ' + h(t.acct) : ''}${t.fee !== undefined ? ' · ' + yuan(t.fee) : ''}${t.url ? ` · <a href="${h(t.url)}" target="_blank" rel="noopener">笔记</a>` : ''}`).join('<br>')}</div></td></tr>`).join('')}</table>` : '<div class="hint">这个月还没有可结算的：写手稿要在「写手稿」里点通过，发布要在「派发·发布」回填笔记链接。</div>'}</div>
   <h2>发布名单 <small>来自飞书营销部：小红书/抖音分发名单、小红书/抖音/视频号矩阵号、抖音素人号（10 分钟更新一次）</small></h2><div class="card" id="rost"><div class="hint">读取中…</div></div>`;
   $('#sm').onchange = e => { SET.month = e.target.value; show(); };
@@ -551,47 +551,62 @@ async function settle(m) {
     if (pd) { const x = d.rows[+pd.dataset.pd]; if (!x.paid && !confirm(`${x.name} ${d.month} 共 ${yuan(x.amt)}，标记为已结？`)) return; await api('/api/settle', { month: d.month, paid: x.key, amt: x.amt, undo: x.paid ? 1 : 0 }); show(); } };
   api('/api/roster').then(({ roster }) => { const el = $('#rost'); if (!el) return; el.innerHTML = roster.length ? `<table><tr><th>平台</th><th>账号</th><th>发布人员</th><th>来自</th><th>表里记录</th></tr>${roster.map(r => `<tr><td>${h(r.plat)}</td><td>${r.home ? `<a href="${h(r.home)}" target="_blank" rel="noopener">${h(r.acct || '')}</a>` : h(r.acct || '')}</td><td>${h(r.name || '')}</td><td>${h(r.kinds.join('、'))}</td><td class="mono">${r.posts || ''}</td></tr>`).join('')}</table>` : '<div class="hint">没读到名单</div>'; }).catch(er => { const el = $('#rost'); if (el) el.innerHTML = `<div class="hint">没读到名单：${h(er.message)}</div>`; });
 }
-// ================== 评论区维护（照爆文工厂「爆评库」的打法，叠楼按 A/B/C/D 楼排）==================
-const CM = { cur: null };
+// ================== 评论维护（林总 2026-11-27）：生成「一组」评论 → 放进大厅 → 评论的人自己领、传截图 → 计结算 ==================
+const CT = { tab: 'draft' };
 async function cmt(m) {
-  const [{ list, plays }, { briefs }] = await Promise.all([api('/api/cmt'), api('/api/briefs')]);
-  const PL = { rec: '一条评论直接推荐我们的店', list: '一条评论列 3–5 家，我们排第 2/3', stack: '一楼几个人接力：A 开楼、B 问、C 答、D 去过…', pic: '发帖人自己点名一道菜配图（只用于自己发的笔记）', qa: '网友问、作者答（只用于自己发的笔记）' };
-  m.innerHTML = `<div class="say"><h1>评论区维护</h1><p>贴一条笔记链接，按打法写评论稿：叠楼的按 A、B、C、D… 楼排好，标好谁来发。链接如果是我们平台发出去的稿、或者在爆款库里，会自动带上原文；别人的笔记可以把正文粘进来，写得更贴。</p></div>
-  <div class="card"><div class="kv"><b>笔记链接</b><input id="cu" placeholder="小红书或抖音链接"><b>门店（任务书）</b><select id="cb">${briefs.map(b => `<option value="${b.id}">${h(b.name)}</option>`).join('')}</select>
-  <b>平台</b><select id="cp"><option value="xhs">小红书</option><option value="dy">抖音</option></select><b>笔记类型</b><select id="ct"><option value="guide">攻略／美食清单</option><option value="need">求推荐帖</option><option value="single">单店探店</option><option value="other">其他</option></select>
-  <b>是不是我们自己发的</b><select id="co"><option value="">自动判断</option><option value="1">是</option><option value="0">不是</option></select>
-  <b>打法</b><div>${Object.entries(plays).map(([k, n]) => `<label style="display:block"><input type="checkbox" data-pl="${k}" ${['rec', 'list', 'stack'].includes(k) ? 'checked' : ''}> ${h(n)} <span class="hint">${PL[k] || ''}</span></label>`).join('')}</div>
-  <b>每种几组</b><select id="cn">${[3, 5, 8, 10].map(x => `<option ${x === 5 ? 'selected' : ''}>${x}</option>`).join('')}</select>
-  <b>原文（可选）</b><textarea id="cx" rows="4" placeholder="别人的笔记，把标题和正文粘进来，评论会更贴；不粘也能写"></textarea></div>
-  <div class="row" style="margin-top:10px"><button class="btn pri" id="cg">生成评论稿</button><span class="hint" id="cms"></span></div></div>
-  <div id="cres"></div>
-  <h2>写过的 <small>${list.length} 条</small></h2>${list.map(r => `<div class="note"><div class="row"><span style="flex:1">${day(r.at)} · ${h(r.briefName)} · ${r.platform === 'dy' ? '抖音' : '小红书'} · ${r.groups.length} 组${r.url ? ` · <a href="${h(r.url)}" target="_blank" rel="noopener">原帖</a>` : ''}${r.from ? ' · 原文：' + h(r.from) : ''}</span><button class="btn sm" data-cv="${r.id}">看</button> <button class="btn sm no" data-cd="${r.id}">删</button></div></div>`).join('') || '<div class="hint">还没写过</div>'}`;
-  const showRec = r => { CM.cur = r; $('#cres').innerHTML = `<h2>评论稿 <small>${day(r.at)} · ${r.own ? '我们自己的笔记' : '别人的笔记'}${r.bad ? ` · <span style="color:var(--bad)">有 ${r.bad} 条带禁用词，改一下</span>` : ''}</small> <button class="btn sm" data-ca>复制全部</button></h2>` + r.groups.map((g, gi) => `<div class="note"><div class="row"><span class="tag">${h(plays[g.play] || g.play)}</span><span class="hint" style="flex:1">${h(g.tip)}</span><button class="btn sm" data-cc="${gi}">复制这组</button></div>${g.floors.map(f => `<div style="display:flex;gap:8px;margin-top:6px"><b class="mono" style="min-width:22px">${f.tag}</b><span class="tag">${h(f.who)}${f.role ? '·' + h(f.role) : ''}</span><span style="flex:1">${h(f.text)}</span></div>`).join('')}</div>`).join(''); };
-  const txt = g => `【${plays[g.play] || g.play}】${g.tip ? '（' + g.tip + '）' : ''}\n` + g.floors.map(f => `${f.tag}楼（${f.who}${f.role ? '·' + f.role : ''}）：${f.text}`).join('\n');
-  $('#cu').onchange = async () => { const u = $('#cu').value.trim(); if (!u) return; const { known } = await api('/api/cmt/peek?url=' + encodeURIComponent(u)); $('#cms').textContent = known ? `已找到原文（${known.from}）：${known.title}` : '没找到原文，可以把正文粘进下面'; if (known && known.own) $('#co').value = '1'; if (/douyin/.test(u)) $('#cp').value = 'dy'; };
-  $('#cg').onclick = async () => { const plays2 = [...m.querySelectorAll('[data-pl]:checked')].map(i => i.dataset.pl); $('#cg').disabled = true; $('#cms').textContent = 'AI 写评论中，大约 30–60 秒…';
-    try { const o = { url: $('#cu').value.trim(), brief: $('#cb').value, platform: $('#cp').value, noteType: $('#ct').value, plays: plays2, per: $('#cn').value, noteText: $('#cx').value }; if ($('#co').value) o.own = $('#co').value === '1'; const { rec } = await api('/api/cmt', o); $('#cms').textContent = ''; showRec(rec); $('#cres').scrollIntoView({ behavior: 'smooth' }); } catch (er) { toast(er.message); $('#cms').textContent = ''; } $('#cg').disabled = false; };
-  m.onclick = async e => { const cv = e.target.closest('[data-cv]'), cd = e.target.closest('[data-cd]'), cc = e.target.closest('[data-cc]'), ca = e.target.closest('[data-ca]');
-    if (cv) { showRec(list.find(x => x.id === cv.dataset.cv)); $('#cres').scrollIntoView({ behavior: 'smooth' }); }
-    if (cd && confirm('删掉这份评论稿？')) { await api('/api/cmt', { del: cd.dataset.cd }); show(); }
-    if (cc) copy(txt(CM.cur.groups[+cc.dataset.cc])); if (ca) copy(CM.cur.groups.map(txt).join('\n\n')); };
+  const [{ list, hall, pubs }, { briefs }] = await Promise.all([api('/api/ctask'), api('/api/briefs')]);
+  const by = st => list.filter(t => t.status === st); const T = { draft: '草稿（改完放进大厅）', open: '大厅里（进行中）', done: '已完成' };
+  const fl = (t, f) => { const sh = f.shot ? `<a href="${BASE}/cshot/${f.shot}" target="_blank"><img src="${BASE}/cshot/${f.shot}" style="height:56px;border-radius:4px;vertical-align:middle"></a>` : '';
+    return `<div style="display:flex;gap:8px;align-items:flex-start;margin-top:6px"><b class="mono" style="min-width:58px">${f.seat}${f.reply ? '回复' + f.reply : '（首评）'}</b>${t.status === 'draft' ? `<input data-ft="${t.id}" data-seat="${f.seat}" value="${h(f.text)}" style="flex:1">` : `<span style="flex:1">${h(f.text)}</span>`}${f.img ? `<img src="${BASE}/photo/${f.img}" style="height:56px;border-radius:4px">` : ''}${(f.bad || []).length ? `<span class="tag bad">${f.bad.map(h).join('、')}</span>` : ''}${t.status !== 'draft' ? `<span class="hint" style="min-width:150px">${f.claim ? h(f.claim.name) + (f.claim.acct ? '·' + h(f.claim.acct) : '') : '没人领'}${f.done ? (f.done.ok === false ? ' · <b style="color:var(--bad)">打回</b>' : ' · ✓已交') : ''}</span>${sh}${f.done && f.done.ok !== false ? `<button class="btn sm no" data-rj="${t.id}" data-seat="${f.seat}">打回</button>` : ''}${f.claim && !f.done ? `<button class="btn sm" data-rl="${t.id}" data-seat="${f.seat}">收回</button>` : ''}` : ''}</div>`; };
+  const card = t => `<div class="note"><div class="row"><b>第 ${t.no} 组</b><span class="hint">${h(t.storeName)} · ${t.platform === 'dy' ? '抖音' : '小红书'} · ${h(t.scene || '')} · 截止 ${t.due.slice(5)}</span><a class="hint" href="${h(t.url)}" target="_blank" rel="noopener" style="flex:1">笔记 ↗</a>${t.status === 'draft' ? `<button class="btn sm pri" data-op="${t.id}">放进大厅</button>` : ''}<button class="btn sm no" data-dl="${t.id}">删</button></div>${t.floors.map(f => fl(t, f)).join('')}</div>`;
+  m.innerHTML = `<div class="say"><h1>评论维护</h1><p>维护我们自己笔记的评论区：生成一组评论（首评＋几楼回复，像朋友聊天），改好放进大厅；评论的人打开大厅链接自己领一楼、评论完传截图，自动计进「结算」。</p></div>
+  <div class="card"><div class="row"><b>大厅链接</b><span class="mono hint" style="flex:1;overflow:hidden;text-overflow:ellipsis">${h(hall)}</span><button class="btn sm pri" id="hcp">复制发到群里</button>${ME.role === 'boss' ? '<button class="btn sm" id="hrs">换一个链接</button>' : ''}</div></div>
+  <div class="card" style="margin-top:12px"><h2 style="margin-top:0">生成评论</h2><div class="kv"><b>笔记链接</b><div><textarea id="tu" rows="2" placeholder="一行一条，小红书或抖音"></textarea>${pubs.length ? `<div class="hint">已发布的，点一下加进去：${pubs.slice(0, 12).map((x, i) => `<a href="javascript:void 0" data-pu="${i}">${h(x.title.slice(0, 12))}（${h(x.acct)}）</a>`).join('　')}</div>` : ''}</div>
+  <b>门店</b><select id="tb">${briefs.map(b => `<option value="${b.id}">${h(b.name)}</option>`).join('')}</select>
+  <b>每条笔记几组</b><select id="tg">${[1, 2, 3, 4, 5].map(x => `<option ${x === 2 ? 'selected' : ''}>${x}</option>`).join('')}</select><b>每组几楼</b><select id="tf">${[3, 4, 5, 6].map(x => `<option ${x === 5 ? 'selected' : ''}>${x}</option>`).join('')}</select>
+  <b>截止</b><input type="date" id="td" value="${new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10)}"></div>
+  <div class="row" style="margin-top:10px"><button class="btn pri" id="tgo">生成</button><span class="hint" id="tms"></span></div></div>
+  <div class="chips" style="margin-top:14px">${Object.keys(T).map(k => `<span class="chip ${CT.tab === k ? 'on' : ''}" data-ct="${k}">${T[k]}<i>${by(k).length}</i></span>`).join('')}</div>
+  <div id="tl">${by(CT.tab).map(card).join('') || '<div class="hint" style="margin:10px 0">没有</div>'}</div>`;
+  $('#hcp').onclick = () => copy(`评论任务大厅（领任务、拿文案和图、交截图）：${hall}`);
+  if ($('#hrs')) $('#hrs').onclick = async () => { if (confirm('换链接后旧链接就打不开了，确定？')) { await api('/api/ctask', { resetHall: 1 }); show(); } };
+  $('#tgo').onclick = async () => { const urls = $('#tu').value.split(/\s+/).filter(x => /^https?:/.test(x)); if (!urls.length) return toast('贴笔记链接'); $('#tgo').disabled = true; $('#tms').textContent = `AI 写评论中，一条笔记大约 1 分钟…`;
+    try { const r = await api('/api/ctask', { gen: 1, urls, brief: $('#tb').value, groups: $('#tg').value, floors: $('#tf').value, due: $('#td').value }); toast(`写好 ${r.list.length} 组，在「草稿」里`); CT.tab = 'draft'; show(); } catch (er) { toast(er.message); $('#tgo').disabled = false; $('#tms').textContent = ''; } };
+  m.onclick = async e => { const pu = e.target.closest('[data-pu]'), ct = e.target.closest('[data-ct]'), op = e.target.closest('[data-op]'), dl = e.target.closest('[data-dl]'), rj = e.target.closest('[data-rj]'), rl = e.target.closest('[data-rl]');
+    if (pu) { $('#tu').value = ($('#tu').value.trim() + '\n' + pubs[+pu.dataset.pu].url).trim(); return; }
+    if (ct) { CT.tab = ct.dataset.ct; return show(); }
+    if (op) { const floors = [...m.querySelectorAll(`[data-ft="${op.dataset.op}"]`)].map(i => ({ seat: i.dataset.seat, text: i.value })); await api('/api/ctask', { id: op.dataset.op, floors, status: 'open' }); toast('已放进大厅'); return show(); }
+    if (dl && confirm('删掉这组？')) { await api('/api/ctask', { id: dl.dataset.dl, del: 1 }); return show(); }
+    if (rj && confirm('打回这一楼？（不计结算，要重新评论再交截图）')) { await api('/api/ctask', { id: rj.dataset.rj, review: { seat: rj.dataset.seat, ok: false } }); return show(); }
+    if (rl && confirm('收回这一楼，让别人领？')) { await api('/api/ctask', { id: rl.dataset.rl, release: rl.dataset.seat }); return show(); } };
 }
-
-// 周边店候选：从爆款库的本地笔记里抽出来的店，一键加进门店池（和主店同品类的默认收起）
-const CAN = { brief: '', showSame: false };
-async function candBox() {
-  const el = $('#cands'); if (!el) return; const [{ briefs }, d] = await Promise.all([api('/api/briefs'), api('/api/cands?brief=' + CAN.brief)]); CAN.brief = d.brief;
-  const L = d.items.filter(c => CAN.showSame || !c.same); const hid = d.items.filter(c => c.same).length;
-  el.innerHTML = `<div class="card" style="margin-top:10px"><h2 style="margin-top:0">周边店候选 <small>从爆款库里本地笔记抽出来的店；采集插件会按任务书的周边商圈专门去搜（${d.focus.map(f => h(f.kw)).join('、') || '还没设'}），每 3 小时整理一次</small></h2>
-  <div class="row"><select id="cbr">${briefs.map(b => `<option value="${b.id}" ${b.id === CAN.brief ? 'selected' : ''}>${h(b.name)}</option>`).join('')}</select><span class="hint">周边商圈：${d.near.map(h).join('、')}</span>${hid ? `<label class="hint"><input type="checkbox" id="csame" ${CAN.showSame ? 'checked' : ''}> 显示和主店同品类的 ${hid} 家</label>` : ''}<button class="btn sm" id="crun">现在整理一次</button></div>
-  ${L.length ? `<table style="margin-top:8px"><tr><th><input type="checkbox" id="call"></th><th>店名</th><th>商圈/地址</th><th>品类</th><th>招牌</th><th>人均</th><th>来源笔记</th></tr>${L.map((c, i) => `<tr${c.same ? ' style="opacity:.55"' : ''}><td><input type="checkbox" data-ci="${i}" ${c.near && !c.same ? 'checked' : ''}></td><td>${h(c.name)}${c.near ? ' <span class="tag ok">周边</span>' : ' <span class="tag">远/不明</span>'}${c.same ? ' <span class="tag bad">同品类</span>' : ''}</td><td class="hint">${h(c.area)}${c.addr ? '<br>' + h(c.addr) : ''}</td><td>${h(c.cat)}</td><td class="hint">${h(c.dishes)}</td><td class="mono">${h(c.price)}</td><td class="hint">${c.notes.map(n => `<a href="https://www.xiaohongshu.com/explore/${n.id}" target="_blank" rel="noopener">${h(n.title)}</a>`).join('<br>')}</td></tr>`).join('')}</table>
-  <div class="row" style="margin-top:8px"><button class="btn sm pri" id="cadd">把勾选的加进门店池</button><button class="btn sm" id="cign">勾选的不要</button><span class="hint">加进去的店标「待核对」，店名、地址、营业时间核对后再大量出稿</span></div>` : `<div class="hint" style="margin-top:8px">${d.focus.length ? '还没有候选：插件今晚会按上面的词去搜本地笔记，明天这里就会有。' : '还没有候选。'}</div>`}</div>`;
-  $('#cbr').onchange = e => { CAN.brief = e.target.value; candBox(); }; if ($('#csame')) $('#csame').onchange = e => { CAN.showSame = e.target.checked; candBox(); };
-  $('#crun').onclick = async () => { await api('/api/cands', { run: 1 }); toast('开始整理，过几分钟刷新看'); };
-  if ($('#call')) $('#call').onchange = e => el.querySelectorAll('[data-ci]').forEach(i => { i.checked = e.target.checked; });
-  const pick = () => [...el.querySelectorAll('[data-ci]:checked')].map(i => L[+i.dataset.ci].name);
-  if ($('#cadd')) $('#cadd').onclick = async () => { const names = pick(); if (!names.length) return toast('先勾选'); const r = await api('/api/cands', { brief: CAN.brief, names }); toast(`已加 ${r.add} 家进门店池`); show(); };
-  if ($('#cign')) $('#cign').onclick = async () => { const names = pick(); if (!names.length) return toast('先勾选'); await api('/api/cands', { brief: CAN.brief, names, ignore: 1 }); candBox(); };
+// ================== 评论任务大厅（给评论的人，手机上用，不用登录）==================
+const HL = { tab: 'open' };
+const hallGet = k => { try { return localStorage.getItem(k) || ''; } catch (e) { return HL[k] || ''; } };
+const hallSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { } HL[k] = v; };
+async function hallPage(m) {
+  document.title = '评论任务大厅'; const name = hallGet('gl_name'), acct = hallGet('gl_acct');
+  if (!name) { m.innerHTML = `<div class="say"><h1>评论任务大厅</h1><p>第一次用，填一下你的名字和评论用的账号名（结算按名字算）。</p></div><div class="card"><div class="kv"><b>你的名字</b><input id="hn" placeholder="如 小王"><b>评论用的账号名</b><input id="ha" placeholder="抖音/小红书昵称"></div><button class="btn pri" id="hgo" style="margin-top:10px">进入</button></div>`;
+    $('#hgo').onclick = () => { const n = $('#hn').value.trim(); if (!n) return toast('填名字'); hallSet('gl_name', n); hallSet('gl_acct', $('#ha').value.trim()); hallPage(m); }; return; }
+  const d = await fetch(`${BASE}/data?name=${encodeURIComponent(name)}`).then(r => r.json()).catch(() => ({})); if (!d.ok) { m.innerHTML = '<div class="empty">打不开，稍后再试或找运营要新链接</div>'; return; }
+  const act = async o => { const r = await fetch(BASE + '/act', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ name, acct }, o)) }).then(r => r.json()).catch(() => ({ error: '网络不好，再试一次' })); if (!r.ok) { toast(r.error || '没成功'); return false; } return true; };
+  const freeN = d.open.reduce((a, t) => a + (t.floors.some(f => f.taken === 'me') ? 0 : t.floors.filter(f => !f.taken).length), 0);
+  const head = `<div class="say"><h1>评论任务大厅</h1><p>${h(name)}${acct ? '（' + h(acct) + '）' : ''} · 本月完成 <b>${d.doneN}</b> 条 · <a href="javascript:void 0" id="hx">换人</a></p></div><div class="chips">${[['open', `可以领 ${freeN}`], ['mine', '我的'], ['lib', '素材库']].map(([k, n]) => `<span class="chip ${HL.tab === k ? 'on' : ''}" data-ht="${k}">${n}</span>`).join('')}</div>`;
+  let body2 = '';
+  if (HL.tab === 'open') body2 = d.open.map(t => { const inG = t.floors.some(f => f.taken === 'me'); return `<div class="note"><div class="row"><b>第 ${t.no} 组</b><span class="hint">${h(t.store)} · ${t.platform === 'dy' ? '抖音' : '小红书'} · ${t.late ? '<b style="color:var(--bad)">已过截止</b>' : t.due === d.today ? '今天内' : '截止 ' + t.due.slice(5)}</span><a class="hint" href="${h(t.url)}" target="_blank" rel="noopener">看笔记 ↗</a></div>${t.floors.map(f => `<div style="display:flex;gap:8px;align-items:center;margin-top:6px"><b class="mono" style="min-width:56px">${f.seat}${f.reply ? '回' + f.reply : ' 首评'}</b><span style="flex:1">${h(f.text)}${f.img ? ' <span class="tag">配图</span>' : ''}</span>${f.done ? '<span class="tag ok">已发</span>' : f.taken === 'me' ? '<span class="tag am">我领的</span>' : f.taken ? `<span class="hint">已被领</span>` : inG ? '' : `<button class="btn sm pri" data-cl2="${t.id}" data-seat="${f.seat}">领这一楼</button>`}</div>`).join('')}</div>`; }).join('') || '<div class="empty">现在没有可以领的，晚点再来看</div>';
+  if (HL.tab === 'mine') body2 = d.mine.map(t => t.floors.map(f => `<div class="note"><div class="row"><b>第 ${t.no} 组 · ${f.seat} 楼</b><span class="hint">${t.due === d.today ? '今天内' : '截止 ' + t.due.slice(5)}</span><a class="btn sm" href="${h(t.url)}" target="_blank" rel="noopener">打开笔记去评论</a></div>
+    <div class="copy" style="margin-top:6px">${h(f.text)}</div><div class="row"><button class="btn sm" data-cp2="${h(f.text)}">复制这句</button>${f.seat !== 'A' ? '<span class="hint">回复的楼：等前面那楼发出来，在它下面回复</span>' : '<span class="hint">首评：直接在笔记下面发</span>'}</div>
+    ${f.img ? `<div style="margin-top:6px"><div class="hint">这楼要配这张图（手机长按图片保存）：</div><img src="${BASE}/photo/${f.img}" style="width:100%;max-width:360px;border-radius:8px"></div>` : ''}
+    <div class="row" style="margin-top:8px">${f.done ? (f.done.ok === false ? '<b style="color:var(--bad)">被打回了，重新评论后再传截图</b>' : '<span class="tag ok">已交截图 ✓</span>') : ''}${!f.done || f.done.ok === false ? `<label class="btn sm pri">评论完，传截图<input type="file" accept="image/*" data-up="${t.id}" data-seat="${f.seat}" style="display:none"></label>${!f.done ? `<button class="btn sm" data-dr="${t.id}" data-seat="${f.seat}">不做了</button>` : ''}` : ''}</div></div>`).join('')).join('') || '<div class="empty">还没领任务，去「可以领」看看</div>';
+  if (HL.tab === 'lib') { const r = await fetch(BASE + '/lib').then(x => x.json()).catch(() => ({ lib: [] })); body2 = r.lib.map(g => `<h2>${h(g.store)} <small>${g.photos.length} 张，手机长按保存</small></h2><div class="pv" style="flex-wrap:wrap">${g.photos.map(p => `<div style="width:110px"><img src="${BASE}/photo/${p.f}" loading="lazy" style="width:110px;height:140px;object-fit:cover;border-radius:6px"><div class="hint">${h(p.dish || '')}</div></div>`).join('')}</div>`).join('') || '<div class="empty">素材库还是空的</div>'; }
+  m.innerHTML = head + body2;
+  $('#hx').onclick = () => { hallSet('gl_name', ''); hallPage(m); };
+  m.onclick = async e => { const ht = e.target.closest('[data-ht]'), c2 = e.target.closest('[data-cl2]'), cp = e.target.closest('[data-cp2]'), dr = e.target.closest('[data-dr]');
+    if (ht) { HL.tab = ht.dataset.ht; return hallPage(m); }
+    if (c2) { if (await act({ act: 'claim', id: c2.dataset.cl2, seat: c2.dataset.seat })) { toast('领到了，去「我的」看文案'); HL.tab = 'mine'; hallPage(m); } return; }
+    if (cp) return copy(cp.dataset.cp2);
+    if (dr && confirm('不做这一楼了？')) { if (await act({ act: 'drop', id: dr.dataset.dr, seat: dr.dataset.seat })) hallPage(m); } };
+  m.querySelectorAll('[data-up]').forEach(inp => { inp.onchange = async () => { const f = inp.files[0]; if (!f) return; toast('上传中…'); const shot = await toJpg(f, 1600); if (await act({ act: 'done', id: inp.dataset.up, seat: inp.dataset.seat, shot })) { toast('交好了，计进结算'); hallPage(m); } }; });
 }
 function modal(html) { const d = document.createElement('div'); d.className = 'modal'; d.innerHTML = `<div style="width:min(640px,100%)">${html}</div>`; document.body.appendChild(d); d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-cl]')) d.remove(); }); return d; }
 function editModal(b, n) {
@@ -639,6 +654,7 @@ function soon(m) { m.innerHTML = `<div class="empty"><b>结算</b><br><br>下一
 (async () => {
   if (SHARE) { $('#tabs').innerHTML = ''; $('#who').innerHTML = ''; ST.tab = 'review'; return show(); }
   if (CARD) { $('#tabs').innerHTML = ''; $('#who').innerHTML = ''; return cardPage($('#main')); }
+  if (HALL) { $('#tabs').innerHTML = ''; $('#who').innerHTML = ''; return hallPage($('#main')); }
   try { const r = await api('/api/me'); ME = r.me; LAYOUTS = r.layouts; } catch (e) { $('#main').innerHTML = `<div class="empty">${h(e.message)}</div>`; return; }
   $('#who').innerHTML = `<span>${h(ME.name)} · ${h(ME.roleName)}</span><a href="${BASE}/logout">退出</a>`;
   ST.tab = ME.role === 'writer' ? 'submit' : (location.hash || '').slice(1) || (ME.role === 'review' ? 'review' : 'dash'); nav(); show();
