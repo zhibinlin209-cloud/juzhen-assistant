@@ -23,6 +23,8 @@ body { min-height: 100vh; background: radial-gradient(1200px 600px at 50% -10%, 
 .top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 12px 0; background: linear-gradient(var(--deep) 75%, transparent) }
 .brand { font-weight: 900; letter-spacing: .08em; font-size: 13px; white-space: nowrap } .brand b { color: var(--amber) }
 .tabs { display: flex; gap: 4px; flex-wrap: wrap }
+@media (max-width: 700px) { .tabs { flex-wrap: nowrap; overflow-x: auto; width: 100%; order: 3 } .tab { flex: none } .top { gap: 8px } }
+.boxes { display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 10px } .box { flex: none; min-width: 210px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; cursor: pointer } .box.on { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan) } .box b { display: block; font-size: 13px } .box small { color: var(--mute); font-size: 11px }
 .tab { font: inherit; color: var(--mute); background: none; border: 1px solid transparent; border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 14px }
 .tab:hover { color: var(--ink) } .tab.on { color: var(--ink); border-color: var(--line); background: var(--panel) }
 .tab .soon { font-size: 10px; color: var(--faint); margin-left: 3px }
@@ -165,7 +167,7 @@ let ME = null, LAYOUTS = {}; const ST = { tab: 'dash', lib: { sort: 'heat' }, ba
 const TABS = [['dash', '大盘'], ['lib', '爆款库'], ['brief', '任务书'], ['gen', 'AI 出稿'], ['review', '审稿'], ['stores', '门店池'], ['dispatch', '派单·结算', 1], ['publish', '发布回填', 1], ['users', '账号']];
 function nav() { const tabs = TABS.filter(([k]) => ME.role === 'boss' || (k !== 'users' && (ME.role !== 'review' || k === 'review'))); $('#tabs').innerHTML = tabs.map(([k, n, soon]) => `<button class="tab ${ST.tab === k ? 'on' : ''}" data-tab="${k}">${n}${soon ? '<span class="soon">下一步</span>' : ''}</button>`).join(''); }
 document.addEventListener('click', e => { const t = e.target.closest('[data-tab]'); if (t) { ST.tab = t.dataset.tab; location.hash = ST.tab; nav(); show(); } });
-async function show() { const m = $('#main'); try { m.innerHTML = '<div class="empty">加载中…</div>'; const f = { dash, lib, brief, gen, review, stores, dispatch: soon, publish: soon, users }[ST.tab] || dash; await f(m); } catch (e) { m.innerHTML = `<div class="empty">出错了：${h(e.message)}</div>`; } }
+async function show() { const m = $('#main'); m.onclick = null; clearTimeout(pollT); try { m.innerHTML = '<div class="empty">加载中…</div>'; const f = { dash, lib, brief, gen, review, stores, dispatch: soon, publish: soon, users }[ST.tab] || dash; await f(m); } catch (e) { m.innerHTML = `<div class="empty">出错了：${h(e.message)}</div>`; } }
 
 async function dash(m) {
   const d = await api('/api/dash'); const n = d.lib.night || {};
@@ -225,8 +227,12 @@ async function gen(m) {
   m.innerHTML = `<h2>AI 出稿 <small>DeepSeek 写文字，程序排版出图，自动核对任务书规则；最后一页留实拍图位置</small></h2>
   <div class="card"><div class="row"><span class="hint">任务书</span><select id="gb">${briefs.map(b => `<option value="${b.id}">${h(b.name)}</option>`).join('')}</select><span class="hint">篇数</span><input id="gn" type="number" min="1" max="10" value="3" style="width:70px"></div>
   <h2>选版式</h2><div class="lay">${Object.entries(LAYOUTS).map(([k, v], i) => `<label><input type="radio" name="lay" value="${k}" ${i ? '' : 'checked'}>${h(v.name)}<small>${h(v.desc)}</small></label>`).join('')}</div>
-  <div class="row" style="margin-top:14px"><button class="btn pri" id="go">开始出稿</button><span class="hint">每篇大约 30–60 秒，可以先去别的页面，完成后在「审稿」里看。</span></div></div><div id="gs"></div>`;
-  $('#go').onclick = async () => { $('#go').disabled = true; try { const r = await api('/api/gen', { brief: $('#gb').value, layout: document.querySelector('[name=lay]:checked').value, n: +$('#gn').value }); ST.batch = r.batch.id; toast('已开始出稿'); ST.tab = 'review'; nav(); show(); } catch (e) { toast(e.message); $('#go').disabled = false; } };
+  <div class="row" style="margin-top:14px"><button class="btn pri" id="go">开始出稿</button><span class="hint">点了就在后台生成，每篇 30–60 秒；写好的稿件自动放进「审稿」的待审稿箱。不用等，可以接着换任务书、换版式再出一批。</span></div></div>
+  <h2>出稿记录 <small>生成中的会自动刷新进度</small></h2><div id="gs"></div>`;
+  const list = async () => { if (ST.tab !== 'gen' || !$('#gs')) return; const { batches } = await api('/api/batches'); $('#gs').innerHTML = batches.length ? `<div class="card"><table>${batches.slice(0, 12).map(b => `<tr><td>${day(b.at)}</td><td>${h(b.briefName)}<div class="hint">${h(b.layoutName)}</div></td><td>${b.status === 'running' ? `<span class="tag am">生成中 ${b.got}/${b.n}</span>` : `<span class="tag ok">已进待审稿箱 ${b.got} 篇</span>`}${b.err ? `<div class="hint" style="color:var(--bad)">${h(b.err)}</div>` : ''}</td><td><button class="btn sm" data-open="${b.id}">去审稿</button></td></tr>`).join('')}</table></div>` : '<div class="hint">还没有出过稿。</div>'; if (batches.some(b => b.status === 'running')) { clearTimeout(pollT); pollT = setTimeout(list, 10000); } };
+  m.onclick = e => { const o = e.target.closest('[data-open]'); if (o) { ST.batch = o.dataset.open; ST.tab = 'review'; location.hash = 'review'; nav(); show(); } };
+  $('#go').onclick = async () => { $('#go').disabled = true; try { await api('/api/gen', { brief: $('#gb').value, layout: document.querySelector('[name=lay]:checked').value, n: +$('#gn').value }); toast('已开始出稿，写好的会自动进待审稿箱'); await list(); } catch (e) { toast(e.message); } $('#go').disabled = false; };
+  clearTimeout(pollT); list();
 }
 
 let pollT = null;
@@ -236,13 +242,14 @@ async function review(m) {
   const { batches } = await api('/api/batches'); if (!batches.length) { m.innerHTML = '<div class="empty">还没有出过稿，去「AI 出稿」试一批。</div>'; return; }
   if (!ST.batch || !batches.find(b => b.id === ST.batch)) ST.batch = batches[0].id;
   const { batch } = await api('/api/batch/' + ST.batch);
-  m.innerHTML = `<div class="row" style="margin:8px 0 4px"><span class="hint">批次</span><select id="bs">${batches.map(b => `<option value="${b.id}" ${b.id === ST.batch ? 'selected' : ''}>${day(b.at)} · ${h(b.briefName)} · ${h(b.layoutName)} · ${b.got}/${b.n} 篇${b.status === 'running' ? '（生成中）' : ''}</option>`).join('')}</select>
-  <button class="btn sm" id="share">生成商家审稿链接</button><button class="btn sm" id="dlall">下载全部图片</button></div><div id="rb"></div>`;
-  $('#bs').onchange = e => { ST.batch = e.target.value; show(); };
+  const todoAll = batches.reduce((x, b) => x + Math.max(0, b.got - b.ok - b.fix), 0);
+  m.innerHTML = `<h2>待审稿箱 <small>还有 ${todoAll} 篇没审 · 点一批打开</small></h2><div class="boxes">${batches.map(b => { const todo = Math.max(0, b.got - b.ok - b.fix); return `<div class="box ${b.id === ST.batch ? 'on' : ''}" data-b="${b.id}"><b>${h(b.briefName.slice(0, 14))} · ${h(b.layoutName.slice(0, 10))}</b><small>${day(b.at)} · ${b.status === 'running' ? `生成中 ${b.got}/${b.n}` : `${b.got} 篇`}</small><div>${todo ? `<span class="tag am">待审 ${todo}</span>` : ''}${b.ok ? `<span class="tag ok">通过 ${b.ok}</span>` : ''}${b.fix ? `<span class="tag bad">要改 ${b.fix}</span>` : ''}</div></div>`; }).join('')}</div>
+  <div class="row" style="margin:0 0 4px"><button class="btn sm" id="share">生成商家审稿链接</button><button class="btn sm" id="dlall">下载这批全部图片</button><button class="btn sm" data-tab="gen">← 回去继续出稿</button></div><div id="rb"></div>`;
+  m.querySelector('.boxes').onclick = e => { const b = e.target.closest('[data-b]'); if (b) { ST.batch = b.dataset.b; show(); } };
   $('#share').onclick = async () => { const r = await api(`/api/batch/${ST.batch}/share`, {}); copy(r.url); toast('审稿链接已复制（14 天有效），发给店长或商家'); };
   $('#dlall').onclick = () => batch.notes.forEach((n, i) => setTimeout(() => dlPages(batch, n), i * 3000));
   reviewBatch($('#rb'), batch, false);
-  if (batch.status === 'running') pollT = setTimeout(() => { if (ST.tab === 'review') show(); }, 15000);
+  if (batch.status === 'running') { const n0 = batch.notes.length; const poll = async () => { if (ST.tab !== 'review' || ST.batch !== batch.id) return; const ae = document.activeElement; const typing = ae && ae.matches && ae.matches('input,textarea') && ae.value; const r = await api('/api/batch/' + batch.id).catch(() => null); if (r && !typing && (r.batch.notes.length !== n0 || r.batch.status !== 'running')) return show(); pollT = setTimeout(poll, 12000); }; pollT = setTimeout(poll, 12000); }
 }
 function reviewBatch(m, b, share) {
   const S = { todo: ['待审', 'am'], ok: ['通过', 'ok'], fix: ['要改', 'bad'], shop_ok: ['商家：没问题', 'ok'], shop_fix: ['商家：要改', 'bad'] };
