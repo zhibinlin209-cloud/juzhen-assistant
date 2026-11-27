@@ -544,6 +544,22 @@ async function stores(m) {
   m.onclick = e => { const c = e.target.closest('[data-d]'); if (c) { ST.dist = c.dataset.d; return show(); } const ph = e.target.closest('[data-ph]'); if (ph) return photoLib(stores.find(s => s.id === ph.dataset.ph)); const ed = e.target.closest('[data-ed]'); if (ed) storeEdit(stores.find(s => s.id === ed.dataset.ed) || { district: ST.dist || '南山' }); };
 }
 
+// 周边店候选箱（11-27 改评论大厅时误删，11-28 自查补回）
+const CAN = { brief: '', showSame: false };
+async function candBox() {
+  const el = $('#cands'); if (!el) return; const [{ briefs }, d] = await Promise.all([api('/api/briefs'), api('/api/cands?brief=' + CAN.brief)]); CAN.brief = d.brief;
+  const L = d.items.filter(c => CAN.showSame || !c.same); const hid = d.items.filter(c => c.same).length;
+  el.innerHTML = `<div class="card" style="margin-top:10px"><h2 style="margin-top:0">周边店候选 <small>从我们自己发过的攻略和爆款库的本地笔记里抽出来的店（最多显示 150 家，周边的排前面）；采集插件会按任务书的周边商圈专门去搜（${d.focus.map(f => h(f.kw)).join('、') || '还没设'}），每 3 小时整理一次</small></h2>
+  <div class="row"><select id="cbr">${briefs.map(b => `<option value="${b.id}" ${b.id === CAN.brief ? 'selected' : ''}>${h(b.name)}</option>`).join('')}</select><span class="hint">周边商圈：${d.near.map(h).join('、')}</span>${hid ? `<label class="hint"><input type="checkbox" id="csame" ${CAN.showSame ? 'checked' : ''}> 显示和主店同品类的 ${hid} 家</label>` : ''}<button class="btn sm" id="crun">现在整理一次</button></div>
+  ${L.length ? `<table style="margin-top:8px"><tr><th><input type="checkbox" id="call"></th><th>店名</th><th>商圈/地址</th><th>品类</th><th>招牌</th><th>人均</th><th>来源笔记</th></tr>${L.map((c, i) => `<tr${c.same ? ' style="opacity:.55"' : ''}><td><input type="checkbox" data-ci="${i}" ${c.near && !c.same ? 'checked' : ''}></td><td>${h(c.name)}${c.own ? ` <span class="tag">我们写过 ${c.own} 篇</span>` : ''}${c.near ? ' <span class="tag ok">周边</span>' : ' <span class="tag">远/不明</span>'}${c.same ? ' <span class="tag bad">同品类</span>' : ''}</td><td class="hint">${h(c.area)}${c.addr ? '<br>' + h(c.addr) : ''}</td><td>${h(c.cat)}</td><td class="hint">${h(c.dishes)}</td><td class="mono">${h(c.price)}</td><td class="hint">${c.notes.map(n => `<a href="https://www.xiaohongshu.com/explore/${n.id}" target="_blank" rel="noopener">${h(n.title)}</a>`).join('<br>')}</td></tr>`).join('')}</table>
+  <div class="row" style="margin-top:8px"><button class="btn sm pri" id="cadd">把勾选的加进门店池</button><button class="btn sm" id="cign">勾选的不要</button><span class="hint">加进去的店标「待核对」，店名、地址、营业时间核对后再大量出稿</span></div>` : `<div class="hint" style="margin-top:8px">${d.focus.length ? '还没有候选：插件今晚会按上面的词去搜本地笔记，明天这里就会有。' : '还没有候选。'}</div>`}</div>`;
+  $('#cbr').onchange = e => { CAN.brief = e.target.value; candBox(); }; if ($('#csame')) $('#csame').onchange = e => { CAN.showSame = e.target.checked; candBox(); };
+  $('#crun').onclick = async () => { await api('/api/cands', { run: 1 }); toast('开始整理，过几分钟刷新看'); };
+  if ($('#call')) $('#call').onchange = e => el.querySelectorAll('[data-ci]').forEach(i => { i.checked = e.target.checked; });
+  const pick = () => [...el.querySelectorAll('[data-ci]:checked')].map(i => L[+i.dataset.ci].name);
+  if ($('#cadd')) $('#cadd').onclick = async () => { const names = pick(); if (!names.length) return toast('先勾选'); const r = await api('/api/cands', { brief: CAN.brief, names }); toast(`已加 ${r.add} 家进门店池`); show(); };
+  if ($('#cign')) $('#cign').onclick = async () => { const names = pick(); if (!names.length) return toast('先勾选'); await api('/api/cands', { brief: CAN.brief, names, ignore: 1 }); candBox(); };
+}
 async function photoLib(s) { // 门店实拍图库：上传后最后一页自动用 4 张拼图
   const d = document.createElement('div'); d.className = 'modal'; document.body.appendChild(d);
   const draw = async () => { const { photos, sucai = [], sucaiAt, sucaiOn } = await api('/api/photos/' + s.id); d.innerHTML = `<div style="width:min(900px,100%)"><button class="btn x">关闭</button><h2 style="margin-top:0">${h(s.name)} · 实拍图库 <small>${photos.length} 张 · 稿子最后一页从这里挑 4 张拼图（店名＋菜品描述叠在中间）</small></h2>

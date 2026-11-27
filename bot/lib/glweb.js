@@ -711,7 +711,7 @@ ${text}`, ['qwen-plus', 'deepseek-v4.1-flash']);
   setInterval(() => { const hh = new Date(Date.now() + 8 * 3600e3).getUTCHours(); if (hh === 4) ownCands().catch(() => { }); }, 3600e3); // 每天凌晨 4 点看一眼自家内容库有没有新攻略，有就接着抽店、补门店池
   setInterval(() => extractCands().catch(() => { }), 3 * 3600e3); setTimeout(() => extractCands().catch(() => { }), 120e3);
   function candList(bid) { const B = briefs().find(x => x.id === bid) || briefs()[0] || {}; const near = nearOf(B); const same = sameCatRe(B);
-    return CA.items.filter(c => c.st === 'new').map(c => Object.assign({}, c, { near: near.some(a => (c.area + c.addr + c.name).includes(a)), same: same.test(c.cat + c.name) })).sort((a, c) => (c.near - a.near) || (a.same - c.same) || c.notes.length - a.notes.length); }
+    return CA.items.filter(c => c.st === 'new' && (!c.for || c.for.includes(B.id))).map(c => Object.assign({}, c, { near: near.some(a => (c.area + c.addr + c.name).includes(a)), same: same.test(c.cat + c.name) })).sort((a, c) => (c.near - a.near) || (a.same - c.same) || ((c.own || 0) - (a.own || 0)) || c.notes.length - a.notes.length).slice(0, 150); }
 
   // ---------- 评论任务大厅（林总 2026-11-27）：我们维护自己的评论区。运营生成「一组」评论（首评＋几楼回复），放进大厅；
   // 评论的人打开大厅链接（不用登录）自己领一楼、复制文案、存配图、评论完传截图，自动计进结算。文案照君游现在的写法：短、口语、像朋友聊天。
