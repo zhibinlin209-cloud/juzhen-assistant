@@ -16,7 +16,7 @@ const LAYOUTS = {
   route: { name: '一日游路线表', desc: '路线时间表＋景点小贴士＋吃饭清单＋主店介绍' }
 };
 
-function createGlweb({ dataDir, log, cfg, glib, base, bossDm }) {
+function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai }) {
   const D = path.join(dataDir, 'gl'); const BD = path.join(D, 'batches'), PD = path.join(D, 'photos'); [D, BD, PD].forEach(d => fs.mkdirSync(d, { recursive: true }));
   const rj = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
   const wj = (f, v) => { const t = f + '.tmp'; fs.writeFileSync(t, JSON.stringify(v)); fs.renameSync(t, f); };
@@ -169,6 +169,38 @@ ${shopLines}
     return JSON.parse(fix(s));
   }
   // 门店实拍图库：每家店一个文件夹，最后一页实拍拼图从这里挑
+  // ---------- 素材库实拍（林总 2026-11-27：最后一页拼图用素材库里的图）：飞书「原图素材库」→ 缩到长边 1440 存 photos/sc/N.jpg ----------
+  const SCF = path.join(D, 'sucai.json'); let SC = rj(SCF, { items: [], at: 0 }); const SCD = path.join(PD, 'sc'); fs.mkdirSync(SCD, { recursive: true });
+  const SC_OK = x => !/有字/.test(x.clean) && /封面候选|内页|环境门头|待定|^$/.test(x.use) && !/人物动作/.test(x.use);
+  let scBusy = null;
+  async function syncSucai(max) {
+    if (!sucai) throw new Error('素材库没接上'); if (scBusy) return scBusy;
+    scBusy = (async () => {
+      const L = await sucai.list(); const have = new Map(SC.items.map(x => [x.rec, x])); let add = 0, fail = 0; let n = Math.max(0, ...SC.items.map(x => x.n || 0));
+      let C = null; try { C = require('@napi-rs/canvas'); } catch (e) { }
+      for (const r of L) {
+        const o = have.get(r.rec); if (o) { Object.assign(o, { store: r.store, dish: r.dish, use: r.use, clean: r.clean }); continue; }
+        if (!SC_OK(r) || add >= (max || 300)) continue;
+        try { let buf = await sucai.dl(r.url); if (C) try { const im = await C.loadImage(buf); const k = Math.min(1, 1440 / Math.max(im.width, im.height)); const c = C.createCanvas(Math.round(im.width * k), Math.round(im.height * k)); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); buf = await c.encode('jpeg', 85); } catch (e) { }
+          n++; fs.writeFileSync(path.join(SCD, n + '.jpg'), buf); SC.items.push({ rec: r.rec, n, store: r.store, dish: r.dish, use: r.use, clean: r.clean }); add++; } catch (e) { fail++; }
+      }
+      const live = new Set(L.map(r => r.rec)); SC.items = SC.items.filter(x => { if (live.has(x.rec)) return true; try { fs.unlinkSync(path.join(SCD, x.n + '.jpg')); } catch (e) { } return false; });
+      SC.at = Date.now(); wj(SCF, SC); log(`[攻略平台] 素材库同步：新增 ${add} 张，失败 ${fail}，共 ${SC.items.length} 张`); return { ok: true, add, fail, total: SC.items.length };
+    })().finally(() => { scBusy = null; });
+    return scBusy;
+  }
+  if (sucai) { setTimeout(() => syncSucai().catch(e => log('[攻略平台] 素材库同步出错：' + e.message)), 90e3); setInterval(() => syncSucai().catch(e => log('[攻略平台] 素材库同步出错：' + e.message)), 6 * 3600e3); }
+  // 某家店能用的素材：素材库里写了这家店的（含门头环境），加上没写门店的菜品图（各店出品一样）；按菜品错开，每篇拼图尽量不同的菜
+  function sucaiFor(sid) {
+    const st = stores().find(x => x.id === sid) || {}; const nm = String(st.name || '') + String(st.area || '');
+    const mine = SC.items.filter(x => SC_OK(x) && (x.store ? (nm.includes(x.store) || x.store.split(/[\s、,，/]+/).some(k => k.length >= 2 && nm.includes(k))) : !/环境门头/.test(x.use)));
+    const rnd = s => { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; };
+    const by = new Map(); mine.sort((a, b) => rnd(sid + a.rec) - rnd(sid + b.rec)).forEach(x => { const k = x.dish || ('_' + x.n); if (!by.has(k)) by.set(k, []); by.get(k).push(x); });
+    const groups = [...by.values()]; const out = []; for (let i = 0; out.length < mine.length; i++) groups.forEach(g => { if (g[i]) out.push(g[i]); });
+    const door = out.filter(x => /环境门头/.test(x.use)), food = out.filter(x => !/环境门头/.test(x.use));
+    const res = []; let di = 0; food.forEach((x, i) => { if (i % 7 === 6 && door[di]) res.push(door[di++]); res.push(x); }); // 大约每两篇拼图里有一张门头
+    return res.map(x => `sc/${x.n}.jpg`);
+  }
   const photosOf = sid => { if (!/^[A-Za-z0-9_-]+$/.test(String(sid || ''))) return []; try { return fs.readdirSync(path.join(PD, sid)).filter(f => /^\d+\.jpg$/.test(f)).sort((a, b) => parseInt(a) - parseInt(b)); } catch (e) { return []; } };
   const jobs = new Map();
   async function generate(briefId, layout, n, by) {
@@ -227,7 +259,7 @@ ${shopLines}
       const bid = verify(m[1], 'R'); const b = bid && getBatch(bid); if (!b) return send(res, 403, shell('链接失效', '<form><h1>审稿链接已失效</h1></form>'), 'text/html; charset=utf-8');
       const sub = m[2] || '/';
       if (sub === '/') { const h = page(); return h ? send(res, 200, h, 'text/html; charset=utf-8') : send(res, 503, '页面更新中'); }
-      if (sub === '/data') { const sid = (briefs().find(x => x.id === b.brief) || {}).store; return J(res, { ok: true, share: true, batch: b, layouts: LAYOUTS, photos: photosOf(sid).map(f => `${sid}/${f}`) }); }
+      if (sub === '/data') { const sid = (briefs().find(x => x.id === b.brief) || {}).store; return J(res, { ok: true, share: true, batch: b, layouts: LAYOUTS, photos: photosOf(sid).map(f => `${sid}/${f}`).concat(sucaiFor(sid)) }); }
       const pm = sub.match(/^\/photo\/([A-Za-z0-9_-]+)\/(\d+\.jpg)$/); if (pm) { const f = path.join(PD, pm[1], pm[2]); if (!fs.existsSync(f)) return send(res, 404, ''); const buf = fs.readFileSync(f); res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'private, max-age=86400' }); return res.end(buf); }
       if (sub === '/mark' && req.method === 'POST') { const j = JSON.parse(await body(req, 20000) || '{}'); return J(res, { ok: true, note: mark(bid, j.no, j.status === 'ok' ? 'shop_ok' : j.status === 'fix' ? 'shop_fix' : '', j.note ? '【商家】' + j.note : '', '商家') }); }
       return send(res, 404, '{}');
@@ -246,7 +278,8 @@ ${shopLines}
       if (p === '/api/night') return J(res, glib.status());
       m = p.match(/^\/photo\/([A-Za-z0-9_-]+)\/(\d+\.jpg)$/); if (m) { const f = path.join(PD, m[1], m[2]); if (!fs.existsSync(f)) return send(res, 404, ''); const buf = fs.readFileSync(f); res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'private, max-age=86400' }); return res.end(buf); }
       m = p.match(/^\/api\/photos\/([A-Za-z0-9_-]+)$/);
-      if (m && req.method === 'GET') return J(res, { ok: true, photos: photosOf(m[1]) });
+      if (m && req.method === 'GET') return J(res, { ok: true, photos: photosOf(m[1]), sucai: sucaiFor(m[1]), sucaiAt: SC.at, sucaiOn: !!sucai });
+      if (p === '/api/sucai/sync' && req.method === 'POST') { if (!canWork) return J(res, { ok: false, error: '没有权限' }); syncSucai().catch(e => log('[攻略平台] 素材库同步出错：' + e.message)); return J(res, { ok: true, started: true, total: SC.items.length }); }
       if (m && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req, 8e6)); const dir = path.join(PD, m[1]); fs.mkdirSync(dir, { recursive: true });
         if (j.del) { if (/^\d+\.jpg$/.test(j.del)) try { fs.unlinkSync(path.join(dir, j.del)); } catch (e) { } return J(res, { ok: true, photos: photosOf(m[1]) }); }
         const b64 = String(j.data || '').replace(/^data:image\/jpeg;base64,/, ''); const buf = Buffer.from(b64, 'base64'); if (buf.length < 1000 || buf[0] !== 0xff || buf[1] !== 0xd8) throw new Error('只收 jpg 图片');
@@ -259,7 +292,7 @@ ${shopLines}
       if (p === '/api/briefs' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const L = briefs(); const b = j.brief || {}; const i = L.findIndex(x => x.id === b.id); if (i >= 0) L[i] = Object.assign(L[i], b); else L.push(Object.assign({}, L[0] || {}, b, { id: 'b' + Date.now().toString(36) })); wj(BF, L); return J(res, { ok: true }); }
       if (p === '/api/gen' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const n = Math.max(1, Math.min(10, +j.n || 3)); return J(res, { ok: true, batch: await generate(j.brief, j.layout, n, me.name) }); }
       if (p === '/api/batches') return J(res, { ok: true, batches: batches().map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.n, got: b.notes.length, status: b.status, err: b.err, ok: b.notes.filter(x => /ok/.test(x.status)).length, fix: b.notes.filter(x => /fix/.test(x.status)).length, errs: b.notes.filter(x => x.check.some(c => c[0] === 'err')).length })) });
-      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)$/); if (m) { const b = getBatch(m[1]); if (b) { const B = briefs().find(x => x.id === b.brief); if (B) b.notes.forEach(n => { n.check = check(n, B, b); }); } return J(res, b ? { ok: true, batch: b, layouts: LAYOUTS, photos: photosOf((briefs().find(x => x.id === b.brief) || {}).store).map(f => `${(briefs().find(x => x.id === b.brief) || {}).store}/${f}`) } : { ok: false, error: '没有这个批次' }); } // 按最新任务书重新核对
+      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)$/); if (m) { const b = getBatch(m[1]); if (b) { const B = briefs().find(x => x.id === b.brief); if (B) b.notes.forEach(n => { n.check = check(n, B, b); }); } return J(res, b ? { ok: true, batch: b, layouts: LAYOUTS, photos: (sid => photosOf(sid).map(f => `${sid}/${f}`).concat(sucaiFor(sid)))((briefs().find(x => x.id === b.brief) || {}).store) } : { ok: false, error: '没有这个批次' }); } // 按最新任务书重新核对
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/mark$/); if (m && req.method === 'POST') { const j = JSON.parse(await body(req, 20000)); return J(res, { ok: true, note: mark(m[1], j.no, ['ok', 'fix', 'todo'].includes(j.status) ? j.status : '', j.note, me.name) }); }
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/share$/); if (m && req.method === 'POST' && canWork) { if (!getBatch(m[1])) throw new Error('没有这个批次'); return J(res, { ok: true, url: `${base}r/${sign(`R|${m[1]}|${Date.now() + 14 * DAY}`)}` }); }
       if (p === '/api/users' && isBoss) return J(res, { ok: true, users: U.users.map(x => ({ id: x.id, name: x.name, role: x.role, roleName: ROLE[x.role], login: x.login || '', set: !!x.hash, off: !!x.off, last: x.last || null })) });
@@ -274,6 +307,6 @@ ${shopLines}
   // 第一次出样稿有几篇失败（模型 JSON 不规范，已修）：把没出满的系统样稿重出一次
   setTimeout(() => { try { if (META.sampled2 || !META.sampled) return; META.sampled2 = Date.now(); saveMeta(); let i = 0; for (const b of batches()) { if (b.by !== '系统样稿' || b.status === 'running' || b.notes.length >= b.n) continue; try { fs.unlinkSync(path.join(BD, b.id + '.json')); } catch (e) { } const l = b.layout; setTimeout(() => generate(b.brief, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), (i++) * 20e3); } } catch (e) { log('[攻略平台] 补样稿出错：' + e.message); } }, 60e3);
   setTimeout(() => { try { if (batches().length || !(cfg.qwenKey || cfg.deepseekKey) || META.sampled) return; META.sampled = Date.now(); saveMeta(); const b = briefs()[0]; if (!b) return; ['clean', 'green', 'nav', 'memo'].forEach((l, i) => setTimeout(() => generate(b.id, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), i * 20e3)); log('[攻略平台] 开始出样稿'); } catch (e) { log('[攻略平台] 样稿出错：' + e.message); } }, 90e3);
-  return { handle, generate, LAYOUTS, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
+  return { handle, generate, LAYOUTS, syncSucai, sucaiFor, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
 }
 module.exports = { createGlweb };

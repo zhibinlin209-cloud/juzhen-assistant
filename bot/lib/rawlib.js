@@ -163,10 +163,21 @@ function createRawLib({ api, upload, imgBuf, fileBuf, toJpg, reply, senderName, 
     } while (pt);
     log(`[素材库] 补漏：检查 ${r.seen} 张，补存 ${r.added} 张，已有 ${r.dup} 张，失败 ${r.fail} 张`); return r;
   }
+  // 攻略平台用：把素材库全部图片的标签读出来（门店/菜品/用途/干净度/图片地址）
+  async function listAll() {
+    const tx = v => Array.isArray(v) ? v.map(x => (x && (x.text || x.name)) || (typeof x === 'string' ? x : '')).join('') : (v && typeof v === 'object') ? (v.text || v.name || '') : String(v || '');
+    const out = []; let pt = '';
+    do {
+      const d = await api.call('POST', `/bitable/v1/apps/${APP}/tables/${T}/records/search`, {}, Object.assign({ page_size: 500 }, pt ? { page_token: pt } : {}));
+      for (const r of d.items || []) { const f = r.fields || {}; const a = (Array.isArray(f['图片']) ? f['图片'] : [])[0]; if (!a || !a.file_token) continue; out.push({ rec: r.record_id, store: tx(f['门店']).trim(), dish: tx(f['菜品']).trim(), use: tx(f['用途']).trim(), clean: tx(f['画面干净度']).trim(), state: tx(f['使用状态']).trim(), url: a.url || `https://open.feishu.cn/open-apis/drive/v1/medias/${a.file_token}/download`, tok: a.file_token }); }
+      pt = d.has_more ? d.page_token : '';
+    } while (pt);
+    return out;
+  }
   async function check() { // 自检：能不能读到表和字段
     const d = await api.call('GET', `/bitable/v1/apps/${APP}/tables/${T}/fields`, null, { page_size: 100 });
     return (d.items || []).map(f => f.field_name + ':' + f.type);
   }
-  return { onMsg, check, backfillAI, resync, parseCaption, aiStat: () => aiN };
+  return { onMsg, check, backfillAI, listAll, resync, parseCaption, aiStat: () => aiN };
 }
 module.exports = { createRawLib, parseCaption };

@@ -186,7 +186,7 @@ function cleanLists(n) { // 大分类标题＋空心圆店名（只写店名，�
 }
 async function collagePage(n, photos, seed) { // 四宫格实拍＋中间白字描边（店名＋一段话），照 88/81/83 的实拍页
   if (!photos || !photos.length) return placeholder(n);
-  const pick = []; for (let i = 0; i < 4; i++) pick.push(photos[(seed + i) % photos.length]);
+  const pick = []; const st0 = (seed * 4) % photos.length; for (let i = 0; i < Math.min(4, photos.length); i++) pick.push(photos[(st0 + i) % photos.length]); while (pick.length < 4) pick.push(pick[pick.length % Math.max(1, photos.length)]);
   const imgs = await Promise.all(pick.map(u => loadImg(u))); const [c, x] = cv(); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
   const cw = W / 2, ch = H / 2; imgs.forEach((im, i) => { if (!im) return; const dx = (i % 2) * cw, dy = Math.floor(i / 2) * ch; const r = Math.max(cw / im.width, ch / im.height); const sw = cw / r, sh = ch / r; x.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, dx, dy, cw, ch); });
   const name = '📍' + n.main.name; const blurb = n.yes.blurb || n.yes.dishes.map(d => d.name + '，' + d.line).join('；');
@@ -254,7 +254,7 @@ async function renderNoteAsync(note, layout, photos, seed) {
 }
 
 const PCACHE = new Map(); let PHOTOS = [];
-function pagesOf(b, n) { const k = b.id + ':' + n.no + ':' + PHOTOS.length; if (!PCACHE.has(k)) PCACHE.set(k, renderNoteAsync(n, b.layout, PHOTOS.map(f => (SHARE ? BASE + '/photo/' : BASE + '/photo/') + f), n.no * 3).then(cs => cs.map(c => c.toDataURL('image/jpeg', 0.9)))); return PCACHE.get(k); }
+function pagesOf(b, n) { const k = b.id + ':' + n.no + ':' + PHOTOS.length; if (!PCACHE.has(k)) PCACHE.set(k, renderNoteAsync(n, b.layout, PHOTOS.map(f => (SHARE ? BASE + '/photo/' : BASE + '/photo/') + f), n.no).then(cs => cs.map(c => c.toDataURL('image/jpeg', 0.9)))); return PCACHE.get(k); }
 function textOf(n) { return `${n.title}\n\n${n.body}\n\n${n.tags.join(' ')}`; }
 async function dlPages(b, n) { (await pagesOf(b, n)).forEach((u, i) => { const a = document.createElement('a'); a.href = u; a.download = `${b.briefName}-第${n.no}篇-P${i + 1}.jpg`; document.body.appendChild(a); setTimeout(() => { a.click(); a.remove(); }, i * 400); }); }
 
@@ -385,11 +385,13 @@ async function stores(m) {
 
 async function photoLib(s) { // 门店实拍图库：上传后最后一页自动用 4 张拼图
   const d = document.createElement('div'); d.className = 'modal'; document.body.appendChild(d);
-  const draw = async () => { const { photos } = await api('/api/photos/' + s.id); d.innerHTML = `<div style="width:min(900px,100%)"><button class="btn x">关闭</button><h2 style="margin-top:0">${h(s.name)} · 实拍图库 <small>${photos.length} 张 · 稿子最后一页从这里挑 4 张拼图（店名＋菜品描述叠在中间）</small></h2>
+  const draw = async () => { const { photos, sucai = [], sucaiAt, sucaiOn } = await api('/api/photos/' + s.id); d.innerHTML = `<div style="width:min(900px,100%)"><button class="btn x">关闭</button><h2 style="margin-top:0">${h(s.name)} · 实拍图库 <small>${photos.length} 张 · 稿子最后一页从这里挑 4 张拼图（店名＋菜品描述叠在中间）</small></h2>
     <div class="row"><input type="file" id="pf" accept="image/*" multiple><span class="hint">可以一次选多张；建议：招牌菜特写（爆膏奶油虾）、其他菜、全桌、店内环境、门头</span></div>
-    <div class="pv" style="flex-wrap:wrap">${photos.map(f => `<div style="position:relative"><img src="${BASE}/photo/${s.id}/${f}" style="width:160px;height:200px;object-fit:cover"><button class="btn sm no" data-pd="${f}" style="position:absolute;right:4px;top:4px">删</button></div>`).join('') || '<div class="hint">还没有实拍图</div>'}</div></div>`;
+    <div class="pv" style="flex-wrap:wrap">${photos.map(f => `<div style="position:relative"><img src="${BASE}/photo/${s.id}/${f}" style="width:160px;height:200px;object-fit:cover"><button class="btn sm no" data-pd="${f}" style="position:absolute;right:4px;top:4px">删</button></div>`).join('') || '<div class="hint">还没有自己上传的实拍图</div>'}</div>
+    <h2>素材库里的图 <small>${sucai.length} 张 · 来自飞书「原图素材库」（写了这家店的＋没写门店的菜品图，有字的不用），和上面的一起轮流拼图，每篇尽量不同的菜${sucaiAt ? ' · 上次同步 ' + new Date(sucaiAt).toLocaleString('zh-CN', { hour12: false }).slice(5, 16) : ''}</small> ${sucaiOn ? '<button class="btn sm" data-sync>现在同步</button>' : ''}</h2>
+    <div class="pv" style="flex-wrap:wrap">${sucai.slice(0, 60).map(f => `<img src="${BASE}/photo/${f}" loading="lazy" style="width:120px;height:150px;object-fit:cover">`).join('') || '<div class="hint">还没同步到（服务器每 6 小时自动同步一次）</div>'}${sucai.length > 60 ? `<div class="hint">…还有 ${sucai.length - 60} 张</div>` : ''}</div></div>`;
     d.querySelector('#pf').onchange = async e => { const fs = [...e.target.files]; for (const f of fs) { const im = await loadImg(URL.createObjectURL(f)); if (!im) continue; const r = Math.min(1, 1440 / Math.max(im.width, im.height)); const c = document.createElement('canvas'); c.width = Math.round(im.width * r); c.height = Math.round(im.height * r); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); try { await api('/api/photos/' + s.id, { data: c.toDataURL('image/jpeg', 0.86) }); } catch (er) { toast(er.message); } } PCACHE.clear(); toast('已上传 ' + fs.length + ' 张'); draw(); }; };
-  d.onclick = async e => { if (e.target === d || e.target.classList.contains('x')) return d.remove(); const pd = e.target.closest('[data-pd]'); if (pd && confirm('删掉这张？')) { await api('/api/photos/' + s.id, { del: pd.dataset.pd }); PCACHE.clear(); draw(); } };
+  d.onclick = async e => { if (e.target === d || e.target.classList.contains('x')) return d.remove(); if (e.target.closest('[data-sync]')) { await api('/api/sucai/sync', {}); toast('开始同步，图多的话要几分钟，稍后再打开看'); return; } const pd = e.target.closest('[data-pd]'); if (pd && confirm('删掉这张？')) { await api('/api/photos/' + s.id, { del: pd.dataset.pd }); PCACHE.clear(); draw(); } };
   draw();
 }
 function storeEdit(s) {
