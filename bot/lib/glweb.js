@@ -16,7 +16,7 @@ const LAYOUTS = {
   route: { name: '一日游路线表', desc: '路线时间表＋景点小贴士＋吃饭清单＋主店介绍' }
 };
 
-function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai }) {
+function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision }) {
   const D = path.join(dataDir, 'gl'); const BD = path.join(D, 'batches'), PD = path.join(D, 'photos'); [D, BD, PD].forEach(d => fs.mkdirSync(d, { recursive: true }));
   const rj = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
   const wj = (f, v) => { const t = f + '.tmp'; fs.writeFileSync(t, JSON.stringify(v)); fs.renameSync(t, f); };
@@ -72,7 +72,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai }) {
     const dishes = Object.entries(B.dishes).map(([c, l]) => `${c}：${l.join('、')}`).join('；');
     const shopLines = pool.map(s => `- ${s.name}｜${s.area}｜${s.cat}｜人均${s.price}｜${s.hours}｜招牌：${s.dishes}`).join('\n');
     const L = LAYOUTS[layout];
-    const refText = refs().slice().sort(() => Math.random() - 0.5).slice(0, 2).map((r, i) => `——范文${i + 1}——\n${String(r.text).slice(0, 1200)}`).join('\n') || '（暂无）';
+    const refText = refs().slice().sort(() => Math.random() - 0.5).slice(0, 2).map((r, i) => `——范文${i + 1}——\n${String(r.text).slice(0, 1200)}${r.imgDesc ? `\n（这篇原稿的图片版式：\n${r.imgDesc.slice(0, 700)}）` : ''}`).join('\n') || '（暂无）';
     return `你是小红书本地生活博主，替深圳一家海鲜大排档写一篇「${dir.name}」方向的图文攻略，读起来要像真实游客或本地人自己整理的，不能像广告。
 【版式】${L.name}：${L.desc}。你只写文字内容，排版由程序完成。
 【读者】${B.audience}
@@ -254,6 +254,15 @@ ${shopLines}
   }
 
 
+
+  // ---------- 范文配图（林总 2026-11-27）：范文可以带原稿图片；通义看图写一句版式说明，AI 出稿时一起参考 ----------
+  const RID = path.join(D, 'refimg'); fs.mkdirSync(RID, { recursive: true });
+  const refImgFile = (id, f) => /^r[0-9a-z]+$/.test(id) && /^\d+\.jpg$/.test(f) ? path.join(RID, id, f) : null;
+  function addRefImgs(r, imgs) { const dir = path.join(RID, r.id); fs.mkdirSync(dir, { recursive: true }); r.imgs = r.imgs || []; let n = Math.max(0, ...r.imgs.map(f => parseInt(f))); for (const d of (imgs || []).slice(0, 18)) { n++; fs.writeFileSync(path.join(dir, n + '.jpg'), jpg(d)); r.imgs.push(n + '.jpg'); } }
+  let rq = Promise.resolve();
+  function describeRef(id) { if (!vision) return; rq = rq.then(async () => { const L = refs(); const r = L.find(x => x.id === id); if (!r || !(r.imgs || []).length) return; const out = [];
+    for (const f of r.imgs.slice(0, 12)) { try { const buf = fs.readFileSync(path.join(RID, id, f)); const t = await vision('这是一篇小红书文字攻略里的一张图。用一句话（≤50字）说清这页的版式：背景颜色/样式、标题怎么写、内容怎么排（清单/分组/编号/高亮/手写批注/拼图等）。只写版式，不写具体店名。', 'data:image/jpeg;base64,' + buf.toString('base64')); out.push(`P${parseInt(f)}：${String(t || '').replace(/\s+/g, ' ').slice(0, 80)}`); } catch (e) { } }
+    const L2 = refs(); const r2 = L2.find(x => x.id === id); if (r2) { r2.imgDesc = out.join('\n'); wj(RF, L2); log(`[攻略平台] 范文「${r2.name}」看图写好版式说明 ${out.length} 张`); } }).catch(e => log('[攻略平台] 范文看图出错：' + e.message)); }
   // ---------- 写手投稿 / 派发卡片 / 发布回填（洛琳 2026-11-27） ----------
   const UPD = path.join(D, 'up'), CDD = path.join(D, 'cards'); [UPD, CDD].forEach(d => fs.mkdirSync(d, { recursive: true }));
   const bjDay = (t) => new Date((t || Date.now()) + 8 * 3600e3).toISOString().slice(0, 10);
@@ -400,7 +409,12 @@ ${shopLines}
       if (p === '/api/stores' && req.method === 'GET') return J(res, { ok: true, stores: stores() });
       if (p === '/api/stores' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const L = stores(); const s = j.store || {}; if (!s.name) throw new Error('店名不能空'); const i = L.findIndex(x => x.id === s.id); const clean = { id: s.id || 's' + Date.now().toString(36), name: String(s.name).slice(0, 40), planted: !!s.planted, district: String(s.district || ''), area: String(s.area || ''), cat: String(s.cat || ''), slot: String(s.slot || ''), dishes: String(s.dishes || ''), price: +s.price || null, star: +s.star || null, hours: String(s.hours || ''), addr: String(s.addr || ''), checked: s.checked ? Date.now() : (i >= 0 ? L[i].checked : null) }; if (j.del && i >= 0) L.splice(i, 1); else if (i >= 0) L[i] = Object.assign(L[i], clean); else L.push(clean); wj(SF, L); return J(res, { ok: true }); }
       if (p === '/api/refs' && req.method === 'GET') return J(res, { ok: true, refs: refs() });
-      if (p === '/api/refs' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req, 200000)); const L = refs(); if (j.del) { const i = L.findIndex(x => x.id === j.del); if (i >= 0) L.splice(i, 1); META.refDel = (META.refDel || []).concat(j.del); saveMeta(); } else { const t = String(j.text || '').trim(); if (t.length < 50) throw new Error('范文太短'); L.push({ id: 'r' + Date.now().toString(36), name: String(j.name || t.split('\n')[0]).slice(0, 40), text: t.slice(0, 5000), by: me.name, at: Date.now() }); } wj(RF, L); return J(res, { ok: true, n: L.length }); }
+      if (p === '/api/refs' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req, 40e6)); const L = refs(); let touched = '';
+        if (j.del) { const i = L.findIndex(x => x.id === j.del); if (i >= 0) L.splice(i, 1); try { fs.rmSync(path.join(RID, String(j.del).replace(/[^a-z0-9]/g, '')), { recursive: true, force: true }); } catch (e) { } META.refDel = (META.refDel || []).concat(j.del); saveMeta(); }
+        else if (j.id) { const r = L.find(x => x.id === j.id); if (!r) throw new Error('没有这篇范文'); if (j.delImg) { r.imgs = (r.imgs || []).filter(f => f !== j.delImg); const f = refImgFile(r.id, j.delImg); if (f) try { fs.unlinkSync(f); } catch (e) { } } if (j.imgs) addRefImgs(r, j.imgs); touched = r.id; }
+        else { const t = String(j.text || '').trim(); if (t.length < 50) throw new Error('范文太短'); const r = { id: 'r' + Date.now().toString(36), name: String(j.name || t.split('\n')[0]).slice(0, 40), text: t.slice(0, 5000), by: me.name, at: Date.now() }; if (j.imgs && j.imgs.length) { addRefImgs(r, j.imgs); touched = r.id; } L.push(r); }
+        wj(RF, L); if (touched) describeRef(touched); return J(res, { ok: true, n: L.length }); }
+      m = p.match(/^\/refimg\/(r[0-9a-z]+)\/(\d+\.jpg)$/); if (m) return serveJpg(res, refImgFile(m[1], m[2]));
       if (p === '/api/briefs' && req.method === 'GET') return J(res, { ok: true, briefs: briefs() });
       if (p === '/api/briefs' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const L = briefs(); const b = j.brief || {}; const i = L.findIndex(x => x.id === b.id); if (i >= 0) L[i] = Object.assign(L[i], b); else L.push(Object.assign({}, L[0] || {}, b, { id: 'b' + Date.now().toString(36) })); wj(BF, L); return J(res, { ok: true }); }
       if (p === '/api/gen' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const n = Math.max(1, Math.min(10, +j.n || 3)); return J(res, { ok: true, batch: await generate(j.brief, j.layout, n, me.name) }); }
