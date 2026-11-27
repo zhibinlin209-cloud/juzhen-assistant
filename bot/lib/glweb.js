@@ -95,7 +95,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
   }
   function pickTpls(n, B, layout) { // 一批里每篇不同套路；同一任务书最近用过的套路往后放
     const used = new Map(); batches().filter(b => b.brief === B.id).slice(0, 8).forEach(b => b.notes.forEach(x => x.tpl && used.set(x.tpl.sub, (used.get(x.tpl.sub) || 0) + 1)));
-    const P = tplPool().filter(t => !/^(其他|通用|未分类|)$/.test(t.sub || '') && !/必比登|米其林|黑珍珠|必吃榜|官方|领导人|APEC|明星同款|总统|总理/.test(t.title + t.text + t.sub) && /美食|吃|旅游|攻略|游/.test((t.kind || '') + t.type + t.sub + t.title) && t.text.length >= 60 && t.text.length <= 1200 && !/第\d+天/.test(t.text.slice(0, 200)));
+    const P = tplPool().filter(t => !/^(其他|通用|未分类|运营派单表导入|)$/.test(t.sub || '') && !/必比登|米其林|黑珍珠|必吃榜|官方|领导人|APEC|明星同款|总统|总理/.test(t.title + t.text + t.sub) && /美食|吃|旅游|攻略|游/.test((t.kind || '') + t.type + t.sub + t.title) && t.text.length >= 60 && t.text.length <= 1200 && !/第\d+天/.test(t.text.slice(0, 200)));
     const groups = new Map(); P.forEach(t => { if (!groups.has(t.sub)) groups.set(t.sub, []); groups.get(t.sub).push(t); });
     const subs = [...groups.keys()].map(k => ({ k, n: groups.get(k).length, used: used.get(k) || 0, heat: Math.max(...groups.get(k).map(t => t.daily)) })).sort((a, c) => a.used - c.used || c.heat - a.heat).slice(0, Math.max(n * 3, 12)).sort(() => Math.random() - 0.5);
     return subs.slice(0, n).map(s => { const L = groups.get(s.k).sort((a, c) => (c.pages ? 1 : 0) - (a.pages ? 1 : 0) || c.daily - a.daily); return L[Math.floor(Math.random() * Math.min(3, L.length))]; });
