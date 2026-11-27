@@ -38,7 +38,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai }) {
   const cookie = req => { const m = String(req.headers.cookie || '').match(/(?:^|;\s*)xgl=([^;]+)/); return m ? m[1] : ''; };
   const ipOf = req => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
   async function body(req, max) { let b = ''; for await (const c of req) { b += c; if (b.length > (max || 2e6)) break; } return b; }
-  const ROLE = { boss: '老板', ops: '运营/策划', review: '审稿' };
+  const ROLE = { boss: '老板', ops: '运营/策划', review: '审稿', writer: '写手' };
   const userOf = req => { const id = verify(cookie(req), 'S'); return id ? U.users.find(x => x.id === id && !x.off) : null; };
   const setupLink = (uid, hours) => `${base}setpass?t=${sign(`P|${uid}|${Date.now() + (hours || 24) * 3600e3}`)}`;
   function ensureBoss() { let b = U.users.find(x => x.role === 'boss'); if (!b) { b = { id: 'u' + crypto.randomBytes(4).toString('hex'), name: cfg.bossName || '林总', role: 'boss', at: Date.now() }; U.users.push(b); saveU(); } return b; }
@@ -249,6 +249,66 @@ ${shopLines}
     if (st) n.status = st; if (note) n.notes.push({ t: String(note).slice(0, 500), who, at: Date.now() }); wj(f, b); return n;
   }
 
+
+  // ---------- 写手投稿 / 派发卡片 / 发布回填（洛琳 2026-11-27） ----------
+  const UPD = path.join(D, 'up'), CDD = path.join(D, 'cards'); [UPD, CDD].forEach(d => fs.mkdirSync(d, { recursive: true }));
+  const bjDay = (t) => new Date((t || Date.now()) + 8 * 3600e3).toISOString().slice(0, 10);
+  const jpg = d => { const buf = Buffer.from(String(d || '').replace(/^data:image\/jpeg;base64,/, ''), 'base64'); if (buf.length < 1000 || buf[0] !== 0xff || buf[1] !== 0xd8) throw new Error('只收 jpg 图片'); return buf; };
+  const serveJpg = (res, f) => { if (!f || !fs.existsSync(f)) return send(res, 404, ''); const buf = fs.readFileSync(f); res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'private, max-age=86400' }); return res.end(buf); };
+  const upFile = (bid, f) => /^g[0-9a-z]+$/.test(bid) && /^\d+\.jpg$/.test(f) ? path.join(UPD, bid, f) : null;
+  const cardFile = (bid, no, f) => /^g[0-9a-z]+$/.test(bid) && /^\d+\.jpg$/.test(f) ? path.join(CDD, `${bid}-${+no}`, f) : null;
+  function checkManual(n, B) {
+    const out = []; const banned = ((B || briefs()[0] || {}).banned) || []; const t = [n.title, n.body, ...(n.tags || [])].join('\n');
+    banned.forEach(w => { if (t.includes(w)) out.push(['err', `出现禁用词「${w}」`]); });
+    if (!n.title) out.push(['err', '没有标题']); else if ([...n.title].length > 20) out.push(['warn', `标题 ${[...n.title].length} 字，小红书最多 20 字`]);
+    const k = (n.images || []).length; if (!k) out.push(['err', '没有图片']); else if (k < 6) out.push(['warn', `只有 ${k} 张图，建议 8–10 张`]);
+    if (String(n.body || '').length < 80) out.push(['warn', '正文偏短']); if (/无广|自费|不是广告/.test(t)) out.push(['err', '不要写「无广/自费/不是广告」']);
+    return out;
+  }
+  const checkOf = (n, B, b) => b.kind === 'manual' ? checkManual(n, B) : check(n, B, b);
+  const cardUrl = (bid, no) => `${base}c/${sign(`C|${bid}~${no}|${Date.now() + 60 * DAY}`)}`;
+  function saveUp(bid, imgs) { const dir = path.join(UPD, bid); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { } fs.mkdirSync(dir, { recursive: true }); return imgs.slice(0, 18).map((d, i) => { fs.writeFileSync(path.join(dir, (i + 1) + '.jpg'), jpg(d)); return (i + 1) + '.jpg'; }); }
+  function submit(j, me) {
+    const title = String(j.title || '').trim().slice(0, 40), bodyT = String(j.body || '').trim().slice(0, 3000); const tags = String(j.tags || '').split(/[\s,，]+/).filter(Boolean).map(t => '#' + t.replace(/^#/, '')).slice(0, 10);
+    if (!title || !bodyT) throw new Error('标题和正文都要写');
+    const B = briefs().find(x => x.id === j.brief);
+    if (j.batch) { // 改了重交
+      const b = getBatch(j.batch); if (!b || b.kind !== 'manual') throw new Error('没有这篇稿'); if (me.role === 'writer' && b.byId !== me.id) throw new Error('只能改自己的稿');
+      const n = b.notes[0]; Object.assign(n, { title, body: bodyT, tags, status: 'todo' }); if (Array.isArray(j.images) && j.images.length) n.images = saveUp(b.id, j.images);
+      n.notes.push({ t: '改好重交了', who: me.name, at: Date.now() }); n.check = checkManual(n, B); b.at = Date.now(); wj(path.join(BD, b.id + '.json'), b); return b;
+    }
+    if (!Array.isArray(j.images) || !j.images.length) throw new Error('至少传 1 张图');
+    const id = 'g' + Date.now().toString(36); const images = saveUp(id, j.images);
+    const n = { no: 1, title, body: bodyT, tags, images, status: 'todo', notes: [], dir: me.name, ending: '' }; n.check = checkManual(n, B);
+    const b = { id, kind: 'manual', brief: B ? B.id : '', briefName: B ? B.name : '写手投稿', layout: 'manual', layoutName: '写手投稿 · ' + me.name, by: me.name, byId: me.id, at: Date.now(), n: 1, status: 'done', notes: [n], err: '' };
+    wj(path.join(BD, id + '.json'), b); log(`[攻略平台] ${me.name} 交了一篇稿《${title}》`);
+    if (bossDm && me.role === 'writer') bossDm(`✍️ 写手 ${me.name} 在攻略平台交了一篇稿《${title}》，去「审稿」看：${base}#review`).catch(() => { });
+    return b;
+  }
+  function edit(bid, j, who) { const f = path.join(BD, bid + '.json'); const b = getBatch(bid); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +j.no); if (!n) throw new Error('没有这一篇');
+    if (j.title !== undefined) n.title = String(j.title).trim().slice(0, 40); if (j.body !== undefined) n.body = String(j.body).trim().slice(0, 3000); if (j.tags !== undefined) n.tags = String(j.tags).split(/[\s,，]+/).filter(Boolean).map(t => '#' + t.replace(/^#/, '')).slice(0, 10);
+    n.edited = { who, at: Date.now() }; n.notes.push({ t: '改了文案', who, at: Date.now() }); wj(f, b); return n; }
+  function savePages(bid, no, pages) { const b = getBatch(bid); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +no); if (!n) throw new Error('没有这一篇');
+    const dir = path.join(CDD, `${bid}-${+no}`); try { fs.rmSync(dir, { recursive: true, force: true }); } catch (e) { } fs.mkdirSync(dir, { recursive: true });
+    (pages || []).slice(0, 18).forEach((d, i) => fs.writeFileSync(path.join(dir, (i + 1) + '.jpg'), jpg(d))); n.cardPages = Math.min(18, (pages || []).length); n.cardAt = Date.now(); wj(path.join(BD, bid + '.json'), b); return n; }
+  const KINDS = ['外部达人', '自己的号', '员工代发'];
+  function assign(bid, j, who) { const b = getBatch(bid); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +j.no); if (!n) throw new Error('没有这一篇');
+    if (j.clear) { delete n.assign; wj(path.join(BD, bid + '.json'), b); return { ok: true }; }
+    const acct = String(j.acct || '').trim().slice(0, 30); if (!acct) throw new Error('写上发布账号'); const date = /^\d{4}-\d{2}-\d{2}$/.test(j.date) ? j.date : bjDay();
+    n.assign = { acct, kind: KINDS.includes(j.kind) ? j.kind : '员工代发', who: String(j.who || '').trim().slice(0, 20), date, by: who, at: Date.now() }; wj(path.join(BD, bid + '.json'), b); return { ok: true, url: cardUrl(bid, n.no) }; }
+  function pub(bid, no, url, who) { const b = getBatch(bid); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +no); if (!n) throw new Error('没有这一篇');
+    const m = String(url || '').match(/https?:\/\/[^\s，。]*(xiaohongshu\.com|xhslink\.com)[^\s，。]*/); if (!m) throw new Error('贴小红书笔记链接（App 里点分享→复制链接）');
+    n.pub = { url: m[0], at: Date.now(), who }; wj(path.join(BD, bid + '.json'), b); log(`[攻略平台] 第 ${n.no} 篇已发布（${(n.assign || {}).acct || ''}）`); return n.pub; }
+  function pubs() { const today = bjDay(); const L = []; for (const b of batches()) for (const n of b.notes) { if (!n.assign) continue; const late = !n.pub && n.assign.date < today ? Math.round((Date.parse(today) - Date.parse(n.assign.date)) / DAY) : 0;
+    L.push({ bid: b.id, no: n.no, title: n.title, briefName: b.briefName, ...n.assign, pub: n.pub || null, late, due: !n.pub && n.assign.date === today, url: cardUrl(b.id, n.no) }); }
+    return L.sort((a, c) => (a.pub ? 1 : 0) - (c.pub ? 1 : 0) || a.date.localeCompare(c.date)); }
+  // 自动提醒：每天上午 10 点后，把「排到昨天及以前还没发」的和「今天要发」的私信给老板
+  setInterval(() => { try { const h = new Date(Date.now() + 8 * 3600e3).getUTCHours(); const today = bjDay(); if (h < 10 || META.remindDay === today) return; META.remindDay = today; saveMeta();
+    const L = pubs(); const late = L.filter(x => x.late), due = L.filter(x => x.due); if (!late.length && !due.length) return;
+    const line = x => `· ${x.acct}（${x.kind}${x.who ? '·' + x.who : ''}）《${x.title}》${x.late ? `，排在 ${x.date.slice(5)}，已超 ${x.late} 天` : ''}`;
+    const t = `📮 攻略发布提醒\n${late.length ? `还没发（超期）${late.length} 篇：\n${late.slice(0, 20).map(line).join('\n')}\n` : ''}${due.length ? `今天要发 ${due.length} 篇：\n${due.slice(0, 20).map(line).join('\n')}\n` : ''}发完让对方在卡片链接里贴笔记链接，或在攻略平台「派发·发布」里回填：${base}#dispatch`;
+    if (bossDm) bossDm(t).catch(e => log('[攻略平台] 发布提醒没发出去：' + e.message)); } catch (e) { log('[攻略平台] 发布提醒出错：' + e.message); } }, 10 * 60e3);
+
   // ---------- 路由 ----------
   async function handle(req, res, p, u) {
     if (p === '/login' && req.method === 'POST') {
@@ -276,7 +336,21 @@ ${shopLines}
       if (sub === '/') { const h = page(); return h ? send(res, 200, h, 'text/html; charset=utf-8') : send(res, 503, '页面更新中'); }
       if (sub === '/data') { const sid = (briefs().find(x => x.id === b.brief) || {}).store; return J(res, { ok: true, share: true, batch: b, layouts: LAYOUTS, photos: photosOf(sid).map(f => `${sid}/${f}`).concat(sucaiFor(sid)) }); }
       const pm = sub.match(/^\/photo\/([A-Za-z0-9_-]+)\/(\d+\.jpg)$/); if (pm) { const f = path.join(PD, pm[1], pm[2]); if (!fs.existsSync(f)) return send(res, 404, ''); const buf = fs.readFileSync(f); res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'private, max-age=86400' }); return res.end(buf); }
+      { const um = sub.match(/^\/up\/(\d+\.jpg)$/); if (um) return serveJpg(res, upFile(bid, um[1])); }
       if (sub === '/mark' && req.method === 'POST') { const j = JSON.parse(await body(req, 20000) || '{}'); return J(res, { ok: true, note: mark(bid, j.no, j.status === 'ok' ? 'shop_ok' : j.status === 'fix' ? 'shop_fix' : '', j.note ? '【商家】' + j.note : '', '商家') }); }
+      return send(res, 404, '{}');
+    }
+    // 派发卡片（不用登录，只能看这一篇：存图、复制文案、发完贴链接）
+    m = p.match(/^\/c\/([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)(\/.*)?$/);
+    if (m) {
+      const w = verify(m[1], 'C'); const [cbid, cno] = String(w || '').split('~'); const cb = w && getBatch(cbid); const cn = cb && cb.notes.find(x => x.no === +cno);
+      if (!cn) return send(res, 403, shell('链接失效', '<form><h1>卡片链接已失效</h1><p>找发稿的同事重新发一个。</p></form>'), 'text/html; charset=utf-8');
+      const sub = m[2] || '/';
+      if (sub === '/') { const h = page(); return h ? send(res, 200, h, 'text/html; charset=utf-8') : send(res, 503, '页面更新中'); }
+      if (sub === '/data') return J(res, { ok: true, briefName: cb.briefName, note: { no: cn.no, title: cn.title, body: cn.body, tags: cn.tags, assign: cn.assign || null, pub: cn.pub || null }, today: bjDay(), pages: cn.cardPages ? Array.from({ length: cn.cardPages }, (_, i) => `img/${i + 1}.jpg`) : cb.kind === 'manual' ? (cn.images || []).map(f => 'up/' + f) : [] });
+      let im = sub.match(/^\/img\/(\d+\.jpg)$/); if (im) return serveJpg(res, cardFile(cbid, cno, im[1]));
+      im = sub.match(/^\/up\/(\d+\.jpg)$/); if (im) return serveJpg(res, upFile(cbid, im[1]));
+      if (sub === '/pub' && req.method === 'POST') { const j = JSON.parse(await body(req, 4000) || '{}'); try { const r = pub(cbid, cno, j.url, (cn.assign || {}).acct || '发布人'); if (bossDm) bossDm(`✅ ${(cn.assign || {}).acct || ''} 发布了《${cn.title}》：${r.url}`).catch(() => { }); return J(res, { ok: true, pub: r }); } catch (e) { return J(res, { ok: false, error: e.message }); } }
       return send(res, 404, '{}');
     }
     const me = userOf(req);
@@ -285,9 +359,18 @@ ${shopLines}
     m = p.match(/^\/img\/([0-9a-f]{24})\/(\d+\.(?:jpg|png|webp))$/);
     if (m) { const f = glib.imgPath(m[1], m[2]); if (!f) return send(res, 404, ''); const buf = fs.readFileSync(f); res.writeHead(200, { 'content-type': /png$/.test(f) ? 'image/png' : /webp$/.test(f) ? 'image/webp' : 'image/jpeg', 'content-length': buf.length, 'cache-control': 'private, max-age=86400' }); return res.end(buf); }
     const isBoss = me.role === 'boss', canWork = me.role === 'boss' || me.role === 'ops';
+    if (me.role === 'writer' && !/^\/(api\/(me|mine|submit|briefs)|up\/)/.test(p)) return send(res, 403, '{"ok":false,"error":"写手账号只能投稿"}');
+    m = p.match(/^\/up\/(g[0-9a-z]+)\/(\d+\.jpg)$/); if (m) { if (me.role === 'writer' && (getBatch(m[1]) || {}).byId !== me.id) return send(res, 403, ''); return serveJpg(res, upFile(m[1], m[2])); }
     try {
       if (p === '/api/me') return J(res, { ok: true, me: { name: me.name, role: me.role, roleName: ROLE[me.role] }, layouts: LAYOUTS });
-      if (p === '/api/dash') { const B = batches(); const st = glib.status(); return J(res, { ok: true, lib: { total: st.total, night: st.night, day: st.day, pause: st.pause, window: st.window, authors: st.authors, seed: st.seed }, stores: stores().length, briefs: briefs().length, batches: B.length, notes: B.reduce((s, b) => s + b.notes.length, 0), todo: B.reduce((s, b) => s + b.notes.filter(n => n.status === 'todo').length, 0), recent: B.slice(0, 5).map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.notes.length, status: b.status })) }); }
+      if (p === '/api/dash') { const B = batches(); const st = glib.status(); return J(res, { ok: true, lib: { total: st.total, night: st.night, day: st.day, pause: st.pause, window: st.window, authors: st.authors, seed: st.seed }, stores: stores().length, briefs: briefs().length, batches: B.length, notes: B.reduce((s, b) => s + b.notes.length, 0), late: pubs().filter(x => x.late).length, due: pubs().filter(x => x.due).length, todo: B.reduce((s, b) => s + b.notes.filter(n => n.status === 'todo').length, 0), recent: B.slice(0, 5).map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.notes.length, status: b.status })) }); }
+      if (p === '/api/submit' && req.method === 'POST') { const j = JSON.parse(await body(req, 30e6)); const b = submit(j, me); return J(res, { ok: true, id: b.id }); }
+      if (p === '/api/mine') return J(res, { ok: true, mine: batches().filter(b => b.kind === 'manual' && b.byId === me.id).map(b => ({ id: b.id, at: b.at, brief: b.brief, briefName: b.briefName, note: b.notes[0] })) });
+      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/edit$/); if (m && req.method === 'POST' && me.role !== 'writer') return J(res, { ok: true, note: edit(m[1], JSON.parse(await body(req, 50000)), me.name) });
+      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/pages$/); if (m && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req, 40e6)); savePages(m[1], j.no, j.pages); return J(res, { ok: true }); }
+      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/assign$/); if (m && req.method === 'POST' && canWork) return J(res, assign(m[1], JSON.parse(await body(req, 4000)), me.name));
+      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/pub$/); if (m && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req, 4000)); return J(res, { ok: true, pub: j.clear ? (() => { const b = getBatch(m[1]); const n = b && b.notes.find(x => x.no === +j.no); if (n) { delete n.pub; wj(path.join(BD, m[1] + '.json'), b); } return null; })() : pub(m[1], j.no, j.url, me.name) }); }
+      if (p === '/api/pubs') return J(res, { ok: true, pubs: pubs(), today: bjDay() });
       if (p === '/api/lib') return J(res, glib.query(Object.fromEntries(u.searchParams)));
       m = p.match(/^\/api\/lib\/([0-9a-f]{24})$/); if (m) { const n = glib.get(m[1]); return J(res, n ? { ok: true, note: n } : { ok: false, error: '没有这篇' }); }
       if (p === '/api/night') return J(res, glib.status());
@@ -307,13 +390,13 @@ ${shopLines}
       if (p === '/api/briefs' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const L = briefs(); const b = j.brief || {}; const i = L.findIndex(x => x.id === b.id); if (i >= 0) L[i] = Object.assign(L[i], b); else L.push(Object.assign({}, L[0] || {}, b, { id: 'b' + Date.now().toString(36) })); wj(BF, L); return J(res, { ok: true }); }
       if (p === '/api/gen' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const n = Math.max(1, Math.min(10, +j.n || 3)); return J(res, { ok: true, batch: await generate(j.brief, j.layout, n, me.name) }); }
       if (p === '/api/batches') return J(res, { ok: true, batches: batches().map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.n, got: b.notes.length, status: b.status, err: b.err, ok: b.notes.filter(x => /ok/.test(x.status)).length, fix: b.notes.filter(x => /fix/.test(x.status)).length, errs: b.notes.filter(x => x.check.some(c => c[0] === 'err')).length })) });
-      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)$/); if (m) { const b = getBatch(m[1]); if (b) { const B = briefs().find(x => x.id === b.brief); if (B) b.notes.forEach(n => { n.check = check(n, B, b); }); } return J(res, b ? { ok: true, batch: b, layouts: LAYOUTS, photos: (sid => photosOf(sid).map(f => `${sid}/${f}`).concat(sucaiFor(sid)))((briefs().find(x => x.id === b.brief) || {}).store) } : { ok: false, error: '没有这个批次' }); } // 按最新任务书重新核对
+      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)$/); if (m) { const b = getBatch(m[1]); if (b) { const B = briefs().find(x => x.id === b.brief); if (B || b.kind === 'manual') b.notes.forEach(n => { n.check = checkOf(n, B, b); }); } return J(res, b ? { ok: true, batch: b, layouts: LAYOUTS, photos: (sid => photosOf(sid).map(f => `${sid}/${f}`).concat(sucaiFor(sid)))((briefs().find(x => x.id === b.brief) || {}).store) } : { ok: false, error: '没有这个批次' }); } // 按最新任务书重新核对
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/mark$/); if (m && req.method === 'POST') { const j = JSON.parse(await body(req, 20000)); return J(res, { ok: true, note: mark(m[1], j.no, ['ok', 'fix', 'todo'].includes(j.status) ? j.status : '', j.note, me.name) }); }
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/share$/); if (m && req.method === 'POST' && canWork) { if (!getBatch(m[1])) throw new Error('没有这个批次'); return J(res, { ok: true, url: `${base}r/${sign(`R|${m[1]}|${Date.now() + 14 * DAY}`)}` }); }
       if (p === '/api/users' && isBoss) return J(res, { ok: true, users: U.users.map(x => ({ id: x.id, name: x.name, role: x.role, roleName: ROLE[x.role], login: x.login || '', set: !!x.hash, off: !!x.off, last: x.last || null })) });
       if (p === '/api/users' && req.method === 'POST' && isBoss) { const j = JSON.parse(await body(req, 4096)); if (j.off) { const x = U.users.find(z => z.id === j.id && z.role !== 'boss'); if (!x) throw new Error('没有这个人'); x.off = true; saveU(); return J(res, { ok: true }); }
         if (j.reset) { const x = U.users.find(z => z.id === j.id); if (!x) throw new Error('没有这个人'); x.off = false; saveU(); return J(res, { ok: true, link: setupLink(x.id, 24) }); }
-        const name = String(j.name || '').trim().slice(0, 20); if (!name) throw new Error('名字不能空'); const role = ['ops', 'review'].includes(j.role) ? j.role : 'ops'; const x = { id: 'u' + crypto.randomBytes(4).toString('hex'), name, role, at: Date.now() }; U.users.push(x); saveU(); return J(res, { ok: true, link: setupLink(x.id, 24) }); }
+        const name = String(j.name || '').trim().slice(0, 20); if (!name) throw new Error('名字不能空'); const role = ['ops', 'review', 'writer'].includes(j.role) ? j.role : 'ops'; const x = { id: 'u' + crypto.randomBytes(4).toString('hex'), name, role, at: Date.now() }; U.users.push(x); saveU(); return J(res, { ok: true, link: setupLink(x.id, 24) }); }
       return send(res, 404, '{"ok":false,"error":"没有这个接口或没有权限"}');
     } catch (e) { return J(res, { ok: false, error: e.message.slice(0, 200) }); }
   }
@@ -322,6 +405,6 @@ ${shopLines}
   // 第一次出样稿有几篇失败（模型 JSON 不规范，已修）：把没出满的系统样稿重出一次
   setTimeout(() => { try { if (META.sampled2 || !META.sampled) return; META.sampled2 = Date.now(); saveMeta(); let i = 0; for (const b of batches()) { if (b.by !== '系统样稿' || b.status === 'running' || b.notes.length >= b.n) continue; try { fs.unlinkSync(path.join(BD, b.id + '.json')); } catch (e) { } const l = b.layout; setTimeout(() => generate(b.brief, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), (i++) * 20e3); } } catch (e) { log('[攻略平台] 补样稿出错：' + e.message); } }, 60e3);
   setTimeout(() => { try { if (batches().length || !(cfg.qwenKey || cfg.deepseekKey) || META.sampled) return; META.sampled = Date.now(); saveMeta(); const b = briefs()[0]; if (!b) return; ['clean', 'green', 'nav', 'memo'].forEach((l, i) => setTimeout(() => generate(b.id, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), i * 20e3)); log('[攻略平台] 开始出样稿'); } catch (e) { log('[攻略平台] 样稿出错：' + e.message); } }, 90e3);
-  return { handle, generate, LAYOUTS, syncSucai, sucaiFor, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
+  return { handle, generate, LAYOUTS, syncSucai, sucaiFor, _t: { submit, assign, pubs, pub, edit, getBatch, checkManual }, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
 }
 module.exports = { createGlweb };
