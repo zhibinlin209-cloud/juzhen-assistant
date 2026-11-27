@@ -223,7 +223,7 @@ ${B.facts ? `【固定事实，原样写，不能改】${B.facts}\n` : ''}【规
 2. 主店「${B.storeTitle}」程序会单独放成「${B.mainCat || '晚饭·' + (B.storeType || '海鲜大排档')}」排第 2 家，sections 里不要写它；正文里提它时用一句具体的话（菜＋什么时候去），不能写「见图片」这种话，全文提主店不超过 2 次。
 3. sections 只用下面列的店（店名照抄）：第一类叫「中午垫一口」放 1 家粉面/小吃，后面 2–3 类按真实品类分（不同品类别混一起），共 ${L.list ? '8–14' : '6–9'} 家，每家 say 写 18–30 字招牌菜＋口感。正文里提到的店也要写全名。
 4. route 7–9 站，时间要在各店营业时间内，按地理顺序走不折返，「离主店远」的店不能进同一天步行路线；spots 必须有 ${(B.mustSpots || []).join('、') || '1 个景点'}，可再加：${B.optSpots.join('、')}。
-5. 只写常识性、不会错的信息：不写门票价格、开放时间、具体门/出口编号（固定事实里给的除外），不编亲身经历细节（「刚好碰上」「土著朋友甩来」这类别写）。
+5. 只写常识性、不会错的信息：不写门票价格、开放时间、具体门/出口编号（固定事实里给的除外），不编亲身经历细节（「刚好碰上」「土著朋友甩来」这类别写）；不写哪家店搬走了、关门了、被清退了、导航会带错到哪里这种你没法确定的事。
 6. 不用这些词：${[...B.banned, ...CLICHE].join('、')}；也不说「无广」「自费」「不是广告」。分条内容每段 4–6 条。
 7. tags 只写 ${P.aiTags || 3} 个跟这篇内容贴的（地点、景点、菜名、场景，如 #白石洲夜宵 #生腌），不带别家店名品牌名；固定话题 ${[...B.tagsMust, ...(P.tags || [])].join(' ')} 程序会加，你不要重复写。
 8. cover 2 行（导航避坑可 3–4 行），每行 ≤9 字，像随手记的一句话。
@@ -367,6 +367,15 @@ ${shopLines}
     wj(path.join(BD, id + '.json'), batch); runBatch(batch);
     return batch;
   }
+  // 出稿后的硬门槛（林总 2026-11-27：店太少图空空的、照抄范文原句、行程住宿交通空着）：不过就带着原因重写，最多 3 次
+  function copiedFrom(tpl, n) { if (!tpl) return ''; const src = String(tpl.title || '') + String(tpl.text || ''); const txt = String(n.title || '') + '\n' + String(n.body || ''); const norm = t => t.replace(/[\s，。！？、～~｜|：:；;“”"'（）()【】\[\]…·\-—]+/g, '');
+    const a = norm(src); if (a.length < 8) return ''; for (const seg of txt.split(/[，。！？\n｜|]/)) { const b = norm(seg); for (let i = 0; i + 7 <= b.length; i++) { const w = b.slice(i, i + 7); if (a.includes(w) && !/深圳|广州|珠海|惠州|佛山|美食|攻略|推荐|大排档|一定|真的/.test(w)) return w; } } return ''; }
+  function gate(n, tpl, layout) { const bad = []; const others = n.sections.flatMap(sc => sc.items).filter(i => !i.main).length;
+    if (others < 5) bad.push(`清单只写了 ${others} 家别的店，至少要 6 家（按品类分好）`);
+    if (layout !== 'list' && !(LAYOUTS[layout] || {}).list) { if ((n.route || []).length < 4) bad.push('route 行程至少 5 站'); if (!(n.stay || []).length) bad.push('stay 住宿建议没写'); if (!(n.traffic || []).length) bad.push('traffic 交通没写'); }
+    const cp = copiedFrom(tpl, n); if (cp) bad.push(`照抄了范文原句「${cp}」，要用自己的话`);
+    if (/搬走|已关门|关门了|倒闭|被清退|早已清退|拆了/.test(String(n.body))) bad.push('写了哪家店搬走/关门/被清退这种拿不准的事');
+    return bad; }
   // 出稿在后台一篇篇跑；服务器重启（更新代码）打断的批次，启动后从断的那篇接着跑
   function runBatch(batch) {
     const B = briefs().find(b => b.id === batch.brief); const all = stores(); const main = B && all.find(s => s.id === B.store);
@@ -384,11 +393,13 @@ ${shopLines}
         const plan = (batch.plans || [])[k - 1];
         const shuffled = pool.slice().sort(() => Math.random() - 0.5);
         const spots = [...B.mustSpots, ...B.optSpots.slice().sort(() => Math.random() - 0.5).slice(0, 2)];
-        let got = null, err = '';
+        let got = null, err = '', best = null, bestBad = 99;
         for (let t = 0; t < 3 && !got; t++) {
-          try { const r = await llm(promptFor(B, layout, dir, shuffled, spots, batch.notes.map(x => ({ title: x.title, ending: x.ending })), k, tpl, plan)); got = build(parseJ(r.text), B, pool, main, plan); got.model = r.model; }
+          try { const r = await llm(promptFor(B, layout, dir, shuffled, spots, batch.notes.map(x => ({ title: x.title, ending: x.ending })), k, tpl, plan) + (err && /^不合格/.test(err) ? `\n【上一次写的不合格，这次一定避开】${err.slice(4)}` : '')); const g = build(parseJ(r.text), B, pool, main, plan); g.model = r.model;
+            const bad = gate(g, tpl, layout); if (!bad.length) got = g; else { err = '不合格：' + bad.join('；'); if (bad.length < bestBad) { best = g; bestBad = bad.length; } log(`[攻略平台] 第 ${k} 篇重写：${bad.join('；')}`); } }
           catch (e) { err = e.message; }
         }
+        if (!got && best) { got = best; got.gateWarn = err; }
         batch.k = k;
         if (!got) { batch.err = `第 ${k} 篇失败：${err}`; log('[攻略平台] 出稿失败：' + err); save(); continue; }
         if (cfg.glReview !== false && B.aiReview !== false) { try { const rv = await aiReview(got, B, pool, main, batch, plan); const keepModel = got.model; got = rv.note; got.model = keepModel; got.aiReview = rv.review; } catch (e) { got.aiReview = { error: e.message.slice(0, 80), at: Date.now() }; } }
