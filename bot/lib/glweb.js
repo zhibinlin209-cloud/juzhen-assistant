@@ -75,17 +75,17 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
   function useAdd(model, u) { const d = new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); const o = (USE[d] = USE[d] || {}); const m = (o[model] = o[model] || [0, 0, 0]); m[0]++; m[1] += (u && u.prompt_tokens) || 0; m[2] += (u && u.completion_tokens) || 0; if (!useT) useT = setTimeout(() => { useT = null; const ks = Object.keys(USE).sort(); while (ks.length > 60) delete USE[ks.shift()]; wj(UGF, USE); }, 5000); }
   async function llmStat() { const out = { deepseek: { has: !!cfg.deepseekKey }, qwen: { has: !!cfg.qwenKey, models: [] }, use: USE, errs: LLMERR };
     if (cfg.deepseekKey) { try { const r = await fetch('https://api.deepseek.com/user/balance', { headers: { authorization: 'Bearer ' + cfg.deepseekKey }, signal: AbortSignal.timeout(15000) }); const j = await r.json().catch(() => ({})); out.deepseek.ok = r.ok; out.deepseek.available = j.is_available; out.deepseek.balances = (j.balance_infos || []).map(b => ({ currency: b.currency, total: b.total_balance, granted: b.granted_balance, topped: b.topped_up_balance })); if (!r.ok) out.deepseek.err = (j.error && j.error.message) || 'HTTP ' + r.status; } catch (e) { out.deepseek.err = e.message; } }
-    if (cfg.qwenKey) for (const m of [...new Set([...(cfg.glModels || ['deepseek-v4-pro', 'deepseek-v3.2', 'qwen-plus']), ...(cfg.glReviewModels || ['qwen-max'])])].slice(0, 6)) { const t0 = Date.now(); try { const r = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.qwenKey }, signal: AbortSignal.timeout(40000), body: JSON.stringify({ model: m, max_tokens: 8, messages: [{ role: 'user', content: '回复：好' }] }) }); const j = await r.json().catch(() => ({})); out.qwen.models.push({ model: m, ok: r.ok, ms: Date.now() - t0, err: r.ok ? '' : String((j.error && (j.error.message || j.error.code)) || 'HTTP ' + r.status).slice(0, 160) }); } catch (e) { out.qwen.models.push({ model: m, ok: false, err: e.message }); } }
+    if (cfg.qwenKey) for (const m of [...new Set([...(cfg.glModels || ['deepseek-v4-pro', 'deepseek-v4.1-flash', 'qwen-plus']), ...(cfg.glReviewModels || ['qwen-max'])])].slice(0, 6)) { const t0 = Date.now(); try { const r = await fetch('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + cfg.qwenKey }, signal: AbortSignal.timeout(40000), body: JSON.stringify({ model: m, max_tokens: 8, messages: [{ role: 'user', content: '回复：好' }] }) }); const j = await r.json().catch(() => ({})); out.qwen.models.push({ model: m, ok: r.ok, ms: Date.now() - t0, err: r.ok ? '' : String((j.error && (j.error.message || j.error.code)) || 'HTTP ' + r.status).slice(0, 160) }); } catch (e) { out.qwen.models.push({ model: m, ok: false, err: e.message }); } }
     return out; }
   async function llm(prompt, models) {
     const tries = [];
     if (cfg.deepseekKey && !models) tries.push(['https://api.deepseek.com/chat/completions', cfg.deepseekKey, 'deepseek-chat']);
-    if (cfg.qwenKey) for (const m of models || cfg.glModels || ['deepseek-v4-pro', 'deepseek-v3.2', 'qwen-plus']) tries.push(['https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', cfg.qwenKey, m]);
+    if (cfg.qwenKey) for (const m of models || cfg.glModels || ['deepseek-v4-pro', 'deepseek-v4.1-flash', 'qwen-plus']) tries.push(['https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', cfg.qwenKey, m]);
     let last = '没有配置大模型';
     for (const [u, k, model] of tries) {
       try { const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + k }, signal: AbortSignal.timeout(240000), body: JSON.stringify({ model, temperature: 0.85, max_tokens: 8000, response_format: { type: 'json_object' }, messages: [{ role: 'user', content: prompt }] }) });
         const j = await r.json().catch(() => ({})); if (r.ok) { useAdd(model, j.usage); const t = (((j.choices || [])[0] || {}).message || {}).content || ''; if (t) return { text: t, model }; last = '返回空内容（' + (((j.choices || [])[0] || {}).finish_reason || '') + '）'; log(`[攻略平台] 模型 ${model} ${last}`); continue; }
-        last = (j.error && (j.error.message || j.error.code)) || ('HTTP ' + r.status); log(`[攻略平台] 模型 ${model} 不可用：${last}`); LLMERR[model] = { at: Date.now(), msg: String(last).slice(0, 160) };
+        last = (j.error && (j.error.message || j.error.code)) || ('HTTP ' + r.status); log(`[攻略平台] 模型 ${model} 不可用：${last}`); LLMERR[model] = { at: Date.now(), msg: String(last).slice(0, 160) }; if (/Arrearage|FreeTierOnly|insufficient|overdue|欠费|余额不足|Quota/i.test(String(last)) && bossDm && Date.now() - (META.llmAlertAt || 0) > 6 * 3600e3) { META.llmAlertAt = Date.now(); saveMeta(); bossDm(`⚠️ 攻略平台的大模型调用被拒了（${model}）：${String(last).slice(0, 120)}\n多半是阿里云百炼欠费或免费额度用完，要去充值，不然出稿和审稿会停。`).catch(() => { }); }
       } catch (e) { last = e.message; }
     }
     throw new Error(last);
@@ -197,7 +197,7 @@ ${shops}
 只输出 JSON：{"problems":[{"level":"err 或 warn","where":"title/body/route/…","text":"问题，≤40字"}],"title":"新标题，没问题就不写","edits":[{"old":"原稿里的原话","new":"换成的话"}]}
 原稿：
 ${JSON.stringify(pick(got)).slice(0, 9000)}`;
-    const r = await llm(prompt, cfg.glReviewModels || ['qwen-max', 'deepseek-v3.2', 'qwen-plus']); const J0 = parseJ(r.text);
+    const r = await llm(prompt, cfg.glReviewModels || ['qwen-max', 'deepseek-v4.1-flash', 'qwen-plus']); const J0 = parseJ(r.text);
     const problems = (J0.problems || []).slice(0, 20).map(x => ({ level: x.level === 'err' ? 'err' : 'warn', where: String(x.where || '').slice(0, 16), text: String(x.text || '').slice(0, 80) })).filter(x => x.text);
     const out = { model: r.model, problems, adopted: false, at: Date.now() };
     // 只按「原话→新话」逐处替换，其余字段（店单、路线、景点、话题）原样保留，改不坏结构
@@ -673,7 +673,7 @@ ${text}`);
         try { const r = await llm(`下面是一篇小红书本地逛吃笔记。把里面提到的、能找得到的具体餐饮店抽出来（必须有店名；连锁店带上分店名）。没有具体店名的不要，景点、商场不要，「YES也是大排档」不要。
 只输出 JSON：{"shops":[{"name":"店名（分店）","area":"商圈/街道/地铁站，原文怎么写就怎么写","cat":"品类，如 糖水甜品/粉面/茶餐厅/潮汕牛肉火锅/烘焙/咖啡","dishes":"原文提到的招牌菜，顿号隔开","addr":"原文给的地址，没有就空","price":"人均数字，没有就空","hours":"营业时间，没有就空"}]}
 笔记：
-${text}`, ['qwen-plus', 'deepseek-v3.2']);
+${text}`, ['qwen-plus', 'deepseek-v4.1-flash']);
           for (const x of (parseJ(r.text).shops || []).slice(0, 30)) { const name = String(x.name || '').trim().slice(0, 40); if (name.length < 2 || /YES|也是大排档/i.test(name)) continue;
             const c = CA.items.find(z => shopKey(z.name) === shopKey(name)) || (CA.items.push({ name, area: '', cat: '', dishes: '', addr: '', price: '', hours: '', notes: [], st: 'new' }), CA.items[CA.items.length - 1]);
             for (const k of ['area', 'cat', 'dishes', 'addr', 'price', 'hours']) if (!c[k] && x[k]) c[k] = String(x[k]).slice(0, 80);

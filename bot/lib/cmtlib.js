@@ -13,7 +13,7 @@ function createCmtLib({ cfg, api, core, log, notify, sendFile }) {
   async function deepseek(prompt) {
     const tries = [];
     if (cfg.deepseekKey) for (const m of ['deepseek-chat']) tries.push(['https://api.deepseek.com/chat/completions', cfg.deepseekKey, m]);
-    if (cfg.qwenKey) for (const m of cfg.analystModels || ['deepseek-v4-pro', 'deepseek-v3.2']) if (/deepseek/i.test(m)) tries.push(['https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', cfg.qwenKey, m]);
+    if (cfg.qwenKey) for (const m of cfg.analystModels || ['deepseek-v4-pro', 'deepseek-v4.1-flash']) if (/deepseek/i.test(m)) tries.push(['https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', cfg.qwenKey, m]);
     let last = '没有配置 DeepSeek';
     for (const [u, k, model] of tries) {
       try { const r = await fetch(u, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + k }, signal: AbortSignal.timeout(240000), body: JSON.stringify({ model, temperature: 0.3, max_tokens: 3000, messages: [{ role: 'user', content: prompt }] }) });
