@@ -153,7 +153,7 @@ function normalize(n) { // 老稿件也按新规则显示：主店单独一类�
   const yes = n.sections.flatMap(x => x.items).find(i => i.main); let secs = n.sections.map(x => ({ h: x.h, items: x.items.filter(i => !i.main) })).filter(x => x.items.length);
   if (yes && secs.length) { const f = secs[0], rest = f.items.slice(1); const out = [{ h: rest.length ? '中午垫一口' : f.h, items: [f.items[0]] }, { h: (secs.find(x => x.items.length === 1 && x.items[0].main) || {}).h || '晚饭·海鲜大排档', items: [yes] }]; if (rest.length) { const same = secs.slice(1).find(x => x.h === f.h); if (same) same.items.unshift(...rest); else out.push({ h: f.h, items: rest }); } secs = out.concat(secs.slice(1)); }
   if (n.sections[1] && n.sections[1].items.length === 1 && n.sections[1].items[0].main && n.sections[0].items.length === 1) secs = n.sections;
-  const cover = (n.cover || []).filter(l => !/大排档|YES|也是/i.test(l)).slice(0, 2);
+  const cover = (n.cover || []).filter(l => !/大排档|YES|也是/i.test(l)).slice(0, 4);
   return Object.assign({}, n, { sections: secs, cover: cover.length ? cover : (n.cover || []).slice(0, 2) });
 }
 function renderNote(note, layout) {
@@ -165,10 +165,98 @@ function renderNote(note, layout) {
   if (layout === 'star') return [coverStar(note), ...listPages(note, { style: 'star', title: t1, place, spots: false }), yesPage(note, 'star'), placeholder(note)];
   return [coverRoute(note), routePage(note), ...listPages(note, { style: 'check', title: '吃饭清单', place, spots: false }), yesPage(note, 'route'), placeholder(note)];
 }
-const PCACHE = new Map();
-function pagesOf(b, n) { const k = b.id + ':' + n.no; if (!PCACHE.has(k)) PCACHE.set(k, renderNote(n, b.layout).map(c => c.toDataURL('image/jpeg', 0.9))); return PCACHE.get(k); }
+// ===== 照我们自己发过的稿子做的 3 个版式：clean（88 落地X第1顿）、green（81 去了X次我的建议是）、nav（83 规则怪谈导航避坑）=====
+const loadImg = u => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.onerror = () => r(null); i.src = u; });
+function coverQuote(n, o) { // 米白/粉底＋浅色引号＋灰色大字；o.hl 给第一行加色块
+  const [c, x] = cv(); x.fillStyle = o.bg; x.fillRect(0, 0, W, H); x.fillStyle = o.quote; x.font = `900 230px Georgia,"Times New Roman",serif`; x.fillText('“', 110, 60);
+  const lines = o.lines; let size = 128; x.font = `800 ${size}px ${SANS}`; while (lines.some(l => x.measureText(l).width > W - 240) && size > 70) { size -= 6; x.font = `800 ${size}px ${SANS}`; }
+  let y = Math.round(H / 2 - lines.length * size * 1.4 / 2); lines.forEach((l, i) => { if (i === 0 && o.hl) { x.fillStyle = o.hl; x.fillRect(128, y + size * 0.62, x.measureText(l).width + 6, size * 0.42); } x.fillStyle = o.ink; x.fillText(l, 130, y); y += Math.round(size * 1.4); });
+  x.fillStyle = o.quote; x.fillRect(W - 210, H - 150, 72, 16); return c;
+}
+function cleanLists(n) { // 大分类标题＋空心圆店名（只写店名，干净）
+  const pages = []; let c, x, y; const start = () => { [c, x] = cv(); x.fillStyle = '#FCFBF6'; x.fillRect(0, 0, W, H); y = 60; pages.push(c); };
+  start();
+  for (const s of n.sections) {
+    if (y + 100 + Math.min(s.items.length, 3) * 100 > H - 40) start();
+    x.fillStyle = '#4a4a4a'; x.font = `800 84px ${SANS}`; x.fillText(s.h.replace(/^晚饭·/, ''), 70, y); y += 130;
+    for (const it of s.items) { if (y > H - 110) start(); x.strokeStyle = '#a99d9f'; x.lineWidth = 4; x.beginPath(); x.arc(118, y + 28, 30, 0, Math.PI * 2); x.stroke(); x.fillStyle = '#555'; x.font = `400 50px ${SANS}`; const t = wrap(x, it.name, W - 260)[0]; x.fillText(t, 176, y); y += 100; }
+    y += 30;
+  }
+  return pages;
+}
+async function collagePage(n, photos, seed) { // 四宫格实拍＋中间白字描边（店名＋一段话），照 88/81/83 的实拍页
+  if (!photos || !photos.length) return placeholder(n);
+  const pick = []; for (let i = 0; i < 4; i++) pick.push(photos[(seed + i) % photos.length]);
+  const imgs = await Promise.all(pick.map(u => loadImg(u))); const [c, x] = cv(); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
+  const cw = W / 2, ch = H / 2; imgs.forEach((im, i) => { if (!im) return; const dx = (i % 2) * cw, dy = Math.floor(i / 2) * ch; const r = Math.max(cw / im.width, ch / im.height); const sw = cw / r, sh = ch / r; x.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, dx, dy, cw, ch); });
+  const name = '📍' + n.main.name; const blurb = n.yes.blurb || n.yes.dishes.map(d => d.name + '，' + d.line).join('；');
+  const outline = (t, X, Y) => { x.strokeStyle = '#111'; x.lineWidth = 9; x.lineJoin = 'round'; x.strokeText(t, X, Y); x.fillStyle = '#fff'; x.fillText(t, X, Y); };
+  x.textAlign = 'center'; x.font = `800 60px ${SANS}`; let y = H / 2 - 110; outline(name, W / 2, y); y += 96;
+  x.font = `italic 700 40px ${SANS}`; wrap(x, blurb, W - 110).slice(0, 5).forEach(l => { outline(l, W / 2, y); y += 58; }); x.textAlign = 'left'; return c;
+}
+// ---- green：绿底手机备忘录 ----
+const GBG = '#E1F4C3', ORG = '#E0A146';
+function greenHead(x) { x.fillStyle = GBG; x.fillRect(0, 0, W, H); x.fillStyle = ORG; x.font = `500 44px ${SANS}`; x.fillText('‹ 备忘录', 26, 30); x.font = `40px ${SANS}`; x.fillText('↶   ↷   ⇪   ⋯', W - 420, 30); }
+function chip(x, t, X, Y, color, size) { x.font = `${size || 44}px ${SANS}`; const w = x.measureText(t).width; x.fillStyle = color; x.beginPath(); x.roundRect(X - 6, Y - 4, w + 14, (size || 44) + 16, 8); x.fill(); x.fillStyle = '#111'; x.fillText(t, X, Y + 2); return w + 14; }
+function coverGreen(n, place) {
+  const [c, x] = cv(); greenHead(x); let y = 190; x.fillStyle = '#111'; x.font = `900 116px ${SANS}`; x.fillText(n.cover[0] || '', 44, y); y += 160; x.font = `800 96px ${SANS}`; x.fillText(n.cover[1] || '', 44, y); y += 170;
+  if (n.coverSub) { chip(x, n.coverSub, 50, y, '#FFE38A', 46); y += 100; }
+  x.fillStyle = '#222'; x.font = `38px ${SANS}`; (n.intro || []).forEach(p => { y = para(x, p, 50, y, W - 100, 60) + 36; });
+  if (n.tagline) chip(x, n.tagline, 54, Math.min(y + 10, H - 110), '#FFE38A', 46); return c;
+}
+function greenPage(title) { const [c, x] = cv(); greenHead(x); x.fillStyle = '#111'; x.font = `900 88px ${SANS}`; x.fillText(title, 34, 100); x.strokeStyle = '#C0392B'; x.setLineDash([8, 6]); x.lineWidth = 2; x.beginPath(); x.moveTo(0, 212); x.lineTo(W, 212); x.stroke(); x.setLineDash([]); return [c, x]; }
+function greenBracket(n, place, title) {
+  const [c, x] = greenPage(title); let y = 240;
+  const groups = [[`${place}\n值得去\n景点`, n.good, '#8FD46B'], [`${place}\n不值得\n专程`, n.skip, '#8FD8F2'], [`${place}\n美食\n街区`, n.streets, '#FFCB8A']].filter(g => (g[1] || []).length);
+  for (const [lab, list, col] of groups) {
+    const y0 = y; x.font = `40px ${SANS}`;
+    for (const it of list) { const w = chip(x, it.place + '：', 205, y, col, 40); x.fillStyle = '#222'; x.font = `38px ${SANS}`; const rest = wrap(x, it.why, W - 205 - w - 30); x.fillText(rest[0] || '', 205 + w + 6, y + 4); y += 62; if (rest.length > 1) { y = para(x, rest.slice(1).join(''), 205, y, W - 240, 56) + 6; } }
+    const y1 = y - 10; x.strokeStyle = '#111'; x.lineWidth = 4; x.beginPath(); x.moveTo(195, y0); x.lineTo(172, y0); x.lineTo(172, y1); x.lineTo(195, y1); x.stroke();
+    x.fillStyle = '#222'; x.font = `48px ${SANS}`; const ls = lab.split('\n'); let ly = (y0 + y1) / 2 - ls.length * 30; ls.forEach(l => { x.textAlign = 'center'; x.fillText(l, 88, ly); ly += 60; }); x.textAlign = 'left';
+    y += 34; if (y > H - 200) break;
+  }
+  return c;
+}
+function greenTips(n, place, title) {
+  const pages = []; let c, x, y; const start = () => { [c, x] = greenPage(title); y = 240; chip(x, `${place}旅游建议`, 40, y, '#FFE38A', 46); y += 96; pages.push(c); };
+  start(); (n.tips || []).forEach((t, i) => { x.font = `38px ${SANS}`; if (y + 120 > H) start(); x.fillStyle = '#222'; y = para(x, `建议${i + 1}：${t}`, 40, y, W - 80, 62) + 10; }); return (n.tips || []).length ? pages : [];
+}
+async function greenFood(n, place, title, photos) {
+  const [c, x] = greenPage(title); let y = 240; chip(x, `${place}美食推荐`, 46, y, '#FFE38A', 46); y += 100;
+  const items = n.sections.flatMap(s => s.items).slice(0, 4); const textW = photos && photos.length ? 690 : W - 90;
+  for (const it of items) { if (y > H - 160) break; x.font = `40px ${SANS}`; x.fillStyle = '#C0392B'; const lab = it.name + '：'; x.fillText(lab, 46, y); const lw = x.measureText(lab).width; x.fillStyle = '#222'; const desc = it.main ? (n.yes.blurb || n.yes.dishes.map(d => d.line).join('，')) : it.say; const ls = wrap(x, desc, textW - lw); x.fillText(ls[0] || '', 46 + lw, y); y += 64; if (ls.length > 1) y = para(x, ls.slice(1).join(''), 46, y, textW, 64); y += 30; }
+  if (photos && photos.length) { const ims = await Promise.all(photos.slice(0, 2).map(loadImg)); let py = 600; ims.forEach(im => { if (!im) return; const w = 330, hh = 380; const r = Math.max(w / im.width, hh / im.height); const sw = w / r, sh = hh / r; x.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, W - w - 30, py, w, hh); py += hh + 16; }); }
+  return c;
+}
+// ---- nav：白色备忘录「规则怪谈」，导航建议高亮 ----
+function navPages(n, place) {
+  const pages = []; let c, x, y; const title = `${place}旅游规则怪谈`;
+  const start = () => { [c, x] = cv(); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#D9A52B'; x.font = `600 46px ${SANS}`; x.fillText('‹ 备忘录', 50, 44); x.fillStyle = '#999'; x.font = `44px ${SANS}`; x.fillText('🔔  🔒  ✉  ➤', W - 360, 44); x.fillStyle = '#000'; x.font = `900 86px ${SANS}`; x.fillText(title, 80, 130); y = 270; pages.push(c); };
+  start();
+  (n.navs || []).forEach((v, i) => {
+    x.font = `48px ${SANS}`; const head = `${i + 1}、 ${v.place}：不要只搜「${v.place}」`; const hl = wrap(x, head, W - 130); const pun = t => t && !/[。；！，,.!;]$/.test(t) ? t + '。' : t; const body = [pun(v.why), v.nav ? (/[。；！]$/.test(v.nav) ? v.nav : v.nav + '；') : '', v.tip].filter(Boolean);
+    if (y + hl.length * 64 + 260 > H) start();
+    x.fillStyle = '#111'; hl.forEach(l => { x.fillText(l, 62, y); y += 66; }); y += 14;
+    // 正文：why 普通、nav 黄色高亮、tip 普通，连续排
+    x.font = `38px ${SANS}`; const segs = []; body.forEach(t => [...t].forEach(ch => segs.push([ch, !!v.nav && t.startsWith(v.nav.slice(0, 4)) ])));  let line = [], lx = 62; const flush = () => { let px = 62; line.forEach(([ch, h1]) => { const w = x.measureText(ch).width; if (h1) { x.fillStyle = '#FFE38A'; x.fillRect(px, y - 2, w + 1, 50); } px += w; }); px = 62; x.fillStyle = '#666'; line.forEach(([ch]) => { x.fillText(ch, px, y); px += x.measureText(ch).width; }); y += 64; line = []; lx = 62; };
+    segs.forEach(sg => { const w = x.measureText(sg[0]).width; if (lx + w > W - 62) flush(); line.push(sg); lx += w; }); if (line.length) flush(); y += 50;
+  });
+  return (n.navs || []).length ? pages : [];
+}
+async function renderNoteAsync(note, layout, photos, seed) {
+  note = normalize(note);
+  const place = /白石洲/.test(note.title) ? '白石洲' : /世界之窗/.test(note.title) ? '世界之窗' : /蛇口/.test(note.title) ? '蛇口' : '南山';
+  const last = await collagePage(note, photos, seed);
+  if (layout === 'clean') return [coverQuote(note, { bg: '#FCFBF6', quote: '#F2E7D8', ink: '#555', lines: note.cover }), ...cleanLists(note), last];
+  if (layout === 'green') { const t = '存下吧　很难找全!!!'; return [coverGreen(note, place), greenBracket(note, place, t), ...greenTips(note, place, t), await greenFood(note, place, t, photos), last]; }
+  if (layout === 'nav') return [coverQuote(note, { bg: '#FDE3EB', quote: '#F7C6D6', ink: '#4f4549', hl: '#8EEFF5', lines: note.cover }), ...navPages(note, place), ...cleanLists(note), last];
+  const old = renderNote(note, layout); old[old.length - 1] = last; return old;
+}
+
+const PCACHE = new Map(); let PHOTOS = [];
+function pagesOf(b, n) { const k = b.id + ':' + n.no + ':' + PHOTOS.length; if (!PCACHE.has(k)) PCACHE.set(k, renderNoteAsync(n, b.layout, PHOTOS.map(f => (SHARE ? BASE + '/photo/' : BASE + '/photo/') + f), n.no * 3).then(cs => cs.map(c => c.toDataURL('image/jpeg', 0.9)))); return PCACHE.get(k); }
 function textOf(n) { return `${n.title}\n\n${n.body}\n\n${n.tags.join(' ')}`; }
-function dlPages(b, n) { pagesOf(b, n).forEach((u, i) => { const a = document.createElement('a'); a.href = u; a.download = `${b.briefName}-第${n.no}篇-P${i + 1}.jpg`; document.body.appendChild(a); setTimeout(() => { a.click(); a.remove(); }, i * 400); }); }
+async function dlPages(b, n) { (await pagesOf(b, n)).forEach((u, i) => { const a = document.createElement('a'); a.href = u; a.download = `${b.briefName}-第${n.no}篇-P${i + 1}.jpg`; document.body.appendChild(a); setTimeout(() => { a.click(); a.remove(); }, i * 400); }); }
 
 // ================== 页面 ==================
 let ME = null, LAYOUTS = {}; const ST = { tab: 'dash', lib: { sort: 'heat' }, batch: null };
@@ -249,10 +337,10 @@ async function gen(m) {
 let pollT = null;
 async function review(m) {
   clearTimeout(pollT);
-  if (SHARE) { const d = await fetch(BASE + '/data').then(r => r.json()); if (!d.ok) throw new Error('链接失效'); LAYOUTS = d.layouts; return reviewBatch(m, d.batch, true); }
+  if (SHARE) { const d = await fetch(BASE + '/data').then(r => r.json()); if (!d.ok) throw new Error('链接失效'); LAYOUTS = d.layouts; PHOTOS = d.photos || []; return reviewBatch(m, d.batch, true); }
   const { batches } = await api('/api/batches'); if (!batches.length) { m.innerHTML = '<div class="empty">还没有出过稿，去「AI 出稿」试一批。</div>'; return; }
   if (!ST.batch || !batches.find(b => b.id === ST.batch)) ST.batch = batches[0].id;
-  const { batch } = await api('/api/batch/' + ST.batch);
+  const { batch, photos } = await api('/api/batch/' + ST.batch); PHOTOS = photos || [];
   const todoAll = batches.reduce((x, b) => x + Math.max(0, b.got - b.ok - b.fix), 0);
   m.innerHTML = `<h2>待审稿箱 <small>还有 ${todoAll} 篇没审 · 点一批打开</small></h2><div class="boxes">${batches.map(b => { const todo = Math.max(0, b.got - b.ok - b.fix); return `<div class="box ${b.id === ST.batch ? 'on' : ''}" data-b="${b.id}"><b>${h(b.briefName.slice(0, 14))} · ${h(b.layoutName.slice(0, 10))}</b><small>${day(b.at)} · ${b.status === 'running' ? `生成中 ${b.got}/${b.n}` : `${b.got} 篇`}</small><div>${todo ? `<span class="tag am">待审 ${todo}</span>` : ''}${b.ok ? `<span class="tag ok">通过 ${b.ok}</span>` : ''}${b.fix ? `<span class="tag bad">要改 ${b.fix}</span>` : ''}</div></div>`; }).join('')}</div>
   <div class="row" style="margin:0 0 4px"><button class="btn sm" id="share">生成商家审稿链接</button><button class="btn sm" id="dlall">下载这批全部图片</button><button class="btn sm" data-tab="gen">← 回去继续出稿</button></div><div id="rb"></div>`;
@@ -273,7 +361,7 @@ function reviewBatch(m, b, share) {
     ${n.notes.length ? `<div class="hint">${n.notes.map(x => `${h(x.who)}：${h(x.t)}`).join('<br>')}</div>` : ''}
     <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里' : '修改意见（可选）'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `<button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
   // 排版放到下一帧，避免卡住
-  b.notes.forEach((n, i) => setTimeout(() => { const el = m.querySelector(`[data-pv="${n.no}"]`); if (el) el.innerHTML = pagesOf(b, n).map(u => `<img src="${u}">`).join(''); }, 30 + i * 60));
+  b.notes.forEach((n, i) => setTimeout(() => { const el = m.querySelector(`[data-pv="${n.no}"]`); if (el) pagesOf(b, n).then(us => { el.innerHTML = us.map(u => `<img src="${u}">`).join(''); }); }, 30 + i * 60));
   m.onclick = async e => {
     const card = e.target.closest('[data-no]'); if (!card) return; const no = +card.dataset.no; const n = b.notes.find(x => x.no === no);
     const im = e.target.closest('.pv img'); if (im) return bigImg(im.src);
@@ -291,8 +379,18 @@ async function stores(m) {
   m.innerHTML = `<h2>门店池 <small>写攻略时从这里挑周边店；店名、人均、营业时间、地址发布前要核对</small></h2>
   <div class="row"><div class="chips">${['', ...ds].map(d => `<span class="chip ${ST.dist === d ? 'on' : ''}" data-d="${h(d)}">${d || '全部'}<i>${d ? stores.filter(s => s.district === d).length : stores.length}</i></span>`).join('')}</div><button class="btn sm" data-ed="">＋ 加一家店</button></div>
   <div class="card" style="margin-top:10px;overflow:auto"><table><tr><th>店名</th><th>商圈</th><th>品类 / 时段</th><th>推荐菜</th><th>人均</th><th>营业时间</th><th>核对</th><th></th></tr>
-  ${L.map(s => `<tr><td>${s.planted ? '<span class="tag am">我们的店</span>' : ''}${h(s.name)}</td><td>${h(s.area)}</td><td>${h(s.cat)}<div class="hint">${h(s.slot)}</div></td><td class="hint">${h(s.dishes)}</td><td class="mono">${h(s.price)}</td><td class="mono">${h(s.hours)}</td><td>${s.checked ? `<span class="tag ok">已核 ${new Date(s.checked).toISOString().slice(5, 10)}</span>` : '<span class="tag">未核</span>'}</td><td><button class="btn sm" data-ed="${s.id}">改</button></td></tr>`).join('')}</table></div>`;
-  m.onclick = e => { const c = e.target.closest('[data-d]'); if (c) { ST.dist = c.dataset.d; return show(); } const ed = e.target.closest('[data-ed]'); if (ed) storeEdit(stores.find(s => s.id === ed.dataset.ed) || { district: ST.dist || '南山' }); };
+  ${L.map(s => `<tr><td>${s.planted ? '<span class="tag am">我们的店</span>' : ''}${h(s.name)}</td><td>${h(s.area)}</td><td>${h(s.cat)}<div class="hint">${h(s.slot)}</div></td><td class="hint">${h(s.dishes)}</td><td class="mono">${h(s.price)}</td><td class="mono">${h(s.hours)}</td><td>${s.checked ? `<span class="tag ok">已核 ${new Date(s.checked).toISOString().slice(5, 10)}</span>` : '<span class="tag">未核</span>'}</td><td><button class="btn sm" data-ed="${s.id}">改</button> ${s.planted ? `<button class="btn sm" data-ph="${s.id}">实拍图</button>` : ''}</td></tr>`).join('')}</table></div>`;
+  m.onclick = e => { const c = e.target.closest('[data-d]'); if (c) { ST.dist = c.dataset.d; return show(); } const ph = e.target.closest('[data-ph]'); if (ph) return photoLib(stores.find(s => s.id === ph.dataset.ph)); const ed = e.target.closest('[data-ed]'); if (ed) storeEdit(stores.find(s => s.id === ed.dataset.ed) || { district: ST.dist || '南山' }); };
+}
+
+async function photoLib(s) { // 门店实拍图库：上传后最后一页自动用 4 张拼图
+  const d = document.createElement('div'); d.className = 'modal'; document.body.appendChild(d);
+  const draw = async () => { const { photos } = await api('/api/photos/' + s.id); d.innerHTML = `<div style="width:min(900px,100%)"><button class="btn x">关闭</button><h2 style="margin-top:0">${h(s.name)} · 实拍图库 <small>${photos.length} 张 · 稿子最后一页从这里挑 4 张拼图（店名＋菜品描述叠在中间）</small></h2>
+    <div class="row"><input type="file" id="pf" accept="image/*" multiple><span class="hint">可以一次选多张；建议：招牌菜特写（爆膏奶油虾）、其他菜、全桌、店内环境、门头</span></div>
+    <div class="pv" style="flex-wrap:wrap">${photos.map(f => `<div style="position:relative"><img src="${BASE}/photo/${s.id}/${f}" style="width:160px;height:200px;object-fit:cover"><button class="btn sm no" data-pd="${f}" style="position:absolute;right:4px;top:4px">删</button></div>`).join('') || '<div class="hint">还没有实拍图</div>'}</div></div>`;
+    d.querySelector('#pf').onchange = async e => { const fs = [...e.target.files]; for (const f of fs) { const im = await loadImg(URL.createObjectURL(f)); if (!im) continue; const r = Math.min(1, 1440 / Math.max(im.width, im.height)); const c = document.createElement('canvas'); c.width = Math.round(im.width * r); c.height = Math.round(im.height * r); c.getContext('2d').drawImage(im, 0, 0, c.width, c.height); try { await api('/api/photos/' + s.id, { data: c.toDataURL('image/jpeg', 0.86) }); } catch (er) { toast(er.message); } } PCACHE.clear(); toast('已上传 ' + fs.length + ' 张'); draw(); }; };
+  d.onclick = async e => { if (e.target === d || e.target.classList.contains('x')) return d.remove(); const pd = e.target.closest('[data-pd]'); if (pd && confirm('删掉这张？')) { await api('/api/photos/' + s.id, { del: pd.dataset.pd }); PCACHE.clear(); draw(); } };
+  draw();
 }
 function storeEdit(s) {
   const F = [['name', '店名'], ['district', '区'], ['area', '商圈'], ['cat', '品类'], ['slot', '时段'], ['dishes', '推荐菜'], ['price', '人均'], ['hours', '营业时间'], ['addr', '地址']];

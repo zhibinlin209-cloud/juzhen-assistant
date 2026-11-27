@@ -7,6 +7,9 @@
 const fs = require('fs'); const path = require('path'); const crypto = require('crypto');
 const DAY = 864e5;
 const LAYOUTS = {
+  clean: { name: '纯文字清单（落地X第1顿）', desc: '米白底大字封面＋大分类标题＋空心圆店名清单（照我们 88 号华强北稿），最后放主店实拍拼图' },
+  green: { name: '绿底备忘录攻略（去了X次我的建议是）', desc: '绿底手机备忘录：钩子封面＋值得去/不值得去/美食街区括号图＋建议1…＋美食推荐，最后主店实拍拼图（照我们 81 号华强北稿）' },
+  nav: { name: '导航避坑（X旅游规则怪谈）', desc: '粉底大字封面＋白色备忘录：1、某景点：不要只搜「某景点」＋导航建议高亮，后面吃饭清单和主店实拍拼图（照我们 83 号华强北稿）；导航细节发布前要人工核实' },
   memo: { name: '存一下（纯文字备忘录）', desc: '黄底大字封面＋备忘录空心圆清单，按类分，最后一页实拍' },
   hand: { name: 'X吃什么（手写批注）', desc: '手机备忘录：吃什么/玩什么分组，编号店名＋紫色手写招牌菜' },
   star: { name: '星级＋短评', desc: '星级图例封面＋备忘录：店名⭐＋一句短评（招牌、人均、位置）' },
@@ -14,7 +17,7 @@ const LAYOUTS = {
 };
 
 function createGlweb({ dataDir, log, cfg, glib, base, bossDm }) {
-  const D = path.join(dataDir, 'gl'); const BD = path.join(D, 'batches'); [D, BD].forEach(d => fs.mkdirSync(d, { recursive: true }));
+  const D = path.join(dataDir, 'gl'); const BD = path.join(D, 'batches'), PD = path.join(D, 'photos'); [D, BD, PD].forEach(d => fs.mkdirSync(d, { recursive: true }));
   const rj = (f, d) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch (e) { return d; } };
   const wj = (f, v) => { const t = f + '.tmp'; fs.writeFileSync(t, JSON.stringify(v)); fs.renameSync(t, f); };
   const UF = path.join(D, 'users.json'), SF = path.join(D, 'stores.json'), BF = path.join(D, 'briefs.json'), MF = path.join(D, 'meta.json'), RF = path.join(D, 'refs.json');
@@ -81,8 +84,9 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm }) {
 6. 正文 body 一般 300–550 字（纯美食清单角度可以短到 150 字），照【参考范文】的写法：先从这几种角度里挑一种（同一批里换着用）——纯美食清单（按小吃/海鲜大排档/糖水等分类列店名，主店单独一类，开头一两句纠结口吻就够，正文可以 150 字左右）、景点红黑榜（闭眼冲／顺路打卡／不建议专程去，敢说缺点才可信）、去 X 的大实话（交通怎么到、哪里别自驾）、导航避坑（别只搜「某某」，导航到哪个门/出口最近）、一天路线怎么走。开头 1–2 句钩子，说清这篇帮读者解决什么问题；景点和出行信息是正文主体，用 emoji 或「1、2、3」分段，每条写具体可用的信息；吃的放在最后一段，用 ✅ 或 📍 列 2–5 家（顺序和 sections 一致，主店是第 2 家，店名后面可以跟一句具体的菜），最后一句提示看图。语气像整理攻略的游客或本地人，不要编造太具体的亲身经历，不要像广告；景点信息只写常识性、不会错的内容，拿不准的（门票价格、开放时间、地铁出口编号）不要写；ending 就是正文最后一句，不能和下面已经用过的重复。
 7. 禁用词：${B.banned.join('、')}；不要说“无广”“自费”“不是广告”。
 8. 话题 tags 只写 2 个，从这里选：${B.tagsOpt.join(' ')}（另外 3 个固定话题程序会加）。
-9. cover 是封面大字，只写 2 行，每行 ≤9 字，像真人随手记的一句话，${layout === 'memo' ? '如「存一下 下周去南山」「要吃的东西」' : layout === 'hand' ? '如「逛完世界之窗」「去哪吃夜宵」' : layout === 'star' ? '如「南山美食」「个人打分」' : '如「南山一日游」「不走回头路」'}。封面和标题里都不要出现任何店名、品牌名，也不要写「大排档」，否则像广告，别人不会点进来。
-10. 这是同一批的第 ${k} 篇，标题、开头、结尾、选的店和菜都要和前面的不一样。前面用过的：${prev.length ? prev.map(p => `《${p.title}》结尾「${p.ending}」`).join('；') : '无'}
+9. cover 是封面大字，一般只写 2 行（导航避坑版式可以 3–4 行），每行 ≤9 字，像真人随手记的一句话，${layout === 'clean' ? '如「落地深圳」「第1️⃣顿直奔谁家」，可以带 1 个 emoji' : layout === 'green' ? '如「去了南山5次」「我的建议是😪」' : layout === 'nav' ? '写 3–4 行短句，如「（南山）」「可能会遇到的」「一点小麻烦」「自存」'  : layout === 'memo' ? '如「存一下 下周去南山」「要吃的东西」' : layout === 'hand' ? '如「逛完世界之窗」「去哪吃夜宵」' : layout === 'star' ? '如「南山美食」「个人打分」' : '如「南山一日游」「不走回头路」'}。封面和标题里都不要出现任何店名、品牌名，也不要写「大排档」，否则像广告，别人不会点进来。
+10. navs 写 3–5 个（只用导航避坑版式时最重要），good 写 3–5 个、skip 写 2–3 个（不建议的要写真实原因，别黑景点本身，写“节假日太挤、门口特产贵”这类）、streets 写 2–3 个，全部在 ${B.district} 或附近；tips 不写门票价格、具体开放时间、地铁出口编号这类拿不准的数字。
+11. 这是同一批的第 ${k} 篇，标题、开头、结尾、选的店和菜都要和前面的不一样。前面用过的：${prev.length ? prev.map(p => `《${p.title}》结尾「${p.ending}」`).join('；') : '无'}
 【参考范文（我们之前发过的文字攻略，学它的结构、语气、emoji 小标题和信息密度；不要照抄句子，不要照抄它的地名和店）】
 ${refText}
 【主店资料（程序会照抄，不用你写）】${B.storeTitle}｜${B.address}｜人均${B.price}｜${B.hours}
@@ -94,14 +98,19 @@ ${shopLines}
 "sections":[{"h":"分类名","items":[{"shop":"门店池店名","say":"一句话","stars":4}]}],
 "route":[{"t":"10:00","place":"世界之窗","do":"≤16字"}],
 "spots":[{"place":"世界之窗","tip":"≤24字游玩建议"}],
-"yes":{"dishes":[{"name":"爆膏奶油虾","line":""}],"order":["2人：…","4人：…"],"when":"","fit":""}}`;
+"yes":{"dishes":[{"name":"爆膏奶油虾","line":""}],"order":["2人：…","4人：…"],"when":"","fit":"","blurb":"≤70字，一段像朋友安利的话，写 2–3 道菜的具体口感，放在实拍拼图上"},
+"coverSub":"≤14字，如「11月要去南山的姐妹们：」","intro":["第一段 60–100 字：这地方好在哪、要注意什么（季节、人多、温差这类常识）","第二段 40–70 字：如果你是第1️⃣次来，存下来能少踩坑"],"tagline":"≤16字，如「保姆级别，不用带脑子都能看懂！」",
+"good":[{"place":"值得去的地方","why":"≤26字具体理由"}],"skip":[{"place":"不建议专程去的地方或做法","why":"≤26字真实原因"}],"streets":[{"place":"美食街区","why":"≤22字"}],
+"tips":["6–10 条实用建议，每条 ≤40 字，写常识性、不会错的（穿衣、错峰、避坑、怎么串路线）"],
+"navs":[{"place":"景点名","why":"只搜名字会被导到哪、会遇到什么麻烦（≤40字）","nav":"导航【更准确的入口/门/方向】，进去后怎么走（≤40字，只写你确定的，拿不准就写到景区正门/游客中心）","tip":"什么时候去更好（≤30字）"}]}`;
   }
   function check(n, B, batch) {
-    const out = []; const allText = [n.title, n.body, ...(n.cover || []), ...n.sections.flatMap(s => s.items.map(i => i.say)), ...(n.yes.dishes || []).map(d => d.line), ...(n.yes.order || []), n.yes.when, n.yes.fit, ...(n.spots || []).map(s => s.tip)].join('\n');
+    const out = []; const allText = [n.title, n.body, ...(n.cover || []), ...n.sections.flatMap(s => s.items.map(i => i.say)), ...(n.yes.dishes || []).map(d => d.line), ...(n.yes.order || []), n.yes.when, n.yes.fit, ...(n.spots || []).map(s => s.tip), n.yes.blurb, ...(n.intro || []), n.tagline, ...(n.tips || []), ...(n.navs || []).map(v => v.why + v.nav + v.tip), ...['good', 'skip', 'streets'].flatMap(k => (n[k] || []).map(x => x.place + x.why))].join('\n');
     B.banned.forEach(w => { if (allText.includes(w)) out.push(['err', `出现禁用词「${w}」`]); });
     if (!/(世界之窗|南山|白石洲|华侨城|深圳|蛇口|南头)/.test(n.title)) out.push(['err', '标题没有地点词']);
     if (!/(吃|美食|夜宵|攻略|一日游|逛|玩|清单|推荐|去哪)/.test(n.title)) out.push(['err', '标题没有需求词']);
     if ([...n.title].length > 22) out.push(['warn', `标题 ${[...n.title].length} 字，偏长`]);
+    if ((n.navs || []).length && batch.layout === 'nav') out.push(['warn', '导航入口（门、出口、方向）是 AI 写的，发布前要人工核实']);
     if ((n.cover || []).some(l => /大排档|YES|也是/i.test(l))) out.push(['err', '封面出现店名/大排档，像广告']);
     if (/大排档|YES|也是大/i.test(n.title)) out.push(['warn', '标题出现店名/大排档，像广告']);
     if ((n.sections[1] || {}).items && !(n.sections[1].items.length === 1 && n.sections[1].items[0].main)) out.push(['warn', '主店没有单独成一个分类']);
@@ -139,9 +148,12 @@ ${shopLines}
     for (const t of B.tagsOpt) { if (tags.length >= B.tagsMust.length + B.tagsOptN) break; if (!tags.includes(t)) tags.push(t); }
     const yes = j.yes || {}; const dishes = (yes.dishes || []).map(d => ({ name: String(d.name || '').trim(), line: String(d.line || '').slice(0, 40) })).filter(d => d.name);
     if (!dishes.some(d => d.name === B.mustDish)) dishes.unshift({ name: B.mustDish, line: '奶油香裹着虾膏，趁热先吃' });
-    return { title: String(j.title || '').trim(), cover: (j.cover || []).map(String).filter(l => !/大排档|YES|也是/i.test(l)).slice(0, 2), body: String(j.body || '').trim(), ending: String(j.ending || '').trim(), tags, sections, dropped,
+    return { title: String(j.title || '').trim(), cover: (j.cover || []).map(String).filter(l => !/大排档|YES|也是/i.test(l)).slice(0, 4), body: String(j.body || '').trim(), ending: String(j.ending || '').trim(), tags, sections, dropped,
       route: (j.route || []).slice(0, 6).map(r => ({ t: String(r.t || ''), place: String(r.place || ''), do: String(r.do || '') })), spots: (j.spots || []).slice(0, 3).map(s => ({ place: String(s.place || ''), tip: String(s.tip || '') })),
-      yes: { dishes: dishes.slice(0, 5), order: (yes.order || []).map(String).slice(0, 3), when: String(yes.when || ''), fit: String(yes.fit || '') }, main: { name: B.storeTitle, address: B.address, price: B.price, hours: B.hours } };
+      yes: { dishes: dishes.slice(0, 5), order: (yes.order || []).map(String).slice(0, 3), when: String(yes.when || ''), fit: String(yes.fit || ''), blurb: String(yes.blurb || '').slice(0, 120) },
+      coverSub: String(j.coverSub || '').slice(0, 20), intro: (Array.isArray(j.intro) ? j.intro : [j.intro]).filter(Boolean).map(x => String(x).slice(0, 200)).slice(0, 2), tagline: String(j.tagline || '').slice(0, 24),
+      good: (j.good || []).slice(0, 6).map(x => ({ place: String(x.place || ''), why: String(x.why || '').slice(0, 40) })).filter(x => x.place), skip: (j.skip || []).slice(0, 4).map(x => ({ place: String(x.place || ''), why: String(x.why || '').slice(0, 40) })).filter(x => x.place),
+      streets: (j.streets || []).slice(0, 4).map(x => ({ place: String(x.place || ''), why: String(x.why || '').slice(0, 36) })).filter(x => x.place), tips: (j.tips || []).map(String).map(x => x.slice(0, 60)).slice(0, 12), navs: (j.navs || []).slice(0, 6).map(v => ({ place: String(v.place || '').slice(0, 16), why: String(v.why || '').slice(0, 60), nav: String(v.nav || '').slice(0, 60), tip: String(v.tip || '').slice(0, 40) })).filter(v => v.place), main: { name: B.storeTitle, address: B.address, price: B.price, hours: B.hours } };
   }
   function parseJ(t) { // 模型偶尔多一个逗号、少括号、输出被截断：先原样解析，不行就修一下再试
     const raw = String(t || '').replace(/```(json)?/g, ''); const i0 = raw.indexOf('{'); if (i0 < 0) throw new Error('没返回 JSON');
@@ -156,6 +168,8 @@ ${shopLines}
     while (st.length) s += st.pop() === '{' ? '}' : ']';
     return JSON.parse(fix(s));
   }
+  // 门店实拍图库：每家店一个文件夹，最后一页实拍拼图从这里挑
+  const photosOf = sid => { if (!/^[A-Za-z0-9_-]+$/.test(String(sid || ''))) return []; try { return fs.readdirSync(path.join(PD, sid)).filter(f => /^\d+\.jpg$/.test(f)).sort((a, b) => parseInt(a) - parseInt(b)); } catch (e) { return []; } };
   const jobs = new Map();
   async function generate(briefId, layout, n, by) {
     const B = briefs().find(b => b.id === briefId); if (!B) throw new Error('没找到任务书'); if (!LAYOUTS[layout]) throw new Error('没有这个版式');
@@ -213,7 +227,8 @@ ${shopLines}
       const bid = verify(m[1], 'R'); const b = bid && getBatch(bid); if (!b) return send(res, 403, shell('链接失效', '<form><h1>审稿链接已失效</h1></form>'), 'text/html; charset=utf-8');
       const sub = m[2] || '/';
       if (sub === '/') { const h = page(); return h ? send(res, 200, h, 'text/html; charset=utf-8') : send(res, 503, '页面更新中'); }
-      if (sub === '/data') return J(res, { ok: true, share: true, batch: b, layouts: LAYOUTS });
+      if (sub === '/data') { const sid = (briefs().find(x => x.id === b.brief) || {}).store; return J(res, { ok: true, share: true, batch: b, layouts: LAYOUTS, photos: photosOf(sid).map(f => `${sid}/${f}`) }); }
+      const pm = sub.match(/^\/photo\/([A-Za-z0-9_-]+)\/(\d+\.jpg)$/); if (pm) { const f = path.join(PD, pm[1], pm[2]); if (!fs.existsSync(f)) return send(res, 404, ''); const buf = fs.readFileSync(f); res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'private, max-age=86400' }); return res.end(buf); }
       if (sub === '/mark' && req.method === 'POST') { const j = JSON.parse(await body(req, 20000) || '{}'); return J(res, { ok: true, note: mark(bid, j.no, j.status === 'ok' ? 'shop_ok' : j.status === 'fix' ? 'shop_fix' : '', j.note ? '【商家】' + j.note : '', '商家') }); }
       return send(res, 404, '{}');
     }
@@ -229,6 +244,13 @@ ${shopLines}
       if (p === '/api/lib') return J(res, glib.query(Object.fromEntries(u.searchParams)));
       m = p.match(/^\/api\/lib\/([0-9a-f]{24})$/); if (m) { const n = glib.get(m[1]); return J(res, n ? { ok: true, note: n } : { ok: false, error: '没有这篇' }); }
       if (p === '/api/night') return J(res, glib.status());
+      m = p.match(/^\/photo\/([A-Za-z0-9_-]+)\/(\d+\.jpg)$/); if (m) { const f = path.join(PD, m[1], m[2]); if (!fs.existsSync(f)) return send(res, 404, ''); const buf = fs.readFileSync(f); res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'private, max-age=86400' }); return res.end(buf); }
+      m = p.match(/^\/api\/photos\/([A-Za-z0-9_-]+)$/);
+      if (m && req.method === 'GET') return J(res, { ok: true, photos: photosOf(m[1]) });
+      if (m && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req, 8e6)); const dir = path.join(PD, m[1]); fs.mkdirSync(dir, { recursive: true });
+        if (j.del) { if (/^\d+\.jpg$/.test(j.del)) try { fs.unlinkSync(path.join(dir, j.del)); } catch (e) { } return J(res, { ok: true, photos: photosOf(m[1]) }); }
+        const b64 = String(j.data || '').replace(/^data:image\/jpeg;base64,/, ''); const buf = Buffer.from(b64, 'base64'); if (buf.length < 1000 || buf[0] !== 0xff || buf[1] !== 0xd8) throw new Error('只收 jpg 图片');
+        const n = Math.max(0, ...photosOf(m[1]).map(f => parseInt(f))) + 1; fs.writeFileSync(path.join(dir, n + '.jpg'), buf); return J(res, { ok: true, photos: photosOf(m[1]) }); }
       if (p === '/api/stores' && req.method === 'GET') return J(res, { ok: true, stores: stores() });
       if (p === '/api/stores' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const L = stores(); const s = j.store || {}; if (!s.name) throw new Error('店名不能空'); const i = L.findIndex(x => x.id === s.id); const clean = { id: s.id || 's' + Date.now().toString(36), name: String(s.name).slice(0, 40), planted: !!s.planted, district: String(s.district || ''), area: String(s.area || ''), cat: String(s.cat || ''), slot: String(s.slot || ''), dishes: String(s.dishes || ''), price: +s.price || null, star: +s.star || null, hours: String(s.hours || ''), addr: String(s.addr || ''), checked: s.checked ? Date.now() : (i >= 0 ? L[i].checked : null) }; if (j.del && i >= 0) L.splice(i, 1); else if (i >= 0) L[i] = Object.assign(L[i], clean); else L.push(clean); wj(SF, L); return J(res, { ok: true }); }
       if (p === '/api/refs' && req.method === 'GET') return J(res, { ok: true, refs: refs() });
@@ -237,7 +259,7 @@ ${shopLines}
       if (p === '/api/briefs' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const L = briefs(); const b = j.brief || {}; const i = L.findIndex(x => x.id === b.id); if (i >= 0) L[i] = Object.assign(L[i], b); else L.push(Object.assign({}, L[0] || {}, b, { id: 'b' + Date.now().toString(36) })); wj(BF, L); return J(res, { ok: true }); }
       if (p === '/api/gen' && req.method === 'POST' && canWork) { const j = JSON.parse(await body(req)); const n = Math.max(1, Math.min(10, +j.n || 3)); return J(res, { ok: true, batch: await generate(j.brief, j.layout, n, me.name) }); }
       if (p === '/api/batches') return J(res, { ok: true, batches: batches().map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.n, got: b.notes.length, status: b.status, err: b.err, ok: b.notes.filter(x => /ok/.test(x.status)).length, fix: b.notes.filter(x => /fix/.test(x.status)).length, errs: b.notes.filter(x => x.check.some(c => c[0] === 'err')).length })) });
-      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)$/); if (m) { const b = getBatch(m[1]); if (b) { const B = briefs().find(x => x.id === b.brief); if (B) b.notes.forEach(n => { n.check = check(n, B, b); }); } return J(res, b ? { ok: true, batch: b, layouts: LAYOUTS } : { ok: false, error: '没有这个批次' }); } // 按最新任务书重新核对
+      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)$/); if (m) { const b = getBatch(m[1]); if (b) { const B = briefs().find(x => x.id === b.brief); if (B) b.notes.forEach(n => { n.check = check(n, B, b); }); } return J(res, b ? { ok: true, batch: b, layouts: LAYOUTS, photos: photosOf((briefs().find(x => x.id === b.brief) || {}).store).map(f => `${(briefs().find(x => x.id === b.brief) || {}).store}/${f}`) } : { ok: false, error: '没有这个批次' }); } // 按最新任务书重新核对
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/mark$/); if (m && req.method === 'POST') { const j = JSON.parse(await body(req, 20000)); return J(res, { ok: true, note: mark(m[1], j.no, ['ok', 'fix', 'todo'].includes(j.status) ? j.status : '', j.note, me.name) }); }
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/share$/); if (m && req.method === 'POST' && canWork) { if (!getBatch(m[1])) throw new Error('没有这个批次'); return J(res, { ok: true, url: `${base}r/${sign(`R|${m[1]}|${Date.now() + 14 * DAY}`)}` }); }
       if (p === '/api/users' && isBoss) return J(res, { ok: true, users: U.users.map(x => ({ id: x.id, name: x.name, role: x.role, roleName: ROLE[x.role], login: x.login || '', set: !!x.hash, off: !!x.off, last: x.last || null })) });
@@ -251,7 +273,7 @@ ${shopLines}
   // 第一次上线：没有任何出稿就自动用白石洲任务书出一批样稿（每个版式 2 篇），老板早上直接验收
   // 第一次出样稿有几篇失败（模型 JSON 不规范，已修）：把没出满的系统样稿重出一次
   setTimeout(() => { try { if (META.sampled2 || !META.sampled) return; META.sampled2 = Date.now(); saveMeta(); let i = 0; for (const b of batches()) { if (b.by !== '系统样稿' || b.status === 'running' || b.notes.length >= b.n) continue; try { fs.unlinkSync(path.join(BD, b.id + '.json')); } catch (e) { } const l = b.layout; setTimeout(() => generate(b.brief, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), (i++) * 20e3); } } catch (e) { log('[攻略平台] 补样稿出错：' + e.message); } }, 60e3);
-  setTimeout(() => { try { if (batches().length || !(cfg.qwenKey || cfg.deepseekKey) || META.sampled) return; META.sampled = Date.now(); saveMeta(); const b = briefs()[0]; if (!b) return; ['memo', 'hand', 'star', 'route'].forEach((l, i) => setTimeout(() => generate(b.id, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), i * 20e3)); log('[攻略平台] 开始出样稿'); } catch (e) { log('[攻略平台] 样稿出错：' + e.message); } }, 90e3);
+  setTimeout(() => { try { if (batches().length || !(cfg.qwenKey || cfg.deepseekKey) || META.sampled) return; META.sampled = Date.now(); saveMeta(); const b = briefs()[0]; if (!b) return; ['clean', 'green', 'nav', 'memo'].forEach((l, i) => setTimeout(() => generate(b.id, l, 2, '系统样稿').catch(e => log('[攻略平台] 样稿出错：' + e.message)), i * 20e3)); log('[攻略平台] 开始出样稿'); } catch (e) { log('[攻略平台] 样稿出错：' + e.message); } }, 90e3);
   return { handle, generate, LAYOUTS, bossSetupLink: (h) => setupLink(ensureBoss().id, h || 6) };
 }
 module.exports = { createGlweb };
