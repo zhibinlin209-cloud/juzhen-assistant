@@ -82,18 +82,36 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
     const N = all.filter(s => ok(s) && isNear(s)); if (N.length >= 6 || !near.length) return N.length ? N : all.filter(s => s.district === B.district && ok(s));
     return [...N, ...all.filter(s => s.district === B.district && ok(s) && !isNear(s)).map(s => Object.assign({}, s, { far: true }))];
   }
-  function promptFor(B, layout, dir, pool, spots, prev, k) {
+
+  // ---------- 爆款模板池（林总 2026-11-27：爆文工厂模板库 + 我们爆款库里的文字类爆款，都当写稿的角度/结构参考）----------
+  // 每篇分一个不同的「标题套路」和一篇这个套路下的真实爆款：学它的角度、开头和结构，不抄它的城市、店名和原句
+  const TF = path.join(D, 'tpl.json'); let TP = rj(TF, { at: 0, items: [] });
+  async function tplFetch() { try { const r = await fetch(cfg.glSeedUrl || 'https://pai.kyrinflow.com/data.json', { signal: AbortSignal.timeout(30000) }); const a = await r.json();
+    TP = { at: Date.now(), items: (Array.isArray(a) ? a : []).filter(x => x && (x.text || '').length > 40 && /美食清单|文字页|指南排版|行程排版|手账|大字报|地图|路线/.test(x.type || '')).map(x => ({ id: x.id, title: String(x.title || '').slice(0, 60), sub: x.sub || x.tag || '通用', tag: x.tag || '', type: x.type, kind: x.kind || x.cat || '', text: String(x.text || '').slice(0, 700), daily: +x.daily || 0, fav: +x.fav || 0, src: '爆文工厂' })) }; wj(TF, TP); log(`[攻略平台] 爆款模板池 ${TP.items.length} 篇`); } catch (e) { log('[攻略平台] 拉爆款模板出错：' + e.message); } }
+  setTimeout(() => { if (Date.now() - TP.at > 3 * DAY) tplFetch(); }, 40e3);
+  function tplPool() { // 爆文工厂的 + 我们自己爆款库里拆解过的文字类（带内页结构）
+    const own = glib && glib.query ? (glib.query({ n: 5000, text: '1' }).items || []).filter(x => x.ai && x.ai.trick).map(x => { const g = glib.get(x.id) || {}; return { id: x.id, title: String(g.title || '').slice(0, 60), sub: x.ai.trick, type: x.ai.type, kind: x.ai.cat, text: String(g.desc || '').slice(0, 700), pages: (g.ai && g.ai.pagesText) || '', layout: x.ai.layout, daily: x.daily || 0, src: '爆款库' }; }) : [];
+    const byId = new Map(); [...TP.items, ...own].forEach(t => { const o = byId.get(t.id); byId.set(t.id, o ? Object.assign({}, o, t, { text: o.text.length > t.text.length ? o.text : t.text }) : t); }); return [...byId.values()];
+  }
+  function pickTpls(n, B, layout) { // 一批里每篇不同套路；同一任务书最近用过的套路往后放
+    const used = new Map(); batches().filter(b => b.brief === B.id).slice(0, 8).forEach(b => b.notes.forEach(x => x.tpl && used.set(x.tpl.sub, (used.get(x.tpl.sub) || 0) + 1)));
+    const food = /美食|吃|夜宵/.test(B.message + B.audience) ; const P = tplPool().filter(t => !t.kind || (food ? true : true));
+    const groups = new Map(); P.forEach(t => { if (!groups.has(t.sub)) groups.set(t.sub, []); groups.get(t.sub).push(t); });
+    const subs = [...groups.keys()].map(k => ({ k, n: groups.get(k).length, used: used.get(k) || 0, heat: Math.max(...groups.get(k).map(t => t.daily)) })).sort((a, c) => a.used - c.used || c.heat - a.heat).slice(0, Math.max(n * 3, 12)).sort(() => Math.random() - 0.5);
+    return subs.slice(0, n).map(s => { const L = groups.get(s.k).sort((a, c) => (c.pages ? 1 : 0) - (a.pages ? 1 : 0) || c.daily - a.daily); return L[Math.floor(Math.random() * Math.min(3, L.length))]; });
+  }
+  function promptFor(B, layout, dir, pool, spots, prev, k, tpl) {
     const dishes = Object.entries(B.dishes).map(([c, l]) => `${c}：${l.join('、')}`).join('；');
     const shopLines = pool.map(s => `- ${s.name}｜${s.area}${s.far ? '（离主店远，要坐地铁，只能写成另找时间去/第二天，不能写成步行顺路）' : '（主店附近）'}｜${s.cat}｜人均${s.price}｜营业${s.hours}｜招牌：${s.dishes}`).join('\n');
     const L = LAYOUTS[layout];
     const refText = refs().slice().sort(() => Math.random() - 0.5).slice(0, 2).map((r, i) => `——范文${i + 1}——\n${String(r.text).slice(0, 1200)}${r.imgDesc ? `\n（这篇原稿的图片版式：\n${r.imgDesc.slice(0, 700)}）` : ''}`).join('\n') || '（暂无）';
     return `你是小红书本地生活博主，替${B.city || '深圳'}一家${B.storeType || '海鲜大排档'}写一篇「${dir.name}」方向的图文攻略，读起来要像真实游客或本地人自己整理的，不能像广告。
 【版式】${L.name}：${L.desc}。你只写文字内容，排版由程序完成。
-【读者】${B.audience}${B.facts ? `\n【固定事实，每篇都照这个写，不能改、不能编别的版本】${B.facts}` : ''}
+【读者】${B.audience}${tpl ? `\n【这篇学这个爆款的写法】套路「${tpl.sub}」｜原标题：${tpl.title}\n原正文：${tpl.text.slice(0, 600)}${tpl.pages ? '\n原图内页结构：' + tpl.pages.slice(0, 500) : ''}\n——学它的切入角度、标题句式、开头口吻和分段结构（把它的城市、店、景点换成我们的），不要照抄原句；这篇的角度以这个套路为准，下面第 6 条里的角度列表只在它不适用时参考。` : ''}${B.facts ? `\n【固定事实，每篇都照这个写，不能改、不能编别的版本】${B.facts}` : ''}
 【必须做到】
 1. 标题 ≤20 字，必须同时有地点词和需求词（${B.titleRule}），本篇优先往「${dir.words.join('」「')}」这类搜索词靠，不要用感叹号堆砌。
 2. 主店是「${B.storeTitle}」，程序会把它单独放成一个分类「${B.mainCat || '晚饭·' + (B.storeType || '海鲜大排档')}」、排在美食清单第 2 家，你在 sections 里不要写它。
-3. 美食清单 sections 只能用下面门店池里的店（店名照抄，不要编新店）。第一个分类固定叫「中午垫一口」、只放 1 家（粉面/小吃/茶点类）；后面再分 2–3 个分类（如 糖水甜品、夜宵续摊、第二天早餐），分类名要和店的品类对得上，不要把不同品类混在一起，一共 6–9 家；每家一句话（≤18 字）写招牌菜或特点，不要写具体价格以外编造的信息。
+3. 美食清单 sections 只能用下面门店池里的店（店名照抄，不要编新店）。第一个分类固定叫「中午垫一口」、只放 1 家（粉面/小吃/茶点类）；后面再分 2–3 个分类（如 糖水甜品、夜宵续摊、下午茶），分类名要和店的品类对得上，不要把不同品类混在一起，一共 6–9 家；每家一句话（≤18 字）写招牌菜或特点，不要写具体价格以外编造的信息。
 4. 主店介绍 yes：${B.mustDish}必写，再从这些菜里选 2–3 道：${dishes}；每道一句话（≤22 字，具体到口感/吃法，不夸大，不能写“只只爆膏”）。再写 2 条点菜建议（按人数）、1 句什么时候去、1 句适合什么聚会。
 5. 景点必须有${(B.mustSpots || []).join('、') || '1 个当地景点'}；可以再选 0–2 个：${B.optSpots.join('、')}。景点只写游玩建议，不写门票价格、开放时间等数字（这些我们没核实）。
 6. 正文 body 一般 300–550 字（纯美食清单角度可以短到 150 字），照【参考范文】的写法：先从这几种角度里挑一种（同一批里换着用）——纯美食清单（按小吃/海鲜大排档/糖水等分类列店名，主店单独一类，开头一两句纠结口吻就够，正文可以 150 字左右）、景点红黑榜（闭眼冲／顺路打卡／不建议专程去，敢说缺点才可信）、去 X 的大实话（交通怎么到、哪里别自驾）、导航避坑（别只搜「某某」，导航到哪个门/出口最近）、一天路线怎么走。开头 1–2 句钩子，说清这篇帮读者解决什么问题；景点和出行信息是正文主体，用 emoji 或「1、2、3」分段，每条写具体可用的信息；吃的放在最后一段，用 ✅ 或 📍 列 2–5 家（顺序和 sections 一致，主店是第 2 家，店名后面可以跟一句具体的菜），最后一句提示看图。语气像整理攻略的游客或本地人，不要编造太具体的亲身经历，不要像广告；景点信息只写常识性、不会错的内容，拿不准的（门票价格、开放时间、地铁出口编号）不要写；ending 就是正文最后一句，不能和下面已经用过的重复。
@@ -245,16 +263,18 @@ ${shopLines}
     (async () => {
       for (let k = (batch.k || 0) + 1; k <= n; k++) {
         const dir = B.directions[(k - 1) % B.directions.length];
+        if (!batch.tpls) { try { batch.tpls = pickTpls(n, B, layout).map(t => t && { id: t.id, sub: t.sub, title: t.title, text: t.text, pages: t.pages || '', src: t.src }); } catch (e) { batch.tpls = []; } }
+        const tpl = (batch.tpls || [])[k - 1];
         const shuffled = pool.slice().sort(() => Math.random() - 0.5).slice(0, 14);
         const spots = [...B.mustSpots, ...B.optSpots.slice().sort(() => Math.random() - 0.5).slice(0, 2)];
         let got = null, err = '';
         for (let t = 0; t < 3 && !got; t++) {
-          try { const r = await llm(promptFor(B, layout, dir, shuffled, spots, batch.notes.map(x => ({ title: x.title, ending: x.ending })), k)); got = build(parseJ(r.text), B, pool, main); got.model = r.model; }
+          try { const r = await llm(promptFor(B, layout, dir, shuffled, spots, batch.notes.map(x => ({ title: x.title, ending: x.ending })), k, tpl)); got = build(parseJ(r.text), B, pool, main); got.model = r.model; }
           catch (e) { err = e.message; }
         }
         batch.k = k;
         if (!got) { batch.err = `第 ${k} 篇失败：${err}`; log('[攻略平台] 出稿失败：' + err); save(); continue; }
-        got.no = k; got.dir = dir.name; got.status = 'todo'; got.notes = []; batch.notes.push(got); got.check = check(got, B, batch);
+        got.no = k; got.dir = dir.name; if (tpl) got.tpl = { sub: tpl.sub, title: tpl.title, id: tpl.id, src: tpl.src }; got.status = 'todo'; got.notes = []; batch.notes.push(got); got.check = check(got, B, batch);
         batch.notes.forEach(x => { x.check = check(x, B, batch); }); save();
       }
       batch.status = 'done'; batch.doneAt = Date.now(); save(); jobs.delete(id); log(`[攻略平台] 出稿完成：${B.name} ${batch.notes.length}/${n} 篇`);

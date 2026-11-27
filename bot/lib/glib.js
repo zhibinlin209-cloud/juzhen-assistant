@@ -89,7 +89,7 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
     if (n.running && now - n.running < 40 * 60e3) return { ok: true, task: 'none', why: '上一轮还没跑完' };
     let k = CAP.perRound[0] + Math.floor(Math.random() * (CAP.perRound[1] - CAP.perRound[0] + 1));
     // 模板库导入：每轮夹带几篇（晚上 3 篇、白天 1 篇），同时少搜 1 个词，总动作量不变
-    const reads = seedPick(Math.min(isNight ? 3 : 1, Math.max(0, CAP.detail - n.detail - 2))); if (reads.length) k = Math.max(isNight ? 1 : 0, k - 1);
+    const reads = seedPick(Math.min(isNight ? 5 : 1, Math.max(0, CAP.detail - n.detail - 2))); if (reads.length) k = Math.max(isNight ? 1 : 0, k - 1);
     const kws = k ? pickKws(Math.min(k, CAP.kw - n.kw)) : []; if (!kws.length && !reads.length) return { ok: true, task: 'none', why: '没有可跑的词' };
     n.running = now; n.rounds++; n.kws.push(...kws); n.kw += kws.length; saveN(); nlog(`第 ${n.rounds} 轮：${kws.join('、') || '（不搜词）'}${reads.length ? `；模板库导入 ${reads.length} 篇` : ''}`);
     return { ok: true, task: 'round', kws, reads, perKw: CAP.perKw, detailLeft: CAP.detail - n.detail };
@@ -156,6 +156,8 @@ function createGlib({ dataDir, log, cfg, vision, chat, notify, platformUrl }) {
           const t = await vision(prompt, `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${buf.toString('base64')}`);
           const m = String(t).match(/\{[\s\S]*\}/); if (!m) throw new Error('没返回 JSON'); const j = JSON.parse(m[0]);
           n.ai = { cat: j['大类'] || '', type: j['类型'] || '', trick: j['标题套路'] || '', layout: j['版式'] || '', skel: j['骨架'] || '', text: !!j['文字版式'], city: j['城市'] || '', at: Date.now() };
+          // 文字类的再看第 2、3 张，记下内页怎么排（写稿时当结构模板参考，林总 2026-11-27）
+          if ((n.ai.text || /清单|手账|路线|榜单/.test(n.ai.type)) && (n.files || []).length > 1) { const outs = []; for (const pf of n.files.slice(1, 3)) { try { const b2 = fs.readFileSync(path.join(ID, id, pf)); const e2 = pf.split('.').pop(); const t2 = await vision('这是一篇小红书文字攻略的内页。用 150 字以内写清楚这一页的内容结构：页标题怎么写、分了哪几组（组名原样写）、每组几项、每一项写了哪些信息（店名/招牌菜/价格/地址/一句评价/星级等），举 1–2 项原文做例子。只写结构，不要客套。', `data:image/${e2 === 'jpg' ? 'jpeg' : e2};base64,${b2.toString('base64')}`); outs.push(String(t2 || '').replace(/\s+/g, ' ').slice(0, 260)); } catch (e) { } } if (outs.length) n.ai.pagesText = outs.map((t, i) => `P${i + 2}：${t}`).join('\n'); }
           wj(f, n); IDX.set(id, slim(n));
           if (n.ai.skel && /X/.test(n.ai.skel) && n.daily >= 20) { const sf = path.join(D, 'skeleton.json'); const S = rj(sf, []); if (!S.includes(n.ai.skel)) { S.push(n.ai.skel); wj(sf, S.slice(-40)); } }
         } catch (e) { log('[爆款库] 拆解出错：' + e.message); }
