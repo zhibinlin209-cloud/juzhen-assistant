@@ -536,7 +536,6 @@ function reviewBatch(m, b, share, compact) {
 }
 
 async function stores(m) {
-  setTimeout(() => candBox(), 0);
   const { stores } = await api('/api/stores'); const ds = [...new Set(stores.map(s => s.district))]; ST.dist = ST.dist || '南山';
   const L = stores.filter(s => !ST.dist || s.district === ST.dist);
   m.innerHTML = `<h2>门店池 <small>写攻略时从这里挑周边店；店名、人均、营业时间、地址发布前要核对</small></h2>
@@ -545,6 +544,7 @@ async function stores(m) {
   <div class="card" style="margin-top:10px;overflow:auto"><table><tr><th>店名</th><th>商圈</th><th>品类 / 时段</th><th>推荐菜</th><th>人均</th><th>营业时间</th><th>核对</th><th></th></tr>
   ${L.map(s => `<tr><td>${s.planted ? '<span class="tag am">我们的店</span>' : ''}${h(s.name)}</td><td>${h(s.area)}</td><td>${h(s.cat)}<div class="hint">${h(s.slot)}</div></td><td class="hint">${h(s.dishes)}</td><td class="mono">${h(s.price)}</td><td class="mono">${h(s.hours)}</td><td>${s.checked ? `<span class="tag ok">已核 ${new Date(s.checked).toISOString().slice(5, 10)}</span>` : '<span class="tag">未核</span>'}</td><td><button class="btn sm" data-ed="${s.id}">改</button> ${s.planted ? `<button class="btn sm" data-ph="${s.id}">实拍图</button>` : ''}</td></tr>`).join('')}</table></div>`;
   m.onclick = e => { const c = e.target.closest('[data-d]'); if (c) { ST.dist = c.dataset.d; return show(); } const ph = e.target.closest('[data-ph]'); if (ph) return photoLib(stores.find(s => s.id === ph.dataset.ph)); const ed = e.target.closest('[data-ed]'); if (ed) storeEdit(stores.find(s => s.id === ed.dataset.ed) || { district: ST.dist || '南山' }); };
+  candBox().catch(() => { }); // 表格画出来以后再填候选箱（原来放在最前面，那时候格子还没画出来，等于没显示）
 }
 
 // 周边店候选箱（11-27 改评论大厅时误删，11-28 自查补回）
