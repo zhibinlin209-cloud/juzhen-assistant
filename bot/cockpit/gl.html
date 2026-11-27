@@ -207,7 +207,7 @@ function coverGreen(n, place) {
   if (n.coverSub) { chip(x, n.coverSub, 50, y, '#FFE38A', 46); y += 100; }
   x.fillStyle = '#222'; x.font = `44px ${SANS}`; let intro = (n.intro || []).filter(Boolean);
   if (!intro.length) { intro = String(n.body || '').split(/\n+/).map(t => t.trim()).filter(t => t && !/^[#＃]/.test(t)).slice(0, 3); } // 林总：第一页空空的
-  for (const p of intro) { if (y > H - 300) break; y = para(x, p, 50, y, W - 100, 70) + 40; }
+  for (const p of intro) { const room = Math.floor((H - 150 - y) / 70); if (room < 2) break; let ls = wrap(x, p, W - 100); if (ls.length > room) { ls = ls.slice(0, room); ls[room - 1] = ls[room - 1].slice(0, -1) + '…'; } ls.forEach(l => { x.fillText(l, 50, y); y += 70; }); y += 40; } // 放不下就截断，不出界
   if (n.tagline) chip(x, n.tagline, 54, Math.min(y + 10, H - 110), '#FFE38A', 46); return c;
 }
 function greenPage(title) { const [c, x] = cv(); greenHead(x); x.fillStyle = '#111'; x.font = `900 88px ${SANS}`; x.fillText(title, 34, 100); x.strokeStyle = '#C0392B'; x.setLineDash([8, 6]); x.lineWidth = 2; x.beginPath(); x.moveTo(0, 212); x.lineTo(W, 212); x.stroke(); x.setLineDash([]); return [c, x]; }
