@@ -95,7 +95,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
   }
   function pickTpls(n, B, layout) { // 一批里每篇不同套路；同一任务书最近用过的套路往后放
     const used = new Map(); batches().filter(b => b.brief === B.id).slice(0, 8).forEach(b => b.notes.forEach(x => x.tpl && used.set(x.tpl.sub, (used.get(x.tpl.sub) || 0) + 1)));
-    const food = /美食|吃|夜宵/.test(B.message + B.audience) ; const P = tplPool().filter(t => !t.kind || (food ? true : true));
+    const P = tplPool().filter(t => !/^(其他|通用|未分类|)$/.test(t.sub || '') && !/必比登|米其林|黑珍珠|必吃榜|官方|领导人|APEC|明星同款|总统|总理/.test(t.title + t.text + t.sub) && /美食|吃|旅游|攻略|游/.test((t.kind || '') + t.type + t.sub + t.title) && t.text.length >= 60 && t.text.length <= 1200 && !/第\d+天/.test(t.text.slice(0, 200)));
     const groups = new Map(); P.forEach(t => { if (!groups.has(t.sub)) groups.set(t.sub, []); groups.get(t.sub).push(t); });
     const subs = [...groups.keys()].map(k => ({ k, n: groups.get(k).length, used: used.get(k) || 0, heat: Math.max(...groups.get(k).map(t => t.daily)) })).sort((a, c) => a.used - c.used || c.heat - a.heat).slice(0, Math.max(n * 3, 12)).sort(() => Math.random() - 0.5);
     return subs.slice(0, n).map(s => { const L = groups.get(s.k).sort((a, c) => (c.pages ? 1 : 0) - (a.pages ? 1 : 0) || c.daily - a.daily); return L[Math.floor(Math.random() * Math.min(3, L.length))]; });
@@ -107,7 +107,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
     const refText = refs().slice().sort(() => Math.random() - 0.5).slice(0, 2).map((r, i) => `——范文${i + 1}——\n${String(r.text).slice(0, 1200)}${r.imgDesc ? `\n（这篇原稿的图片版式：\n${r.imgDesc.slice(0, 700)}）` : ''}`).join('\n') || '（暂无）';
     return `你是小红书本地生活博主，替${B.city || '深圳'}一家${B.storeType || '海鲜大排档'}写一篇「${dir.name}」方向的图文攻略，读起来要像真实游客或本地人自己整理的，不能像广告。
 【版式】${L.name}：${L.desc}。你只写文字内容，排版由程序完成。
-【读者】${B.audience}${tpl ? `\n【这篇学这个爆款的写法】套路「${tpl.sub}」｜原标题：${tpl.title}\n原正文：${tpl.text.slice(0, 600)}${tpl.pages ? '\n原图内页结构：' + tpl.pages.slice(0, 500) : ''}\n——学它的切入角度、标题句式、开头口吻和分段结构（把它的城市、店、景点换成我们的），不要照抄原句；这篇的角度以这个套路为准，下面第 6 条里的角度列表只在它不适用时参考。` : ''}${B.facts ? `\n【固定事实，每篇都照这个写，不能改、不能编别的版本】${B.facts}` : ''}
+【读者】${B.audience}${tpl ? `\n【这篇学这个爆款的写法】套路「${tpl.sub}」｜原标题：${tpl.title}\n原正文：${tpl.text.slice(0, 600)}${tpl.pages ? '\n原图内页结构：' + tpl.pages.slice(0, 500) : ''}\n——学它的切入角度、标题句式、开头口吻和分段结构（把它的城市、店、景点换成我们的），不要照抄原句，不能借用它的榜单名义、官方背书或数字（如 必吃榜、XX 家）；这篇的角度以这个套路为准，下面第 6 条里的角度列表只在它不适用时参考。` : ''}${B.facts ? `\n【固定事实，每篇都照这个写，不能改、不能编别的版本】${B.facts}` : ''}
 【必须做到】
 1. 标题 ≤20 字，必须同时有地点词和需求词（${B.titleRule}），本篇优先往「${dir.words.join('」「')}」这类搜索词靠，不要用感叹号堆砌。
 2. 主店是「${B.storeTitle}」，程序会把它单独放成一个分类「${B.mainCat || '晚饭·' + (B.storeType || '海鲜大排档')}」、排在美食清单第 2 家，你在 sections 里不要写它。
