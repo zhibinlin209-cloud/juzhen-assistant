@@ -501,7 +501,7 @@ function reviewBatch(m, b, share, compact) {
     <div class="pv" data-pv="${n.no}"><span class="hint">正在排版…</span></div>
     <div class="copy">${h(textOf(n))}</div>
     ${n.notes.length ? `<div class="hint">${n.notes.map(x => `${h(x.who)}：${h(x.t)}`).join('<br>')}</div>` : ''}
-    <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里' : '修改意见（可选）'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `<button class="btn sm" data-ed>改文案</button><button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>${/ok/.test(n.status) && ME && ME.role !== 'review' ? `<button class="btn sm pri" data-as>${n.assign ? '派发：' + h(n.assign.acct) + (n.pub ? ' ✓已发' : '') : '派发给账号'}</button>` : ''}`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
+    <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里' : '修改意见（可选）'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `${b.kind !== 'manual' && ME && ME.role !== 'review' ? '<button class="btn sm" data-rr>AI 复审</button>' : ''}<button class="btn sm" data-ed>改文案</button><button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>${/ok/.test(n.status) && ME && ME.role !== 'review' ? `<button class="btn sm pri" data-as>${n.assign ? '派发：' + h(n.assign.acct) + (n.pub ? ' ✓已发' : '') : '派发给账号'}</button>` : ''}`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
   // 排版放到下一帧，避免卡住
   b.notes.forEach((n, i) => setTimeout(() => { const el = m.querySelector(`[data-pv="${n.no}"]`); if (el) pagesOf(b, n).then(us => { el.innerHTML = us.map(u => `<img src="${u}">`).join(''); }); }, 30 + i * 60));
   m.onclick = async e => {
@@ -509,6 +509,7 @@ function reviewBatch(m, b, share, compact) {
     const im = e.target.closest('.pv img'); if (im) return bigImg(im.src);
     if (e.target.closest('[data-cp]')) return copy(textOf(n));
     if (e.target.closest('[data-dl]')) return dlPages(b, n);
+    if (e.target.closest('[data-rr]')) { const bt = e.target.closest('[data-rr]'); bt.disabled = true; bt.textContent = '复审中…（1–2 分钟）'; try { const r = await api(`/api/batch/${b.id}/rereview`, { no: n.no }); toast(r.review.adopted ? `挑出 ${r.review.problems.length} 处，已换成改后的版本` : `挑出 ${r.review.problems.length} 处，${r.review.why || '原稿保留'}`); PCACHE.clear(); show(); } catch (er) { toast(er.message); bt.disabled = false; bt.textContent = 'AI 复审'; } return; }
     if (e.target.closest('[data-ed]')) return editModal(b, n);
     if (e.target.closest('[data-as]')) return assignModal(b, n);
     const mk = e.target.closest('[data-mk]'); if (!mk) return; const note = card.querySelector('[data-nt]').value.trim();
