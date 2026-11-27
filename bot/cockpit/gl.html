@@ -341,7 +341,7 @@ async function brief(m) {
   <b>必写菜</b><span>${h(b.mustDish)}＋至少 ${b.minDishes - 1} 道：${Object.entries(b.dishes).map(([k, v]) => `${h(k)}：${v.map(h).join('、')}`).join('；')}</span>
   <b>景点</b><span>必写：${b.mustSpots.map(h).join('、')}；可选：${b.optSpots.map(h).join('、')}</span>
   <b>主店位置</b><span>美食清单第 ${b.yesPos} 位（程序固定）</span><b>周边店</b><span>门店池里「${h(b.district)}」的店（同区优先）</span>
-  <b>话题</b><span>必带 ${b.tagsMust.map(h).join(' ')}；从 ${b.tagsOpt.map(h).join(' ')} 选 ${b.tagsOptN} 个</span>
+  <b>话题</b><span>必带 ${b.tagsMust.map(h).join(' ')}；${b.tagsTotal ? `总共 ${b.tagsTotal} 个，其余从 ${b.tagsOpt.map(h).join(' ')} 里选，AI 也可以按内容加 2–3 个` : `从 ${b.tagsOpt.map(h).join(' ')} 选 ${b.tagsOptN} 个`}</span>
   <b>标题规则</b><span>${h(b.titleRule)}</span><b>禁用词</b><span>${b.banned.map(h).join('、')}</span><b>实用信息</b><span>${h(b.practical)}</span><b>发布前</b><span>${h(b.note)}</span></div>
   <div class="row" style="margin-top:10px"><span class="hint">改禁用词（用顿号隔开）：</span><input id="ban_${b.id}" value="${h(b.banned.join('、'))}" style="flex:1;min-width:260px"><button class="btn sm" data-save="${b.id}">保存</button></div></div>`).join('') + '<p class="hint">新任务书：把甲方的任务书发给我（Claude），我按格式录进来。</p>';
   $('#ra').onclick = async () => { try { await api('/api/refs', { name: $('#rn').value.trim(), text: $('#rt').value }); toast('已加进范文'); show(); } catch (er) { toast(er.message); } };
