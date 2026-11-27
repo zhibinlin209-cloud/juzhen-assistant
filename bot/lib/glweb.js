@@ -283,6 +283,8 @@ ${shopLines}
     return out.concat(secs.slice(1));
   }
   function build(j, B, pool, main, plan) {
+    j = Object.assign({}, j); const AR = ['cover', 'tags', 'sections', 'route', 'stay', 'traffic', 'spots', 'intro', 'good', 'skip', 'streets', 'tips', 'navs']; AR.forEach(k => { if (j[k] !== undefined && !Array.isArray(j[k])) j[k] = k === 'intro' || k === 'cover' || k === 'tips' ? [j[k]].filter(Boolean) : []; }); // 模型偶尔把数组写成字符串/对象
+    if (j.yes && typeof j.yes === 'object') { j.yes = Object.assign({}, j.yes); ['dishes', 'order'].forEach(k => { if (j.yes[k] !== undefined && !Array.isArray(j.yes[k])) j.yes[k] = k === 'order' ? [String(j.yes[k])] : []; }); } else j.yes = {};
     const dropped = []; const used = new Set();
     const sections = (j.sections || []).map(s => ({ h: String(s.h || '').slice(0, 10), items: (s.items || []).map(it => { const sh = matchShop(it.shop, pool); if (!sh) { if (it.shop && !/YES|也是大排档/.test(it.shop)) dropped.push(it.shop); return null; } if (used.has(sh.id)) return null; used.add(sh.id); return { id: sh.id, name: sh.name, area: sh.area, price: sh.price, kind: sh.cat || '', say: String(it.say || '').slice(0, 40), stars: Math.max(3, Math.min(5, +it.stars || 4)) }; }).filter(Boolean) })).filter(s => s.items.length);
     if (!sections.length) sections.push({ h: '吃饭', items: [] });
