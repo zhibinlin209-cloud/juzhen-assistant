@@ -159,7 +159,10 @@ ${JSON.stringify(pick(got)).slice(0, 9000)}`;
     const problems = (J0.problems || []).slice(0, 20).map(x => ({ level: x.level === 'err' ? 'err' : 'warn', where: String(x.where || '').slice(0, 16), text: String(x.text || '').slice(0, 80) })).filter(x => x.text);
     const out = { model: r.model, problems, adopted: false, at: Date.now() };
     if (J0.fixed && J0.fixed.body) {
-      const fx = J0.fixed; fx.sections = (fx.sections || []).map(sc => ({ h: sc.h, items: (sc.items || []).map(i => ({ shop: i.shop || i.name, say: i.say, stars: i.stars })) }));
+      const fx = J0.fixed; // 店单不让审稿员动：沿用原稿的分类和店，只把它改过的那句话（say）按店名套回去
+      const says = new Map(); (Array.isArray(fx.sections) ? fx.sections : []).forEach(sc => (Array.isArray(sc.items) ? sc.items : []).forEach(i => { const nm = String(i.shop || i.name || ''); if (nm && i.say) says.set(nm.replace(/[（(].*$/, ''), String(i.say)); }));
+      fx.sections = got.sections.map(sc => ({ h: sc.h, items: sc.items.filter(i => !i.main).map(i => ({ shop: i.name, say: says.get(String(i.name).replace(/[（(].*$/, '')) || i.say, stars: i.stars })) })).filter(sc => sc.items.length);
+      ['route', 'stay', 'traffic', 'spots', 'tips', 'navs', 'good', 'skip', 'streets', 'intro'].forEach(k => { if (!Array.isArray(fx[k]) || !fx[k].length) fx[k] = got[k]; });
       fx.tags = (fx.tags || []).filter(t => !B.tagsMust.includes(t) && !((plan && plan.tags) || []).includes(t));
       const fy = Object.assign({}, got.yes, fx.yes && typeof fx.yes === 'object' ? fx.yes : {}); if (!Array.isArray(fy.dishes)) fy.dishes = got.yes.dishes; ['route', 'stay', 'traffic', 'tips', 'navs', 'good', 'skip', 'spots', 'cover', 'tags'].forEach(k => { if (fx[k] !== undefined && !Array.isArray(fx[k])) fx[k] = got[k]; });
       const fixed = build(Object.assign({}, fx, { yes: fy }), B, pool, main, plan);
