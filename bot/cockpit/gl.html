@@ -243,14 +243,40 @@ function navPages(n, place) {
   });
   return (n.navs || []).length ? pages : [];
 }
+// ---- 8–10 页（君游 2026-11-27：封面1＋行程美食3–4＋注意事项1＋住宿交通1–2＋实拍1）：按版式配色排的通用信息页 ----
+const THEMES = {
+  clean: { start(t) { const [c, x] = cv(); x.fillStyle = '#FCFBF6'; x.fillRect(0, 0, W, H); x.fillStyle = '#4a4a4a'; x.font = `800 80px ${SANS}`; x.fillText(t, 70, 70); return [c, x, 210]; }, sec(x, t, y) { x.fillStyle = '#F2E7D8'; x.fillRect(66, y + 30, x.measureText(t).width + 10, 26); x.fillStyle = '#4a4a4a'; x.font = `800 56px ${SANS}`; x.fillText(t, 70, y); return y + 92; }, head: '#4a4a4a', body: '#777', mark: 'circle' },
+  green: { start(t) { const [c, x] = greenPage(t); return [c, x, 250]; }, sec(x, t, y) { chip(x, t, 40, y, '#FFE38A', 46); return y + 96; }, head: '#C0392B', body: '#222', mark: '' },
+  nav: { start(t) { const [c, x] = cv(); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#D9A52B'; x.font = `600 46px ${SANS}`; x.fillText('‹ 备忘录', 50, 44); x.fillStyle = '#999'; x.font = `44px ${SANS}`; x.fillText('🔔  🔒  ✉  ➤', W - 360, 44); x.fillStyle = '#000'; x.font = `900 80px ${SANS}`; x.fillText(t, 80, 130); return [c, x, 270]; }, sec(x, t, y) { x.font = `800 54px ${SANS}`; x.fillStyle = '#FFE38A'; x.fillRect(60, y + 26, x.measureText(t).width + 8, 30); x.fillStyle = '#111'; x.fillText(t, 62, y); return y + 92; }, head: '#111', body: '#666', mark: 'num' }
+};
+function infoPages(theme, title, entries) {
+  const T = THEMES[theme] || THEMES.clean; const pages = []; let c, x, y; const start = () => { [c, x, y] = T.start(title); pages.push(c); };
+  if (!entries.length) return pages; start(); let k = 0;
+  for (const e of entries) {
+    if (e.sec) { if (y + 260 > H) start(); x.font = `800 54px ${SANS}`; y = T.sec(x, e.sec, y); k = 0; continue; }
+    k++; x.font = `800 46px ${SANS}`; const hl = e.head ? wrap(x, (T.mark === 'num' ? k + '、' : '') + e.head, W - 190) : []; x.font = `38px ${SANS}`; const bl = e.body ? wrap(x, e.body, W - 190) : [];
+    if (y + hl.length * 62 + bl.length * 56 + 20 > H - 40) start();
+    if (T.mark === 'circle' && e.head) { x.strokeStyle = '#a99d9f'; x.lineWidth = 4; x.beginPath(); x.arc(102, y + 24, 22, 0, Math.PI * 2); x.stroke(); }
+    x.fillStyle = T.head; x.font = `800 46px ${SANS}`; hl.forEach(l => { x.fillText(l, 140, y); y += 62; });
+    x.fillStyle = T.body; x.font = `38px ${SANS}`; bl.forEach(l => { x.fillText(l, 140, y); y += 56; }); y += 34;
+  }
+  return pages;
+}
+const routeEntries = n => (n.route || []).map(r => ({ head: `${r.t ? r.t + ' ' : ''}${r.place}`, body: [r.do, r.tip].filter(Boolean).join('｜') }));
+const foodEntries = (n, skip) => n.sections.flatMap(s => s.items.map(it => ({ s: s.h, it }))).slice(skip || 0).flatMap(({ s, it }, i, a) => [...(i === 0 || a[i - 1].s !== s ? [{ sec: s.replace(/^晚饭·/, '') }] : []), { head: it.name, body: it.main ? [(n.yes.blurb || ''), '必点：' + n.yes.dishes.map(d => d.name).join('、'), n.main && n.main.hours ? '营业：' + n.main.hours : ''].filter(Boolean).join('\n') : [it.say, it.price ? '人均 ' + it.price : ''].filter(Boolean).join('｜') }]);
+const tipEntries = n => (n.tips || []).map((t, i) => ({ body: `${i + 1}. ${t}` }));
+const stayEntries = n => [...((n.stay || []).length ? [{ sec: '🏨 住哪里方便' }] : []), ...(n.stay || []).map(s => ({ head: s.area, body: [s.why, s.fit ? '适合：' + s.fit : ''].filter(Boolean).join('｜') })), ...((n.traffic || []).length ? [{ sec: '🚇 交通怎么走' }] : []), ...(n.traffic || []).map(t => ({ head: t.how, body: t.detail }))];
+const opt = a => { a.forEach(c => { c._opt = 1; }); return a; }; // 页数超了先删这些（和别的页重复的清单）
+function cap10(pages, last) { while (pages.length > 9) { let i = pages.map(c => c._opt).lastIndexOf(1); if (i < 0) i = pages.length - 2; pages.splice(i, 1); } return [...pages, last]; } // 最多 10 页
 async function renderNoteAsync(note, layout, photos, seed) {
   note = normalize(note);
   const place = /白石洲/.test(note.title) ? '白石洲' : /世界之窗/.test(note.title) ? '世界之窗' : /蛇口/.test(note.title) ? '蛇口' : '南山';
   const last = await collagePage(note, photos, seed);
-  if (layout === 'clean') return [coverQuote(note, { bg: '#FCFBF6', quote: '#F2E7D8', ink: '#555', lines: note.cover }), ...cleanLists(note), last];
-  if (layout === 'green') { const t = '存下吧　很难找全!!!'; return [coverGreen(note, place), greenBracket(note, place, t), ...greenTips(note, place, t), await greenFood(note, place, t, photos), last]; }
-  if (layout === 'nav') return [coverQuote(note, { bg: '#FDE3EB', quote: '#F7C6D6', ink: '#4f4549', hl: '#8EEFF5', lines: note.cover }), ...navPages(note, place), ...cleanLists(note), last];
-  const old = renderNote(note, layout); old[old.length - 1] = last; return old;
+  const extra = th => [...infoPages(th, '出发前注意这些', tipEntries(note)), ...infoPages(th, '住宿＋交通', stayEntries(note))];
+  if (layout === 'clean') return cap10([coverQuote(note, { bg: '#FCFBF6', quote: '#F2E7D8', ink: '#555', lines: note.cover }), ...infoPages('clean', `${place}一天这么走`, routeEntries(note)), ...opt(cleanLists(note)), ...infoPages('clean', '每家吃什么', foodEntries(note)), ...extra('clean')], last);
+  if (layout === 'green') { const t = '存下吧　很难找全!!!'; return cap10([coverGreen(note, place), greenBracket(note, place, t), ...infoPages('green', t, [{ sec: `${place}一天这么走` }, ...routeEntries(note)]), ...greenTips(note, place, t), await greenFood(note, place, t, photos), ...opt(infoPages('green', t, foodEntries(note, 4))), ...infoPages('green', t, stayEntries(note))], last); }
+  if (layout === 'nav') return cap10([coverQuote(note, { bg: '#FDE3EB', quote: '#F7C6D6', ink: '#4f4549', hl: '#8EEFF5', lines: note.cover }), ...navPages(note, place), ...infoPages('nav', `${place}一天这么走`, routeEntries(note)), ...infoPages('nav', '吃什么不踩雷', foodEntries(note)), ...extra('nav')], last);
+  const old = renderNote(note, layout); old.pop(); return cap10([...old, ...extra('clean')], last);
 }
 
 const PCACHE = new Map(); let PHOTOS = [];

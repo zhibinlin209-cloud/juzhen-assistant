@@ -86,6 +86,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai }) {
 8. 话题 tags 只写 2 个，从这里选：${B.tagsOpt.join(' ')}（另外 3 个固定话题程序会加）。
 9. cover 是封面大字，一般只写 2 行（导航避坑版式可以 3–4 行），每行 ≤9 字，像真人随手记的一句话，${layout === 'clean' ? '如「落地深圳」「第1️⃣顿直奔谁家」，可以带 1 个 emoji' : layout === 'green' ? '如「去了南山5次」「我的建议是😪」' : layout === 'nav' ? '写 3–4 行短句，如「（南山）」「可能会遇到的」「一点小麻烦」「自存」'  : layout === 'memo' ? '如「存一下 下周去南山」「要吃的东西」' : layout === 'hand' ? '如「逛完世界之窗」「去哪吃夜宵」' : layout === 'star' ? '如「南山美食」「个人打分」' : '如「南山一日游」「不走回头路」'}。封面和标题里都不要出现任何店名、品牌名，也不要写「大排档」，否则像广告，别人不会点进来。
 10. navs 写 3–5 个（只用导航避坑版式时最重要），good 写 3–5 个、skip 写 2–3 个（不建议的要写真实原因，别黑景点本身，写“节假日太挤、门口特产贵”这类）、streets 写 2–3 个，全部在 ${B.district} 或附近；tips 不写门票价格、具体开放时间、地铁出口编号这类拿不准的数字。
+12. 每篇要做成 8–10 页图（君游 2026-11-27）：route 写 5–7 站的一天行程（每站带吃什么或注意什么）；tips 当「旅程注意事项」写 6–8 条；stay 写 2–3 个住宿区域建议（只写区域和为什么住这，不写具体酒店名和价格）；traffic 写 3–5 条交通（机场/高铁站怎么过来、景点之间怎么串、夜宵后怎么回，只写你确定的线路站名，不写票价）；sections 里每家店的 say 写成 18–30 字的具体推荐（招牌菜＋口感），会单独排成美食详解页。
 11. 这是同一批的第 ${k} 篇，标题、开头、结尾、选的店和菜都要和前面的不一样。前面用过的：${prev.length ? prev.map(p => `《${p.title}》结尾「${p.ending}」`).join('；') : '无'}
 【参考范文（我们之前发过的文字攻略，学它的结构、语气、emoji 小标题和信息密度；不要照抄句子，不要照抄它的地名和店）】
 ${refText}
@@ -96,7 +97,8 @@ ${shopLines}
 只输出 JSON，不要解释：
 {"title":"","cover":["",""],"body":"","ending":"正文最后一句","tags":["#",""],
 "sections":[{"h":"分类名","items":[{"shop":"门店池店名","say":"一句话","stars":4}]}],
-"route":[{"t":"10:00","place":"世界之窗","do":"≤16字"}],
+"route":[{"t":"10:00","place":"世界之窗","do":"≤16字","tip":"≤24字，这一站吃什么或注意什么"}],
+"stay":[{"area":"住宿区域","why":"≤36字为什么住这（离哪近、方便什么）","fit":"≤14字适合谁"}],"traffic":[{"how":"如 从深圳北站过来","detail":"≤45字具体怎么走"}],
 "spots":[{"place":"世界之窗","tip":"≤24字游玩建议"}],
 "yes":{"dishes":[{"name":"爆膏奶油虾","line":""}],"order":["2人：…","4人：…"],"when":"","fit":"","blurb":"≤70字，一段像朋友安利的话，写 2–3 道菜的具体口感，放在实拍拼图上"},
 "coverSub":"≤14字，如「11月要去南山的姐妹们：」","intro":["第一段 60–100 字：这地方好在哪、要注意什么（季节、人多、温差这类常识）","第二段 40–70 字：如果你是第1️⃣次来，存下来能少踩坑"],"tagline":"≤16字，如「保姆级别，不用带脑子都能看懂！」",
@@ -105,9 +107,11 @@ ${shopLines}
 "navs":[{"place":"景点名","why":"只搜名字会被导到哪、会遇到什么麻烦（≤40字）","nav":"导航【更准确的入口/门/方向】，进去后怎么走（≤40字，只写你确定的，拿不准就写到景区正门/游客中心）","tip":"什么时候去更好（≤30字）"}]}`;
   }
   function check(n, B, batch) {
-    const out = []; const allText = [n.title, n.body, ...(n.cover || []), ...n.sections.flatMap(s => s.items.map(i => i.say)), ...(n.yes.dishes || []).map(d => d.line), ...(n.yes.order || []), n.yes.when, n.yes.fit, ...(n.spots || []).map(s => s.tip), n.yes.blurb, ...(n.intro || []), n.tagline, ...(n.tips || []), ...(n.navs || []).map(v => v.why + v.nav + v.tip), ...['good', 'skip', 'streets'].flatMap(k => (n[k] || []).map(x => x.place + x.why))].join('\n');
+    const out = []; const allText = [n.title, n.body, ...(n.cover || []), ...n.sections.flatMap(s => s.items.map(i => i.say)), ...(n.yes.dishes || []).map(d => d.line), ...(n.yes.order || []), n.yes.when, n.yes.fit, ...(n.spots || []).map(s => s.tip), n.yes.blurb, ...(n.intro || []), n.tagline, ...(n.tips || []), ...(n.navs || []).map(v => v.why + v.nav + v.tip), ...['good', 'skip', 'streets'].flatMap(k => (n[k] || []).map(x => x.place + x.why)), ...(n.route || []).map(r => r.do + (r.tip || '')), ...(n.stay || []).map(x => x.area + x.why + x.fit), ...(n.traffic || []).map(x => x.how + x.detail)].join('\n');
     B.banned.forEach(w => { if (allText.includes(w)) out.push(['err', `出现禁用词「${w}」`]); });
     if (!/(世界之窗|南山|白石洲|华侨城|深圳|蛇口|南头)/.test(n.title)) out.push(['err', '标题没有地点词']);
+    if (n.stay !== undefined && (!(n.route || []).length || !(n.traffic || []).length || !(n.stay || []).length)) out.push(['warn', '行程/住宿/交通有缺，图会少几页']);
+    if ((n.traffic || []).length || (n.stay || []).length) out.push(['warn', '住宿、交通的线路站名请人工核对一遍']);
     if (!/(吃|美食|夜宵|攻略|一日游|逛|玩|清单|推荐|去哪)/.test(n.title)) out.push(['err', '标题没有需求词']);
     if ([...n.title].length > 22) out.push(['warn', `标题 ${[...n.title].length} 字，偏长`]);
     if ((n.navs || []).length && batch.layout === 'nav') out.push(['warn', '导航入口（门、出口、方向）是 AI 写的，发布前要人工核实']);
@@ -139,7 +143,7 @@ ${shopLines}
   }
   function build(j, B, pool, main) {
     const dropped = []; const used = new Set();
-    const sections = (j.sections || []).map(s => ({ h: String(s.h || '').slice(0, 10), items: (s.items || []).map(it => { const sh = matchShop(it.shop, pool); if (!sh) { if (it.shop && !/YES|也是大排档/.test(it.shop)) dropped.push(it.shop); return null; } if (used.has(sh.id)) return null; used.add(sh.id); return { id: sh.id, name: sh.name, area: sh.area, price: sh.price, say: String(it.say || '').slice(0, 30), stars: Math.max(3, Math.min(5, +it.stars || 4)) }; }).filter(Boolean) })).filter(s => s.items.length);
+    const sections = (j.sections || []).map(s => ({ h: String(s.h || '').slice(0, 10), items: (s.items || []).map(it => { const sh = matchShop(it.shop, pool); if (!sh) { if (it.shop && !/YES|也是大排档/.test(it.shop)) dropped.push(it.shop); return null; } if (used.has(sh.id)) return null; used.add(sh.id); return { id: sh.id, name: sh.name, area: sh.area, price: sh.price, say: String(it.say || '').slice(0, 40), stars: Math.max(3, Math.min(5, +it.stars || 4)) }; }).filter(Boolean) })).filter(s => s.items.length);
     if (!sections.length) sections.push({ h: '吃饭', items: [] });
     const yesItem = { id: main.id, name: main.name, area: main.area, price: B.price, say: `${B.mustDish}、猛火小炒`, stars: 5, main: true };
     const secs2 = regroup(sections.filter(s => s.items.length), yesItem, B.mainCat || '晚饭·海鲜大排档');
@@ -149,7 +153,7 @@ ${shopLines}
     const yes = j.yes || {}; const dishes = (yes.dishes || []).map(d => ({ name: String(d.name || '').trim(), line: String(d.line || '').slice(0, 40) })).filter(d => d.name);
     if (!dishes.some(d => d.name === B.mustDish)) dishes.unshift({ name: B.mustDish, line: '奶油香裹着虾膏，趁热先吃' });
     return { title: String(j.title || '').trim(), cover: (j.cover || []).map(String).filter(l => !/大排档|YES|也是/i.test(l)).slice(0, 4), body: String(j.body || '').trim(), ending: String(j.ending || '').trim(), tags, sections, dropped,
-      route: (j.route || []).slice(0, 6).map(r => ({ t: String(r.t || ''), place: String(r.place || ''), do: String(r.do || '') })), spots: (j.spots || []).slice(0, 3).map(s => ({ place: String(s.place || ''), tip: String(s.tip || '') })),
+      route: (j.route || []).slice(0, 8).map(r => ({ t: String(r.t || ''), place: String(r.place || ''), do: String(r.do || ''), tip: String(r.tip || '').slice(0, 40) })), stay: (j.stay || []).slice(0, 4).map(x => ({ area: String(x.area || '').slice(0, 16), why: String(x.why || '').slice(0, 60), fit: String(x.fit || '').slice(0, 20) })).filter(x => x.area), traffic: (j.traffic || []).slice(0, 6).map(x => ({ how: String(x.how || '').slice(0, 20), detail: String(x.detail || '').slice(0, 70) })).filter(x => x.how), spots: (j.spots || []).slice(0, 3).map(s => ({ place: String(s.place || ''), tip: String(s.tip || '') })),
       yes: { dishes: dishes.slice(0, 5), order: (yes.order || []).map(String).slice(0, 3), when: String(yes.when || ''), fit: String(yes.fit || ''), blurb: String(yes.blurb || '').slice(0, 120) },
       coverSub: String(j.coverSub || '').slice(0, 20), intro: (Array.isArray(j.intro) ? j.intro : [j.intro]).filter(Boolean).map(x => String(x).slice(0, 200)).slice(0, 2), tagline: String(j.tagline || '').slice(0, 24),
       good: (j.good || []).slice(0, 6).map(x => ({ place: String(x.place || ''), why: String(x.why || '').slice(0, 40) })).filter(x => x.place), skip: (j.skip || []).slice(0, 4).map(x => ({ place: String(x.place || ''), why: String(x.why || '').slice(0, 40) })).filter(x => x.place),
