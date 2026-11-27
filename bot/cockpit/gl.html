@@ -282,7 +282,7 @@ function cap10(pages, last) { while (pages.length > 9) { let i = pages.map(c => 
 
 // ================== 爆款清单版式（林总 2026-11-27：照爆文工厂模板库的文字类爆款做，选版式时能看到长什么样）==================
 const SERIF = '"Songti SC","STSong","SimSun","Noto Serif SC",serif';
-const allItems = n => n.sections.flatMap(s => s.items.map(i => Object.assign({ cat: s.h.replace(/^晚饭·/, '') }, i)));
+const allItems = n => n.sections.flatMap(s => s.items.map(i => Object.assign({ cat: i.kind || (/垫一口|晚饭|夜宵|早餐|下午茶|续摊|宵夜/.test(s.h) ? (dishOf(i) || s.h) : s.h).replace(/^晚饭·/, '').replace(/[／/].*$/, '') }, i)));
 const shortName = i => String(i.name || '').replace(/\((.*)\)$/, '（$1）');
 const areaGroups = n => { const m = new Map(); allItems(n).forEach(i => { const a = i.area || '附近'; if (!m.has(a)) m.set(a, []); m.get(a).push(i); }); return [...m.entries()].map(([h, items]) => ({ h, items })); };
 const dishOf = i => String(i.say || '').split(/[，,。；;、]/)[0].replace(/^(招牌|必点|推荐)[：:]?/, '').slice(0, 12);
@@ -353,9 +353,9 @@ async function renderListLayout(note, layout, place, last) {
     case 'chat': return [...chatPages(N, P), last];
     case 'helpme': return [...listStyle(N, P, { bg: '#fff', head: 'memo', title: (n, p) => `大家帮我看看${p}这些店可以吃吗😭`, tFont: `900 56px ${SANS}`, gStyle: 'none', marker: 'none', size: 40, fmt: (i, ii, no, g) => `${g.h}：${shortName(i)}（${dishOf(i) || '招牌'}）` }), last];
     case 'tier': return [...tierPage(N, P), last];
-    case 'kraft': return [...listStyle(N, P, { bg: '#C9A57A', paper: kraftBg, title: (n, p, i) => i ? '' : `${p}最值得吃的好饭`, tColor: '#5B3A1E', tFont: `900 64px ${HAND}`, gStyle: 'none', marker: 'none', iFont: HAND, size: 44, iColor: '#3B2A1A', mainColor: '#C0392B', fmt: i => `${P}最值得吃的${String(i.cat).replace(/·.*$/, '').slice(0, 5)}：${shortName(i)}` }), last];
+    case 'kraft': return [...listStyle(N, P, { bg: '#C9A57A', paper: kraftBg, title: (n, p, i) => i ? '' : `${p}最值得吃的好饭`, tColor: '#5B3A1E', tFont: `900 64px ${HAND}`, gStyle: 'none', marker: 'none', iFont: HAND, iColor: '#3B2A1A', mainColor: '#C0392B', size: 46, iWeight: 700, fmt: i => `${P}最值得吃的${String(i.cat).replace(/·.*$/, '').slice(0, 6)}：${shortName(i)}` }), last];
     case 'table': return [...tablePage(N, P), last];
-    case 'news': return [...listStyle(N, P, { bg: '#F4ECD8', title: (n, p, i) => i ? '' : `最近想去吃的${p}美食`, tColor: '#222', tFont: `900 70px ${SERIF}`, gStyle: 'none', cols: 2, marker: 'none', iFont: SERIF, size: 34, fmt: (i, ii, no) => `${no}. ${shortName(i)}\n${String(i.cat).slice(0, 6)}｜人均${i.price || '--'}\n推荐：${dishOf(i) || '招牌菜'}` }), last];
+    case 'news': return [...listStyle(N, P, { bg: '#F4ECD8', title: (n, p, i) => i ? '' : `最近想去吃的${p}美食`, tColor: '#222', tFont: `900 70px ${SERIF}`, gStyle: 'none', cols: 2, marker: 'none', iFont: SERIF, size: 38, fmt: (i, ii, no) => `${no}. ${shortName(i)}\n${String(i.cat).slice(0, 6)}｜人均${i.price || '--'}\n推荐：${dishOf(i) || '招牌菜'}` }), last];
     case 'mint': return [...cardPages(N, P, { bg: '#DDF3E7', card: '#fff', ink: '#1E5A3C', num: '#3BB273', sub: '#4E7A63', tFont: `900 64px ${SANS}`, title: p => `${p}人的嘴真的很会挑` }), last];
     case 'greyblock': return [...listStyle(N, P, { bg: '#fff', head: 'memo', title: (n, p, i) => i ? '' : `${p}吃饭清单（分类版）`, tFont: `900 58px ${SANS}`, gStyle: 'grey', gText: (g, gi) => `${CN_NUM[gi] || gi + 1}、${g.h}`, marker: 'none', fmt: (i, ii) => `${ii + 1}、${shortName(i)}（${(i.say || '').slice(0, 14)}）` }), last];
     case 'thumbs': return [...listStyle(N, P, { bg: '#fff', head: 'memo', groups: 'area', title: (n, p, i) => i ? '' : `朋友一致认为${p}好吃的`, tFont: `900 60px ${SERIF}`, gStyle: 'plain', gFont: SERIF, marker: 'none', iFont: SERIF, fmt: i => `${shortName(i)} ${'👍'.repeat(i.main ? 8 : 3 + (String(i.name).length % 4))}` }), last];

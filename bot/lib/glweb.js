@@ -238,9 +238,9 @@ ${shopLines}
   }
   function build(j, B, pool, main, plan) {
     const dropped = []; const used = new Set();
-    const sections = (j.sections || []).map(s => ({ h: String(s.h || '').slice(0, 10), items: (s.items || []).map(it => { const sh = matchShop(it.shop, pool); if (!sh) { if (it.shop && !/YES|也是大排档/.test(it.shop)) dropped.push(it.shop); return null; } if (used.has(sh.id)) return null; used.add(sh.id); return { id: sh.id, name: sh.name, area: sh.area, price: sh.price, say: String(it.say || '').slice(0, 40), stars: Math.max(3, Math.min(5, +it.stars || 4)) }; }).filter(Boolean) })).filter(s => s.items.length);
+    const sections = (j.sections || []).map(s => ({ h: String(s.h || '').slice(0, 10), items: (s.items || []).map(it => { const sh = matchShop(it.shop, pool); if (!sh) { if (it.shop && !/YES|也是大排档/.test(it.shop)) dropped.push(it.shop); return null; } if (used.has(sh.id)) return null; used.add(sh.id); return { id: sh.id, name: sh.name, area: sh.area, price: sh.price, kind: sh.cat || '', say: String(it.say || '').slice(0, 40), stars: Math.max(3, Math.min(5, +it.stars || 4)) }; }).filter(Boolean) })).filter(s => s.items.length);
     if (!sections.length) sections.push({ h: '吃饭', items: [] });
-    const yesItem = { id: main.id, name: main.name, area: main.area, price: B.price, say: `${B.mustDish}、猛火小炒`, stars: 5, main: true };
+    const yesItem = { id: main.id, name: main.name, area: main.area, price: B.price, kind: main.cat || B.storeType || '', say: `${B.mustDish}、猛火小炒`, stars: 5, main: true };
     const secs2 = regroup(sections.filter(s => s.items.length), yesItem, B.mainCat || '晚饭·' + (B.storeType || '海鲜大排档'));
     sections.length = 0; secs2.forEach(x => sections.push(x));
     const TT = B.tagsTotal || (B.tagsMust.length + B.tagsOptN); const shopNames = pool.map(x => x.name.replace(/[（(].*$/, '')).filter(x => x.length >= 2);
