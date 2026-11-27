@@ -143,17 +143,19 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
 【可用的周边店（店名、位置、营业时间以这个为准）】
 ${shops}
 【同一批别的篇已经用过的标题】${batch.notes.map(x => x.title).join('；') || '无'}
+【程序已经查出来的硬伤（必须改掉）】${check(got, B, batch).filter(c => c[0] === 'err').map(c => c[1]).join('；') || '无'}
+【这些不算问题，别改】话题里的 ${B.tagsMust.join(' ')} 是固定话题；正文和清单里写「${B.storeTitle}」全称是对的（只是封面和标题不能有）；周边店营业时间写「不详」的照常可以写，只是不写具体几点；sections 里没有主店是对的（程序会自己放进去）。
 【要检查的】
 1. 事实：地址、地铁口、营业时间、价格、菜名和上面对不上的；把罗氏虾写成龙虾的；说上了什么榜但事实里没写的。
 2. 地理和时间：路线来回折返；「离主店远」的店被写成步行顺路；排的时间不在店的营业时间里；正文和清单里的店对不上。
 3. 不像真人：套话（嘬手指、不踩雷、天花板、封神、绝绝子、救命、谁懂啊等）、排比堆砌、每段一个格式、太书面；编造的亲身经历细节（刚好碰上、土著朋友甩来）；正文里提主店超过 2 次或写「见图片」。
 4. 规则：标题 ≤20 字要有地点词和需求词；封面和标题不能有店名/大排档；禁用词：${(B.banned || []).join('、')}。
 5. 同批重复：标题、开头和别的篇太像。
-改的时候：只改有问题的地方，没问题的保持原样；不要加新店、新菜、新景点；不确定的事实宁可删掉也别编。
+改的时候：只改有问题的地方，没问题的句子一个字都别动；sections 里的店一家都不要删（只能改 say），也不要加新店、新菜、新景点、新的营业时间；不确定的事实宁可删掉那半句也别编；problems 只写你有把握的真问题，没问题就写空数组。
 只输出 JSON：{"problems":[{"level":"err 或 warn","where":"title/body/route/…","text":"问题，≤40字"}],"fixed":{和原稿一样的字段，改好后的完整内容}}
 原稿：
 ${JSON.stringify(pick(got)).slice(0, 9000)}`;
-    const r = await llm(prompt, cfg.glReviewModels || ['qwen-plus', 'deepseek-v3.2', 'qwen-max']); const J0 = parseJ(r.text);
+    const r = await llm(prompt, cfg.glReviewModels || ['qwen-max', 'deepseek-v3.2', 'qwen-plus']); const J0 = parseJ(r.text);
     const problems = (J0.problems || []).slice(0, 20).map(x => ({ level: x.level === 'err' ? 'err' : 'warn', where: String(x.where || '').slice(0, 16), text: String(x.text || '').slice(0, 80) })).filter(x => x.text);
     const out = { model: r.model, problems, adopted: false, at: Date.now() };
     if (J0.fixed && J0.fixed.body) {
@@ -161,8 +163,12 @@ ${JSON.stringify(pick(got)).slice(0, 9000)}`;
       fx.tags = (fx.tags || []).filter(t => !B.tagsMust.includes(t) && !((plan && plan.tags) || []).includes(t));
       const fixed = build(Object.assign({}, fx, { yes: Object.assign({}, got.yes, fx.yes || {}) }), B, pool, main, plan);
       const errs = n => check(n, B, batch).filter(c => c[0] === 'err').length;
-      if (fixed.title && fixed.body && errs(fixed) <= errs(got)) { out.adopted = true; out.before = { title: got.title, body: got.body }; return { note: fixed, review: out }; }
-      out.why = '改完的版本错更多，没采用';
+      const names = n => new Set(n.sections.flatMap(sc => sc.items.map(i => i.name))); const a = names(got), b2 = names(fixed); const lost = [...a].filter(x => !b2.has(x)).length, added = [...b2].filter(x => !a.has(x)).length;
+      const warns = n => check(n, B, batch).filter(c => c[0] === 'warn').length; const len = n => [...String(n.body)].length;
+      const better = errs(fixed) < errs(got) || (errs(fixed) === errs(got) && warns(fixed) <= warns(got));
+      if (lost > 1 || added) out.why = `改后的版本${lost > 1 ? `删了 ${lost} 家店` : '加了新店'}，没采用`; else if (len(fixed) < len(got) * 0.6) out.why = '改后的正文砍得太多，没采用';
+      else if (fixed.title && fixed.body && better) { out.adopted = true; out.before = { title: got.title, body: got.body }; return { note: fixed, review: out }; }
+      if (!out.why) out.why = '改完的版本问题没变少，没采用';
     }
     return { note: got, review: out };
   }
