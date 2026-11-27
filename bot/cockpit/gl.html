@@ -510,7 +510,10 @@ function reviewBatch(m, b, share, compact) {
     <div class="pv" data-pv="${n.no}"><span class="hint">正在排版…</span></div>
     <div class="copy">${h(textOf(n))}</div>
     ${n.notes.length ? `<div class="hint">${n.notes.map(x => `${h(x.who)}：${h(x.t)}`).join('<br>')}</div>` : ''}
-    <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里' : '修改意见（可选）'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `${b.kind !== 'manual' && ME && ME.role !== 'review' ? '<button class="btn sm" data-rr>AI 复审</button>' : ''}<button class="btn sm" data-ed>改文案</button><button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>${/ok/.test(n.status) && ME && ME.role !== 'review' ? `<button class="btn sm pri" data-as>${n.assign ? '派发：' + h(n.assign.acct) + (n.pub ? ' ✓已发' : '') : '派发给账号'}</button>` : ''}`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
+    ${n.revising ? `<div class="say" style="margin:6px 0">🤖 AI 正在按「${h(String(n.revising.ask).slice(0, 40))}」改，大约 1 分钟，改好这里会自动刷新</div>` : ''}${(() => { const r = (n.revs || []).slice(-1)[0]; return r && r.ok && r.before ? `<details style="margin-top:4px"><summary class="hint">🤖 上次按 ${h(r.who)} 的意见改了 ${r.n} 处${r.reply ? '：' + h(r.reply) : ''}（点开看改前）</summary><div class="hint">改前标题：${h(r.before.title)}</div><div class="copy" style="opacity:.7">${h(r.before.body)}</div></details>` : ''; })()}
+    <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里（写清楚哪句改成什么），点「要改」AI 会自动改好' : '写哪里要改（如：标题换成…／删掉…那句），点「要改」AI 自动改好'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `${b.kind !== 'manual' && ME && ME.role !== 'review' ? '<button class="btn sm" data-rr>AI 复审</button>' : ''}<button class="btn sm" data-ed>改文案</button><button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>${/ok/.test(n.status) && ME && ME.role !== 'review' ? `<button class="btn sm pri" data-as>${n.assign ? '派发：' + h(n.assign.acct) + (n.pub ? ' ✓已发' : '') : '派发给账号'}</button>` : ''}`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
+  // 有在按意见改的稿：每 10 秒看一次，改好了就重新排
+  clearTimeout(window.__revT); if (b.notes.some(n => n.revising)) { const tick = async () => { if (!document.body.contains(m)) return; try { const nb = share ? (await fetch(BASE + '/data').then(r => r.json())).batch : (await api('/api/batch/' + b.id)).batch; const done = b.notes.filter(n => n.revising).some(n => !(nb.notes.find(o => o.no === n.no) || {}).revising); if (done) { if (share) reviewBatch(m, nb, true, compact); else if (compact) reviewBatch(m, nb, false, true); else show(); return; } } catch (e) { } window.__revT = setTimeout(tick, 10000); }; window.__revT = setTimeout(tick, 10000); }
   // 排版放到下一帧，避免卡住
   b.notes.forEach((n, i) => setTimeout(() => { const el = m.querySelector(`[data-pv="${n.no}"]`); if (el) pagesOf(b, n).then(us => { el.innerHTML = us.map(u => `<img src="${u}">`).join(''); }); }, 30 + i * 60));
   m.onclick = async e => {
@@ -523,7 +526,7 @@ function reviewBatch(m, b, share, compact) {
     if (e.target.closest('[data-as]')) return assignModal(b, n);
     const mk = e.target.closest('[data-mk]'); if (!mk) return; const note = card.querySelector('[data-nt]').value.trim();
     if (mk.dataset.mk === 'fix' && !note) return toast('先写要改哪里');
-    try { if (share) await fetch(BASE + '/mark', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ no, status: mk.dataset.mk, note }) }).then(r => r.json()); else await api(`/api/batch/${b.id}/mark`, { no, status: mk.dataset.mk, note }); toast('已记录'); if (share) { const d = await fetch(BASE + '/data').then(r => r.json()); reviewBatch(m, d.batch, true); } else show(); } catch (er) { toast(er.message); }
+    try { if (share) await fetch(BASE + '/mark', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ no, status: mk.dataset.mk, note }) }).then(r => r.json()); else await api(`/api/batch/${b.id}/mark`, { no, status: mk.dataset.mk, note }); toast(mk.dataset.mk === 'fix' ? '已交给 AI 按意见改，大约 1 分钟，改好自动刷新' : '已记录'); if (share) { const d = await fetch(BASE + '/data').then(r => r.json()); reviewBatch(m, d.batch, true); } else show(); } catch (er) { toast(er.message); }
   };
 }
 
@@ -719,6 +722,12 @@ async function pickImg(o, done) { // 大厅里自己选配图：同店、菜名�
   const d = modal(`<button class="btn x" data-cl>关闭</button><h2 style="margin-top:0">选一张配图 <small>${o.dish ? '建议配「' + h(o.dish) + '」，' : ''}用过次数少的更好</small></h2><div class="pv" style="flex-wrap:wrap">${all.slice(0, 120).map((p, i) => `<div style="width:104px;cursor:pointer" data-pi="${i}"><img src="${BASE}/photo/${p.f}" loading="lazy" style="width:104px;height:132px;object-fit:cover;border-radius:6px"><div class="hint">${h(p.dish || '')}${p.used ? ` · 用过${p.used}次` : ''}</div></div>`).join('') || '<div class="hint">素材库是空的</div>'}</div>`);
   d.addEventListener('click', e => { const pi = e.target.closest('[data-pi]'); if (pi) { d.remove(); done(all[+pi.dataset.pi].f); } });
 }
+// 需求箱：员工直接提软件/功能上的需求，不用都找林总
+async function askBox() { const AS = { todo: ['已收到', 'am'], doing: ['在改', 'am'], done: ['已改好', 'ok'], no: ['暂不做', 'bad'] }; const r = await api('/api/asks');
+  const d = modal(`<h3>📮 提需求 / 报问题</h3><div class="hint">用着哪里不顺手、想加什么功能、哪里出错了，直接写在这。写清楚：哪个页面、现在是什么样、想要什么样。稿子内容要改的不用写这里，在审稿那篇下面写意见点「要改」，AI 会直接改。</div>
+  <textarea id="asktx" rows="4" style="width:100%;margin:8px 0" placeholder="例：派发页想按账号筛选；AI 审稿里下载图片的顺序是乱的…"></textarea><div class="row"><button class="btn pri" id="askgo">提交</button><button class="btn" data-cl>关闭</button></div>
+  <h3 style="margin-top:14px">${r.boss ? '大家提的' : '我提过的'}</h3>${r.items.map(x => { const [l, c] = AS[x.status] || AS.todo; return `<div class="note" style="padding:8px 10px;margin:6px 0"><div class="row"><span class="tag ${c}">${l}</span><span class="hint">${h(x.by)} · ${day(x.at)}${x.page ? ' · ' + h(x.page) : ''}</span></div><div>${h(x.text)}</div>${x.reply ? `<div class="hint">回复：${h(x.reply)}</div>` : ''}</div>`; }).join('') || '<div class="hint">还没有</div>'}`);
+  d.querySelector('#askgo').onclick = async () => { const text = d.querySelector('#asktx').value.trim(); try { await api('/api/asks', { text, page: ST.tab }); toast('收到了，改好会在这里回复你'); d.remove(); } catch (e) { toast(e.message); } }; }
 function modal(html) { const d = document.createElement('div'); d.className = 'modal'; d.innerHTML = `<div style="width:min(640px,100%)">${html}</div>`; document.body.appendChild(d); d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-cl]')) d.remove(); }); return d; }
 function editModal(b, n) {
   const d = modal(`<h2 style="margin-top:0">改文案 · 第 ${n.no} 篇</h2><div class="kv"><b>标题</b><input data-k="title" value="${h(n.title)}"><b>正文</b><textarea data-k="body" rows="14">${h(n.body)}</textarea><b>话题</b><input data-k="tags" value="${h((n.tags || []).join(' '))}"></div><div class="hint">图片里的字是按 AI 的清单排的，改这里只改发布用的标题正文。</div><div class="row" style="margin-top:12px"><button class="btn pri" data-sv>保存</button><button class="btn" data-cl>取消</button></div>`);
@@ -767,7 +776,7 @@ function soon(m) { m.innerHTML = `<div class="empty"><b>结算</b><br><br>下一
   if (CARD) { $('#tabs').innerHTML = ''; $('#who').innerHTML = ''; return cardPage($('#main')); }
   if (HALL) { $('#tabs').innerHTML = ''; $('#who').innerHTML = ''; return hallPage($('#main')); }
   try { const r = await api('/api/me'); ME = r.me; LAYOUTS = r.layouts; } catch (e) { $('#main').innerHTML = `<div class="empty">${h(e.message)}</div>`; return; }
-  $('#who').innerHTML = `<span>${h(ME.name)} · ${h(ME.roleName)}</span><a href="${BASE}/logout">退出</a>`;
+  $('#who').innerHTML = `<span>${h(ME.name)} · ${h(ME.roleName)}</span><a href="#" id="askbtn">📮 提需求</a><a href="${BASE}/logout">退出</a>`; $('#askbtn').onclick = e => { e.preventDefault(); askBox(); };
   ST.tab = ME.role === 'writer' ? 'submit' : (location.hash || '').slice(1) || (ME.role === 'review' ? 'review' : 'dash'); nav(); show();
 })();
 </script>

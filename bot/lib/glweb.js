@@ -134,6 +134,41 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
   const menuText = B => B.menu ? Object.entries(B.menu).map(([c, l]) => `${c}：${l.map(([n, pz]) => `${n}${pz}`).join('、')}`).join('；') : '';
 
   // ---------- AI 复审（林总 2026-11-27）：写完交给另一个模型当审稿员挑错并改一版；改完程序再核一遍，错更少才采用，改前改后都留着给人看 ----------
+  // 逐句替换：edits=[{old,new}]，只动字符串，不动店单结构/话题/状态
+  function applyEdits(got, edits, nt) { const fixed = JSON.parse(JSON.stringify(got)); let hit = 0;
+    const walk = (o, k) => { const v = o[k]; if (typeof v === 'string') { let t = v; edits.forEach(e => { if (t.includes(e.old)) { t = t.split(e.old).join(e.new); hit++; } }); o[k] = t.replace(/[，,]{2,}/g, '，').replace(/^[，,]\s*/, ''); } else if (v && typeof v === 'object') Object.keys(v).forEach(x => walk(v, x)); };
+    Object.keys(fixed).filter(k => !['tags', 'id', 'no', 'status', 'aiReview', 'check', 'notes', 'plan', 'tpl', 'revs', 'images'].includes(k)).forEach(k => walk(fixed, k)); if (nt) fixed.title = nt; return { fixed, hit }; }
+  // ---------- 审稿员写意见 → AI 按意见改（林总 2026-11-27：员工直接在上面填哪里要改，AI 自动改好返回，不用都经过我）----------
+  const revising = new Set();
+  async function aiRevise(bid, no, ask, who) {
+    const key = bid + ':' + no; if (revising.has(key)) return; revising.add(key);
+    const f = path.join(BD, bid + '.json'); const setN = fn => { const b = getBatch(bid); const n = b && b.notes.find(x => x.no === +no); if (n) { fn(n, b); wj(f, b); } return n; };
+    setN(n => { n.revising = { ask, who, at: Date.now() }; });
+    try {
+      const b0 = getBatch(bid); const n0 = b0.notes.find(x => x.no === +no); const B = briefs().find(x => x.id === b0.brief) || {};
+      const pick = n => ({ title: n.title, cover: n.cover, body: n.body, sections: (n.sections || []).map(sc => ({ h: sc.h, items: sc.items.map(i => ({ shop: i.name, say: i.main ? undefined : i.say })) })), route: n.route, stay: n.stay, traffic: n.traffic, spots: n.spots, tips: n.tips, yes: n.yes, good: n.good, skip: n.skip, intro: n.intro, tagline: n.tagline, coverSub: n.coverSub, tags: n.tags });
+      const prompt = `你是这篇小红书攻略的作者。审稿同事看完提了修改意见，请按意见改。
+【审稿意见（${who}）】${ask}
+【门店事实（以这个为准）】${B.storeTitle || ''}｜${B.address || ''}｜营业${B.hours || ''}｜人均${B.price || ''}｜${B.facts || ''}
+【菜单（菜名价格只能用这些）】${B.menu ? menuText(B) : ''}
+【规矩】只改意见说到的地方，其他一个字都别动；不加新店、新菜、新景点、新营业时间；正文里「${B.storeTitle || 'YES也是大排档'}」的全称要保留；封面和标题不能有店名；不用套话（${CLICHE.join('、')}）。意见里要你删的就删（new 写空）。
+改的方式：不要重写整篇，只给「把哪句原话换成什么」。old 必须是原稿里一字不差能找到的一段，new 是换掉后的话。意见要改标题才给 title（≤20 字）；意见要改话题才给 tags（完整的新话题列表，8–10 个，要有 #YES也是大排档）。
+只输出 JSON：{"edits":[{"old":"","new":""}],"title":"","tags":[],"reply":"一句话告诉审稿同事改了什么，≤40字"}
+原稿：
+${JSON.stringify(pick(n0)).slice(0, 9000)}`;
+      const r = await llm(prompt); const J0 = parseJ(r.text);
+      const edits = (Array.isArray(J0.edits) ? J0.edits : []).map(e => ({ old: String((e && e.old) || ''), new: String((e && e.new) || '') })).filter(e => e.old.length >= 2 && e.old !== e.new && !(/YES也是大排档/i.test(e.old) && !/YES也是大排档/i.test(e.new) && !/删|去掉|不要/.test(ask))).slice(0, 20);
+      let nt = J0.title && String(J0.title).trim() !== n0.title ? String(J0.title).trim().slice(0, 24) : ''; if (nt && brandRe(B.storeTitle ? B : { storeTitle: 'YES也是大排档', brand: [] }).test(nt)) nt = '';
+      const tags = Array.isArray(J0.tags) && J0.tags.length >= 5 ? J0.tags.map(t => '#' + String(t).trim().replace(/^#/, '')).filter(t => t.length > 1).slice(0, 10) : null;
+      const { fixed, hit } = applyEdits(n0, edits, nt);
+      setN((n, b) => { const before = { title: n.title, body: n.body, tags: n.tags };
+        const changed = hit || nt || tags; if (changed) { ['title', 'cover', 'body', 'sections', 'route', 'stay', 'traffic', 'spots', 'tips', 'yes', 'good', 'skip', 'intro', 'tagline', 'coverSub', 'ending'].forEach(k => { if (fixed[k] !== undefined) n[k] = fixed[k]; }); if (tags) { if (!tags.includes('#YES也是大排档')) tags.unshift('#YES也是大排档'); n.tags = tags.slice(0, 10); } n.edited = { who: 'AI（按' + who + '的意见）', at: Date.now() }; }
+        n.revs = (n.revs || []).concat([{ ask, who, at: Date.now(), ok: !!changed, n: hit + (nt ? 1 : 0) + (tags ? 1 : 0), reply: String(J0.reply || '').slice(0, 80), before }]).slice(-10);
+        n.status = changed ? 'todo' : n.status; n.notes.push({ t: changed ? `🤖 AI 已按意见改好（${String(J0.reply || '改了 ' + hit + ' 处').slice(0, 60)}），请再看一眼` : '🤖 AI 没找到意见说的地方，请写具体些（比如原句是哪句、改成什么）', who: 'AI', at: Date.now() });
+        if (b.kind !== 'manual' && B.storeTitle) { try { n.check = check(n, B, b); } catch (e) { } } delete n.revising; });
+    } catch (e) { setN(n => { delete n.revising; n.notes.push({ t: '🤖 AI 改稿出错：' + e.message.slice(0, 60) + '，请稍后再点一次「要改」', who: 'AI', at: Date.now() }); }); log('[攻略平台] AI 按意见改稿出错：' + e.message); }
+    finally { revising.delete(key); }
+  }
   async function aiReview(got, B, pool, main, batch, plan) {
     const pick = n => ({ title: n.title, cover: n.cover, body: n.body, ending: n.ending, tags: n.tags, sections: n.sections.map(sc => ({ h: sc.h, items: sc.items.filter(i => !i.main).map(i => ({ shop: i.name, say: i.say })) })), route: n.route, spots: n.spots, yes: n.yes, stay: n.stay, traffic: n.traffic, tips: n.tips, navs: n.navs, good: n.good, skip: n.skip });
     const shops = pool.map(sh => `${sh.name}｜${sh.area}${sh.far ? '｜离主店远（要坐车）' : '｜主店附近'}｜营业${sh.hours || '不详'}`).join('\n');
@@ -414,7 +449,9 @@ ${shopLines}
   const getBatch = id => /^g[0-9a-z]+$/.test(id) ? rj(path.join(BD, id + '.json'), null) : null;
   function mark(id, i, st, note, who) {
     const f = path.join(BD, id + '.json'); const b = getBatch(id); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +i); if (!n) throw new Error('没有这一篇');
-    if (st) { n.status = st; if (/ok/.test(st) && !n.okAt) n.okAt = Date.now(); } if (note) n.notes.push({ t: String(note).slice(0, 500), who, at: Date.now() }); wj(f, b); return n;
+    if (st) { n.status = st; if (/ok/.test(st) && !n.okAt) n.okAt = Date.now(); } if (note) n.notes.push({ t: String(note).slice(0, 500), who, at: Date.now() }); wj(f, b);
+    if (/fix/.test(st || '') && note && String(note).replace(/【商家】/, '').trim().length >= 3 && cfg.glAutoRevise !== false) { n.revising = { ask: note, who, at: Date.now() }; aiRevise(id, n.no, String(note).replace(/^【商家】/, '').slice(0, 500), who).catch(() => { }); }
+    return n;
   }
 
 
@@ -747,9 +784,17 @@ ${SAMPLE}
     m = p.match(/^\/img\/([0-9a-f]{24})\/(\d+\.(?:jpg|png|webp))$/);
     if (m) { const f = glib.imgPath(m[1], m[2]); if (!f) return send(res, 404, ''); const buf = fs.readFileSync(f); res.writeHead(200, { 'content-type': /png$/.test(f) ? 'image/png' : /webp$/.test(f) ? 'image/webp' : 'image/jpeg', 'content-length': buf.length, 'cache-control': 'private, max-age=86400' }); return res.end(buf); }
     const isBoss = me.role === 'boss', canWork = me.role === 'boss' || me.role === 'ops';
-    if (me.role === 'writer' && !/^\/(api\/(me|mine|submit|briefs)|up\/)/.test(p)) return send(res, 403, '{"ok":false,"error":"写手账号只能投稿"}');
+    if (me.role === 'writer' && !/^\/(api\/(me|mine|submit|briefs|asks)|up\/)/.test(p)) return send(res, 403, '{"ok":false,"error":"写手账号只能投稿"}');
     m = p.match(/^\/up\/(g[0-9a-z]+)\/(\d+\.jpg)$/); if (m) { if (me.role === 'writer' && (getBatch(m[1]) || {}).byId !== me.id) return send(res, 403, ''); return serveJpg(res, upFile(m[1], m[2])); }
     try {
+      // 需求箱（林总 2026-11-27：员工对软件有什么需求直接提，不用都经过我）：谁都能提；自己看自己的，老板看全部；处理完写回复
+      if (p === '/api/asks') { const AF = path.join(D, 'asks.json'); const A = rj(AF, { items: [] });
+        if (req.method === 'POST') { const j = JSON.parse(await body(req, 6000)); const text = String(j.text || '').trim().slice(0, 1000); if (text.length < 4) throw new Error('写具体一点：哪个页面、想怎么改');
+          if (j.id && isBoss) { const it = A.items.find(x => x.id === j.id); if (!it) throw new Error('没有这条'); it.status = ['todo', 'doing', 'done', 'no'].includes(j.status) ? j.status : it.status; it.reply = text; it.replyAt = Date.now(); wj(AF, A); return J(res, { ok: true }); }
+          const it = { id: 'a' + Date.now().toString(36), text, page: String(j.page || '').slice(0, 30), by: me.name, byId: me.id, role: me.role, at: Date.now(), status: 'todo' }; A.items.push(it); wj(AF, A);
+          if (bossDm && !isBoss) bossDm(`📮 攻略平台需求箱：${me.name}（${ROLE[me.role] || me.role}）提了一条\n「${text.slice(0, 200)}」\n${it.page ? '页面：' + it.page + '\n' : ''}已记下，处理完会在平台上回复他。`).catch(() => { });
+          return J(res, { ok: true, id: it.id }); }
+        return J(res, { ok: true, boss: isBoss, items: A.items.filter(x => isBoss || x.byId === me.id).slice(-80).reverse() }); }
       if (p === '/api/me') return J(res, { ok: true, me: { name: me.name, role: me.role, roleName: ROLE[me.role] }, layouts: LAYOUTS });
       if (p === '/api/dash') { const B = batches(); const st = glib.status(); return J(res, { ok: true, lib: { total: st.total, night: st.night, day: st.day, pause: st.pause, window: st.window, authors: st.authors, seed: st.seed }, stores: stores().length, briefs: briefs().length, batches: B.length, notes: B.reduce((s, b) => s + b.notes.length, 0), late: pubs().filter(x => x.late).length, due: pubs().filter(x => x.due).length, todo: B.reduce((s, b) => s + b.notes.filter(n => n.status === 'todo').length, 0), recent: B.slice(0, 5).map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.notes.length, status: b.status })) }); }
       if (p === '/api/submit' && req.method === 'POST') { const j = JSON.parse(await body(req, 30e6)); const b = submit(j, me); return J(res, { ok: true, id: b.id }); }
