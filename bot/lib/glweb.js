@@ -671,7 +671,7 @@ ${plays.map(k => `- ${k}｜${PLAYS[k][0]}：${PLAYS[k][1]}`).join('\n')}
         const r = await llm(`下面是一篇小红书本地美食笔记（标题、正文、图片里的字）。把里面提到的、能找得到的具体餐饮店抽出来（必须有店名；连锁店带上分店名）。没有具体店名的不要，景点、商场不要。
 只输出 JSON：{"shops":[{"name":"店名（分店）","area":"商圈/街道/地铁站，原文怎么写就怎么写","cat":"品类，如 糖水甜品/粉面/茶餐厅/潮汕牛肉火锅/烘焙/咖啡","dishes":"原文提到的招牌菜，顿号隔开","addr":"原文给的地址，没有就空","price":"人均数字，没有就空","hours":"营业时间，没有就空"}]}
 笔记：
-${text}`);
+${text}`, ['qwen-plus', 'deepseek-v4.1-flash']);
         const J0 = parseJ(r.text);
         for (const x of (J0.shops || []).slice(0, 30)) {
           const name = String(x.name || '').trim().slice(0, 40); if (name.length < 2) continue; const key = name.replace(/[（(].*$/, '').replace(/\s/g, '');
