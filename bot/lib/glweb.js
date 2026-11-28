@@ -495,7 +495,7 @@ ${shopLines}
   function mark(id, i, st, note, who, pg) {
     const f = path.join(BD, id + '.json'); const b = getBatch(id); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +i); if (!n) throw new Error('没有这一篇');
     if (st) { n.status = st; if (/ok/.test(st) && !n.okAt) n.okAt = Date.now(); } const pno = pg && +pg.page > 0 && +pg.page < 30 ? Math.floor(+pg.page) : 0; if (note) n.notes.push({ t: (pno ? `【第 ${pno} 页】` : '') + String(note).slice(0, 500), who, at: Date.now() }); wj(f, b);
-    const revToday = (n.revs || []).filter(r => Date.now() - r.at < 24 * 3600e3).length; if (/fix/.test(st || '') && note && revToday >= 8) { n.notes.push({ t: '🤖 这篇今天已经让 AI 改了 8 次，先不自动改了，请直接点「改文案」手动改', who: 'AI', at: Date.now() }); wj(f, b); }
+    const revToday = (n.revs || []).filter(r => Date.now() - r.at < 24 * 3600e3).length; if (/fix/.test(st || '') && note && revToday >= 20) { n.notes.push({ t: '🤖 这篇今天已经让 AI 改了 20 次，先不自动改了，请直接点「改文案」手动改', who: 'AI', at: Date.now() }); wj(f, b); }
     // 排版、字号、留白、图片这类意见，AI 改稿管不了（它只会改字，11-28 有人提「第 2 张图不要留白、字小一点」，它去把文字加长了）→ 自动转进需求箱，每小时那一轮按版式改，改好对所有用这个版式的稿生效
     const isPic = /fix/.test(st || '') && note && /换.{0,6}(图|照片)|(图|照片).{0,8}(不全|不完整|不好看|模糊|不清|换|裁)/.test(String(note)); // 换图不用找 AI，自己挑
     if (isPic) { n.notes.push({ t: '🤖 想换图不用写给 AI：点这篇下面的「换配图」，从门店图库里自己挑，也可以直接粘贴图片（美食页 2 张、最后一页拼图 1–9 张），保存后马上重新出图。', who: 'AI', at: Date.now() }); wj(f, b); }
@@ -504,7 +504,7 @@ ${shopLines}
     if (isLay) { try { const A = rj(AF, { items: [] }); const B0 = briefs().find(x => x.id === b.brief) || {}; A.items.push({ id: 'a' + Date.now().toString(36), text: `【审稿时提的排版意见】${B0.name || b.brief || ''} · 版式「${(LAYOUTS[b.layout] || {}).name || b.layout || '手工稿'}」（${b.layout || '-'}）· 第 ${n.no} 篇《${String(n.title).slice(0, 20)}》（批次 ${b.id}）：${String(note).slice(0, 400)}`, page: 'review', by: who, byId: '', role: 'review', at: Date.now(), status: 'todo' }); wj(AF, A);
       n.notes.push({ t: '🤖 这条里有排版/出图方面的意见（字号、留白、图片这些），AI 改稿只能改文字。字的大小、字体、颜色可以自己点这篇下面的「字号」「字体·颜色」马上改；其他排版问题已自动转到「提需求」，改好后所有用这个版式的稿都会跟着变。文字方面的意见照常改。', who: 'AI', at: Date.now() }); wj(f, b); } catch (e) { log('[攻略平台] 排版意见转需求箱出错：' + e.message); } }
     else if (false) { }
-    if (/fix/.test(st || '') && note && revToday < 8 && String(note).replace(/【商家】/, '').trim().length >= 3 && cfg.glAutoRevise !== false) { n.revising = { ask: note, who, at: Date.now() }; aiRevise(id, n.no, String(note).replace(/^【商家】/, '').slice(0, 500), who, pg).catch(() => { }); }
+    if (/fix/.test(st || '') && note && revToday < 20 && String(note).replace(/【商家】/, '').trim().length >= 3 && cfg.glAutoRevise !== false) { n.revising = { ask: note, who, at: Date.now() }; aiRevise(id, n.no, String(note).replace(/^【商家】/, '').slice(0, 500), who, pg).catch(() => { }); }
     return n;
   }
 
