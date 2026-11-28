@@ -15,6 +15,13 @@
   --f-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   color-scheme: dark;
 }
+/* 白底模式（11-28 同事反馈黑底看久了费眼）：右上角按钮切换，每台设备各记各的 */
+html.light { --ink: #1b2433; --mute: #55627a; --faint: #7a879c; --deep: #f3f5f9; --panel: #ffffff; --panel2: #eef2f7; --line: #d5dce8; --cyan: #0b7fc0; --amber: #b56a00; --good: #0e9a60; --bad: #d63a3a; --rose: #d6336c; --violet: #6d4fd6; color-scheme: light }
+html.light body { background: var(--deep) }
+html.light input, html.light select, html.light textarea { color-scheme: light; background: #fff }
+html.light .btn.pri, html.light .chip.on { color: #fff }
+html.light .tag { background: #e6ebf3 } html.light .lc .im { background-color: #e6ebf3 }
+html.light .modal { background: #0007 } html.light .card, html.light .note, html.light .kpi, html.light .lc { box-shadow: 0 1px 2px #1b243312 }
 * { box-sizing: border-box }
 [hidden] { display: none !important }
 body { min-height: 100vh; background: radial-gradient(1200px 600px at 50% -10%, #12234080, transparent 70%) fixed, var(--deep); color: var(--ink); font-family: var(--f-body); font-size: 14px; line-height: 1.55; margin: 0; padding: 0 16px 60px }
@@ -75,6 +82,7 @@ table { width: 100%; border-collapse: collapse; font-size: 13px } th, td { text-
 .tsep { width: 1px; height: 18px; background: var(--line); margin: 0 6px; align-self: center; flex: none }
 .kv { display: grid; grid-template-columns: 110px 1fr; gap: 6px 12px; font-size: 13px } .kv b { color: var(--faint); font-weight: 400 }
 </style>
+<script>try { if (localStorage.getItem('gl-theme') === 'light') document.documentElement.classList.add('light'); } catch (e) { }</script>
 </head>
 <body>
 <div class="wrap">
@@ -82,6 +90,7 @@ table { width: 100%; border-collapse: collapse; font-size: 13px } th, td { text-
     <div class="brand"><b>粤迹</b> · 攻略平台</div>
     <div class="tabs" id="tabs"></div>
     <div class="status" id="who"></div>
+    <button class="btn sm" id="thm" title="黑底 / 白底 切换，这台设备会记住你的选择"></button>
   </div>
   <main id="main"><div class="empty">加载中…</div></main>
 </div>
@@ -94,6 +103,7 @@ const h = s => String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g
 const fmt = n => n === null || n === undefined ? '—' : n >= 1e4 ? (n / 1e4).toFixed(1) + '万' : String(Math.round(n));
 const ago = t => { if (!t) return '—'; const m = (Date.now() - t) / 60e3; return m < 60 ? Math.round(m) + ' 分钟前' : m < 1440 ? Math.round(m / 60) + ' 小时前' : Math.round(m / 1440) + ' 天前'; };
 const day = t => t ? new Date(t + 8 * 3600e3).toISOString().slice(5, 16).replace('T', ' ') : '';
+(() => { const b = document.getElementById('thm'), R = document.documentElement, paint = () => { b.textContent = R.classList.contains('light') ? '🌙 黑底' : '☀️ 白底'; }; paint(); b.onclick = () => { const on = R.classList.toggle('light'); try { localStorage.setItem('gl-theme', on ? 'light' : 'dark'); } catch (e) { } paint(); }; })();
 function toast(t) { const d = document.createElement('div'); d.className = 'toast'; d.textContent = t; document.body.appendChild(d); setTimeout(() => d.remove(), 2600); }
 async function api(p, body) { const r = await fetch(BASE + p, { method: body ? 'POST' : 'GET', headers: body ? { 'content-type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined, credentials: 'same-origin' }); if (r.status === 401) { location.reload(); throw new Error('请先登录'); } const j = await r.json(); if (j.ok === false) throw new Error(j.error || '出错了'); return j; }
 async function copy(t) { try { await navigator.clipboard.writeText(t); toast('已复制'); } catch (e) { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); toast('已复制'); } }
