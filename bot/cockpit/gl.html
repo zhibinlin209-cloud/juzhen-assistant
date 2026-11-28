@@ -147,7 +147,9 @@ function listPages1(note, opt, k0) { const LW = W / k0, LH = H / k0;
   }
   return pages;
 }
-function listPages(note, opt) { let best = listPages1(note, opt, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = listPages1(note, opt, k); if (p.length < best.length) best = p; } return best; } // 能一页放下就缩点字放一页
+// 字号（11-28 审稿反馈：一篇里各页字有大有小）：FK = 这篇稿指定的字号倍数（小 0.88 / 中 1 / 大 1.14），指定了就每页都用它；没指定（自动）时各页只在 0.85–1.1 之间微调，空白靠匀行距补，不再靠把字放很大或缩很小
+let FK = null; const SHRINK = () => FK ? [] : [0.92, 0.85]; const K1 = () => FK || 1;
+function listPages(note, opt) { let best = listPages1(note, opt, K1()); for (const k of SHRINK()) { if (best.length <= 1) break; const p = listPages1(note, opt, k); if (p.length < best.length) best = p; } return best; } // 能一页放下就缩点字放一页
 function coverMemo(note) { const [c, x] = cv(); x.fillStyle = '#FFF8D2'; x.fillRect(0, 0, W, H); x.fillStyle = '#E8C84A'; x.font = `900 220px Georgia,serif`; x.fillText('“', 70, 90); x.fillStyle = '#1a1a1a'; fitFont(x, note.cover, 900, 104, W - 170); let y = 470; note.cover.forEach((l, i) => { if (i === 1) { const w = x.measureText(l).width; x.fillStyle = '#BFE3FF'; x.fillRect(84, y + 66, w + 12, 40); x.fillStyle = '#1a1a1a'; } x.fillText(l, 90, y); y += 150; }); x.fillStyle = '#E8C84A'; x.fillRect(W - 180, H - 170, 70, 10); return c; }
 function coverHand(note) { const [c, x] = cv(); memoHead(x); x.fillStyle = '#111'; fitFont(x, note.cover, 900, 110, W - 140); let y = 360; note.cover.forEach(l => { x.fillText(l, 70, y); y += 150; }); x.fillStyle = '#7C3AED'; x.font = `64px ${HAND}`; x.fillText('（自己吃过才写的）', 80, y + 30); x.strokeStyle = '#E11D48'; x.lineWidth = 6; x.beginPath(); x.ellipse(W / 2, 430, 470, 120, -0.05, 0, Math.PI * 2); x.stroke(); return c; }
 function coverStar(note) { const [c, x] = cv(); x.fillStyle = '#FFFDF7'; x.fillRect(0, 0, W, H); x.fillStyle = '#111'; fitFont(x, note.cover, 900, 100, W - 150); let y = 260; note.cover.forEach(l => { x.fillText(l, 80, y); y += 140; }); y += 60; x.font = `44px ${SANS}`; x.fillStyle = '#333'; [['⭐⭐⭐⭐⭐', '会专门再去'], ['⭐⭐⭐⭐', '值得一吃'], ['⭐⭐⭐', '顺路可以']].forEach(([s, t]) => { x.fillText(s, 80, y); x.fillText(t, 420, y); y += 80; }); x.fillStyle = '#999'; x.font = `34px ${SANS}`; x.fillText('纯个人口味打分，仅供参考', 80, y + 40); return c; }
@@ -188,7 +190,7 @@ function cleanLists1(n, k0) { const LW = W / k0, LH = H / k0; // 大分类标题
   }
   return pages;
 }
-function cleanLists(n) { let best = cleanLists1(n, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = cleanLists1(n, k); if (p.length < best.length) best = p; } return best; }
+function cleanLists(n) { let best = cleanLists1(n, K1()); for (const k of SHRINK()) { if (best.length <= 1) break; const p = cleanLists1(n, k); if (p.length < best.length) best = p; } return best; }
 const chosenPics = (n, slot, photos) => ((n.pics || {})[slot] || []).map(f => (photos || []).find(u => u.endsWith('/' + f))).filter(Boolean); // 把挑的文件名对回图片地址，图库里已经没有的就跳过
 async function collagePage(n, photos, seed) { // 四宫格实拍＋中间白字描边（店名＋一段话），照 88/81/83 的实拍页
   if (!photos || !photos.length) return placeholder(n);
@@ -233,7 +235,7 @@ function greenTips1(n, place, title, k0) { const LW = W / k0, LH = H / k0;
   const pages = []; let c, x, y; const start = () => { [c, x] = greenPage(title); y = 240; chip(x, `${place}旅游建议`, 40, y, '#FFE38A', 46); y += 96; x.scale(k0, k0); y = y / k0; pages.push(c); };
   start(); (n.tips || []).forEach((t, i) => { x.font = `38px ${SANS}`; if (y + 120 > LH) start(); x.fillStyle = '#222'; y = para(x, `建议${i + 1}：${t}`, 40, y, LW - 80, 62) + 10; }); return (n.tips || []).length ? pages : [];
 }
-function greenTips(n, place, title) { let best = greenTips1(n, place, title, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = greenTips1(n, place, title, k); if (p.length < best.length) best = p; } return best; }
+function greenTips(n, place, title) { let best = greenTips1(n, place, title, K1()); for (const k of SHRINK()) { if (best.length <= 1) break; const p = greenTips1(n, place, title, k); if (p.length < best.length) best = p; } return best; }
 async function greenFood(n, place, title, photos) { // 林总：图压到字上、别家店旁边放的是我们的菜 → 照片只放在主店那段下面，一行两张
   // 11-28：主店介绍写长了照片就被挤没、后面的店画不下又不出现在下一页 → 照片位先留出来，这页画不下的店顺延到下一页（返回这页实际画了几家）
   const [c, x] = greenPage(title); let y = 240; chip(x, `${place}美食推荐`, 46, y, '#FFE38A', 46); y += 100;
@@ -259,7 +261,7 @@ function navPages1(n, place, k0) { const LW = W / k0, LH = H / k0;
   });
   return (n.navs || []).length ? pages : [];
 }
-function navPages(n, place) { let best = navPages1(n, place, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = navPages1(n, place, k); if (p.length < best.length) best = p; } return best; }
+function navPages(n, place) { let best = navPages1(n, place, K1()); for (const k of SHRINK()) { if (best.length <= 1) break; const p = navPages1(n, place, k); if (p.length < best.length) best = p; } return best; }
 // ---- 8–10 页（君游 2026-11-27：封面1＋行程美食3–4＋注意事项1＋住宿交通1–2＋实拍1）：按版式配色排的通用信息页 ----
 const THEMES = {
   memo: { start(t) { const [c, x] = cv(); memoHead(x); x.fillStyle = '#111'; x.font = `900 58px ${SANS}`; const y = para(x, t, 60, 130, W - 120, 72) + 34; return [c, x, y]; }, sec(x, t, y) { x.font = `800 46px ${SANS}`; x.fillStyle = '#FFE58A'; x.fillRect(56, y + 22, x.measureText(t).width + 10, 26); x.fillStyle = '#111'; x.fillText(t, 60, y); return y + 70; }, head: '#111', body: '#888', mark: 'circle', sz: { hs: 40, bs: 31, hl: 54, bl: 44, gap: 22, tx: 112, cx: 78, cr: 16, hw: 700 } },
@@ -282,10 +284,10 @@ function infoPages1(theme, title, entries, k0, extra) { const Z = v => Math.roun
   return pages;
 }
 // 能少一页就把字缩小一点（最多缩到 0.72），别出现第二页只有一两条的情况（林总 2026-11-27）
-function infoPages(theme, title, entries) { let best = infoPages1(theme, title, entries, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = infoPages1(theme, title, entries, k); if (p.length < best.length) best = p; }
-  const cap = (THEMES[theme] || {}).maxGrow || 1.9; let kk = 1; if (best.length === 1) for (const k of [1.9, 1.7, 1.55, 1.45, 1.3, 1.15].filter(v => v <= cap)) { const p = infoPages1(theme, title, entries, k); if (p.length === 1) { best = p; kk = k; break; } }
+function infoPages(theme, title, entries) { let best = infoPages1(theme, title, entries, K1()); for (const k of SHRINK()) { if (best.length <= 1) break; const p = infoPages1(theme, title, entries, k); if (p.length < best.length) best = p; }
+  const cap = Math.min((THEMES[theme] || {}).maxGrow || 1.9, 1.1); let kk = K1(); if (best.length === 1 && !FK) for (const k of [1.1].filter(v => v <= cap)) { const p = infoPages1(theme, title, entries, k); if (p.length === 1) { best = p; kk = k; break; } }
   // 字放到上限还剩大片空白：把空白匀到各条之间，不留一大块白底（11-28 审稿意见：不要留白、字中等）
-  if (best.length === 1 && best.endY) { const left = H - 80 - best.endY, n = entries.filter(e => e.head || e.body).length; if (left > 160 && n > 1) { const ex = Math.min(150, Math.floor(left / n)); for (const f of [1, 0.8, 0.6, 0.4]) { const p = infoPages1(theme, title, entries, kk, Math.floor(ex * f)); if (p.length === 1) { best = p; break; } } } } // 匀太开会把最后一个小标题挤到下一页，就少匀一点 // 林总：住宿/交通一页就一两行，空空的 → 内容少就把字放大
+  if (best.length === 1 && best.endY) { const left = H - 80 - best.endY, n = entries.filter(e => e.head || e.body).length; if (left > 160 && n > 1) { const ex = Math.min(220, Math.floor(left / n)); for (const f of [1, 0.8, 0.6, 0.4]) { const p = infoPages1(theme, title, entries, kk, Math.floor(ex * f)); if (p.length === 1) { best = p; break; } } } } // 匀太开会把最后一个小标题挤到下一页，就少匀一点 // 林总：住宿/交通一页就一两行，空空的 → 内容少就把字放大
   return best; }
 const routeEntries = n => (n.route || []).map(r => ({ head: `${r.t ? r.t + ' ' : ''}${r.place}`, body: [r.do, r.tip].filter(Boolean).join('｜') }));
 const foodEntries = (n, skip) => n.sections.flatMap(s => s.items.map(it => ({ s: s.h, it }))).slice(skip || 0).flatMap(({ s, it }, i, a) => [...(i === 0 || a[i - 1].s !== s ? [{ sec: s.replace(/^晚饭·/, '') }] : []), { head: it.name, body: it.main ? [(n.yes.blurb || ''), '必点：' + n.yes.dishes.map(d => d.name).join('、'), n.main && n.main.hours ? '营业：' + n.main.hours : ''].filter(Boolean).join('\n') : [it.say, it.price ? '人均 ' + it.price : ''].filter(Boolean).join('｜') }]);
@@ -303,7 +305,7 @@ const shortName = i => String(i.name || '').replace(/\((.*)\)$/, '（$1）');
 const areaGroups = n => { const m = new Map(); allItems(n).forEach(i => { const a = i.area || '附近'; if (!m.has(a)) m.set(a, []); m.get(a).push(i); }); return [...m.entries()].map(([h, items]) => ({ h, items })); };
 const dishOf = i => String(i.say || '').split(/[，,。；;、]/)[0].replace(/^(招牌|必点|推荐)[：:]?/, '').slice(0, 12);
 const CN_NUM = '一二三四五六七八九十';
-function fitPages(fn) { let best = fn(1); for (const k of [0.9, 0.82, 0.74]) { if (best.length <= 1) break; const p = fn(k); if (p.length < best.length) best = p; }
+function fitPages(fn) { if (FK) return fn(FK); let best = fn(1); for (const k of [0.9, 0.82, 0.74]) { if (best.length <= 1) break; const p = fn(k); if (p.length < best.length) best = p; }
   if (best.length === 1) for (const k of [1.5, 1.38, 1.26, 1.14]) { const p = fn(k); if (p.length === 1) { best = p; break; } } // 一页还剩大片空白就把字放大，放到刚好一页为止
   return best; }
 // 通用清单引擎：S = { bg, head:'memo'|'icloud'|'', title(n,place,pi), tColor, tFont, gStyle, marker, fmt, cols, groups:'cat'|'area', size }
@@ -387,7 +389,10 @@ async function renderListLayout(note, layout, place, last) {
   }
   return null;
 }
-async function renderNoteAsync(note, layout, photos, seed) {
+let RQ = Promise.resolve(); // 一次只排一篇：字号是全局开关，两篇同时排会串
+function renderNoteAsync(note, layout, photos, seed) { const p = RQ.then(() => renderNote0(note, layout, photos, seed)); RQ = p.catch(() => { }); return p; }
+async function renderNote0(note, layout, photos, seed) {
+  FK = +note.fk > 0 ? Math.max(0.7, Math.min(1.4, +note.fk)) : null;
   const pics0 = note.pics; note = normalize(note); note.pics = pics0; // 审稿时自己挑的配图（君游 11-28：图不全想换一张）
   const place = note.place || (/白石洲/.test(note.title) ? '白石洲' : /世界之窗/.test(note.title) ? '世界之窗' : /蛇口/.test(note.title) ? '蛇口' : '南山');
   const last = await collagePage(note, photos, seed);
@@ -400,7 +405,7 @@ async function renderNoteAsync(note, layout, photos, seed) {
 }
 
 const PCACHE = new Map(); let PHOTOS = [], PSID = '';
-function pagesOf(b, n) { if (b.layout === 'manual') return Promise.resolve((n.images || []).map(f => SHARE ? `${BASE}/up/${f}` : `${BASE}/up/${b.id}/${f}`)); const k = b.id + ':' + n.no + ':' + PHOTOS.length + ':' + (n.edited ? n.edited.at : '') + ':' + JSON.stringify(n.pics || ''); if (!PCACHE.has(k)) PCACHE.set(k, renderNoteAsync(n, b.layout, PHOTOS.map(f => (SHARE ? BASE + '/photo/' : BASE + '/photo/') + f), n.no).then(cs => cs.map(c => c.toDataURL('image/jpeg', 0.9)))); return PCACHE.get(k); }
+function pagesOf(b, n) { if (b.layout === 'manual') return Promise.resolve((n.images || []).map(f => SHARE ? `${BASE}/up/${f}` : `${BASE}/up/${b.id}/${f}`)); const k = b.id + ':' + n.no + ':' + PHOTOS.length + ':' + (n.edited ? n.edited.at : '') + ':' + JSON.stringify(n.pics || '') + ':' + (n.fk || ''); if (!PCACHE.has(k)) PCACHE.set(k, renderNoteAsync(n, b.layout, PHOTOS.map(f => (SHARE ? BASE + '/photo/' : BASE + '/photo/') + f), n.no).then(cs => cs.map(c => c.toDataURL('image/jpeg', 0.9)))); return PCACHE.get(k); }
 function textOf(n) { return `${n.title}\n\n${n.body}\n\n${n.tags.join(' ')}`; }
 async function dlPages(b, n) { (await pagesOf(b, n)).forEach((u, i) => { const a = document.createElement('a'); a.href = u; a.download = `${b.briefName}-第${n.no}篇-P${i + 1}.jpg`; document.body.appendChild(a); setTimeout(() => { a.click(); a.remove(); }, i * 400); }); }
 
@@ -526,7 +531,7 @@ function reviewBatch(m, b, share, compact) {
     <div class="copy">${h(textOf(n))}</div>
     ${n.notes.length ? `<div class="hint">${n.notes.map(x => `${h(x.who)}：${h(x.t)}`).join('<br>')}</div>` : ''}
     ${n.revising ? `<div class="say" style="margin:6px 0">🤖 AI 正在按「${h(String(n.revising.ask).slice(0, 40))}」改，大约 1 分钟，改好这里会自动刷新</div>` : ''}${(() => { const r = (n.revs || []).slice(-1)[0]; return r && r.ok && r.before ? `<details style="margin-top:4px"><summary class="hint">🤖 上次按 ${h(r.who)} 的意见改了 ${r.n} 处${r.reply ? '：' + h(r.reply) : ''}（点开看改前）</summary><div class="hint">改前标题：${h(r.before.title)}</div><div class="copy" style="opacity:.7">${h(r.before.body)}</div></details>` : ''; })()}
-    <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里（写清楚哪句改成什么），点「要改」AI 会自动改好' : '写哪里要改（如：标题换成…／删掉…那句），点「要改」AI 自动改好'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `${b.kind !== 'manual' && ME && ME.role !== 'review' ? '<button class="btn sm" data-rr>AI 复审</button>' : ''}<button class="btn sm" data-ed>改文案</button>${b.kind !== 'manual' && (PHOTOS.length || PSID) ? '<button class="btn sm" data-pc>换配图</button>' : ''}<button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>${/ok/.test(n.status) && ME && ME.role !== 'review' ? `<button class="btn sm pri" data-as>${n.assign ? '派发：' + h(n.assign.acct) + (n.pub ? ' ✓已发' : '') : '派发给账号'}</button>` : ''}`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
+    <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里（写清楚哪句改成什么），点「要改」AI 会自动改好' : '写哪里要改（如：标题换成…／删掉…那句），点「要改」AI 自动改好'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `${b.kind !== 'manual' && ME && ME.role !== 'review' ? '<button class="btn sm" data-rr>AI 复审</button>' : ''}<button class="btn sm" data-ed>改文案</button>${b.kind !== 'manual' && (PHOTOS.length || PSID) ? '<button class="btn sm" data-pc>换配图</button>' : ''}${b.kind !== 'manual' ? `<span class="hint" style="margin-left:6px">字号</span>${[['', '自动'], [0.88, '小'], [1, '中'], [1.14, '大']].map(([v, t]) => `<button class="btn sm ${String(n.fk || '') === String(v) ? 'pri' : ''}" data-fk="${v}" title="这篇稿每一页的字统一用这个大小">${t}</button>`).join('')}` : ''}<button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>${/ok/.test(n.status) && ME && ME.role !== 'review' ? `<button class="btn sm pri" data-as>${n.assign ? '派发：' + h(n.assign.acct) + (n.pub ? ' ✓已发' : '') : '派发给账号'}</button>` : ''}`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
   // 有在按意见改的稿：每 10 秒看一次，改好了就重新排
   clearTimeout(window.__revT); if (b.notes.some(n => n.revising)) { const tick = async () => { if (!document.body.contains(m)) return; try { const nb = share ? (await fetch(BASE + '/data').then(r => r.json())).batch : (await api('/api/batch/' + b.id)).batch; const done = b.notes.filter(n => n.revising).some(n => !(nb.notes.find(o => o.no === n.no) || {}).revising); if (done) { if (share) reviewBatch(m, nb, true, compact); else if (compact) reviewBatch(m, nb, false, true); else show(); return; } } catch (e) { } window.__revT = setTimeout(tick, 10000); }; window.__revT = setTimeout(tick, 10000); }
   // 排版放到下一帧，避免卡住
@@ -539,6 +544,7 @@ function reviewBatch(m, b, share, compact) {
     if (e.target.closest('[data-rr]')) { const bt = e.target.closest('[data-rr]'); bt.disabled = true; bt.textContent = '复审中…（1–2 分钟）'; try { const r = await api(`/api/batch/${b.id}/rereview`, { no: n.no }); toast(r.review.adopted ? `挑出 ${r.review.problems.length} 处，已换成改后的版本` : `挑出 ${r.review.problems.length} 处，${r.review.why || '原稿保留'}`); PCACHE.clear(); show(); } catch (er) { toast(er.message); bt.disabled = false; bt.textContent = 'AI 复审'; } return; }
     if (e.target.closest('[data-ed]')) return editModal(b, n);
     if (e.target.closest('[data-pc]')) return picsModal(b, n);
+    const fkb = e.target.closest('[data-fk]'); if (fkb) { try { await api(`/api/batch/${b.id}/pics`, { no: n.no, fk: fkb.dataset.fk === '' ? 0 : +fkb.dataset.fk }); toast('字号改好了，正在重新出图'); show(); } catch (er) { toast(er.message); } return; }
     if (e.target.closest('[data-as]')) return assignModal(b, n);
     const mk = e.target.closest('[data-mk]'); if (!mk) return; const note = card.querySelector('[data-nt]').value.trim();
     if (mk.dataset.mk === 'fix' && !note) return toast('先写要改哪里');
