@@ -189,9 +189,10 @@ function cleanLists1(n, k0) { const LW = W / k0, LH = H / k0; // 大分类标题
   return pages;
 }
 function cleanLists(n) { let best = cleanLists1(n, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = cleanLists1(n, k); if (p.length < best.length) best = p; } return best; }
+const chosenPics = (n, slot, photos) => ((n.pics || {})[slot] || []).map(f => (photos || []).find(u => u.endsWith('/' + f))).filter(Boolean); // 把挑的文件名对回图片地址，图库里已经没有的就跳过
 async function collagePage(n, photos, seed) { // 四宫格实拍＋中间白字描边（店名＋一段话），照 88/81/83 的实拍页
   if (!photos || !photos.length) return placeholder(n);
-  const pick = []; const st0 = (seed * 4) % photos.length; for (let i = 0; i < Math.min(4, photos.length); i++) pick.push(photos[(st0 + i) % photos.length]); while (pick.length < 4) pick.push(pick[pick.length % Math.max(1, photos.length)]);
+  const pick = chosenPics(n, 'last', photos).slice(0, 4); const st0 = (seed * 4) % photos.length; for (let i = 0; pick.length < Math.min(4, photos.length) && i < photos.length; i++) { const u = photos[(st0 + i) % photos.length]; if (!pick.includes(u)) pick.push(u); } while (pick.length < 4) pick.push(pick[pick.length % Math.max(1, photos.length)]);
   const imgs = await Promise.all(pick.map(u => loadImg(u))); const [c, x] = cv(); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H);
   const cw = W / 2, ch = H / 2; imgs.forEach((im, i) => { if (!im) return; const dx = (i % 2) * cw, dy = Math.floor(i / 2) * ch; const r = Math.max(cw / im.width, ch / im.height); const sw = cw / r, sh = ch / r; x.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, dx, dy, cw, ch); });
   const name = '📍' + n.main.name; const blurb = n.yes.blurb || n.yes.dishes.map(d => d.name + '，' + d.line).join('；');
@@ -234,11 +235,11 @@ function greenTips(n, place, title) { let best = greenTips1(n, place, title, 1);
 async function greenFood(n, place, title, photos) { // 林总：图压到字上、别家店旁边放的是我们的菜 → 照片只放在主店那段下面，一行两张
   // 11-28：主店介绍写长了照片就被挤没、后面的店画不下又不出现在下一页 → 照片位先留出来，这页画不下的店顺延到下一页（返回这页实际画了几家）
   const [c, x] = greenPage(title); let y = 240; chip(x, `${place}美食推荐`, 46, y, '#FFE38A', 46); y += 100;
-  const all = n.sections.flatMap(s => s.items); const mi = all.findIndex(i => i.main); const items = all.slice(0, Math.max(4, mi + 1)); const ims = photos && photos.length ? (await Promise.all(photos.slice(0, 2).map(loadImg))).filter(Boolean) : []; let drawn = 0;
+  const all = n.sections.flatMap(s => s.items); const mi = all.findIndex(i => i.main); const items = all.slice(0, Math.max(4, mi + 1)); const fp = chosenPics(n, 'food', photos); const ims = photos && photos.length ? (await Promise.all([...fp, ...photos.filter(u => !fp.includes(u))].slice(0, 2).map(loadImg))).filter(Boolean) : []; let drawn = 0;
   const hOf = it => { x.font = `40px ${SANS}`; const lw = Math.min(x.measureText(it.name + '：').width, W - 300); const desc = it.main ? (n.yes.blurb || n.yes.dishes.map(d => d.line).join('，')) : it.say; const ls = wrap(x, desc, W - 92 - lw); return 64 + (ls.length > 1 ? wrap(x, ls.slice(1).join(''), W - 92).length * 64 : 0) + 30; };
   for (let k = 0; k < items.length; k++) { const it = items[k]; const need = hOf(it) + (it.main && ims.length ? 300 : 0); if (y + need > H - 50 && k > 0 && !(it.main && k <= mi)) break; if (y + hOf(it) > H - 50 && k > 0) break;
     x.font = `40px ${SANS}`; x.fillStyle = '#C0392B'; const lab = it.name + '：'; const lw = Math.min(x.measureText(lab).width, W - 300); x.fillText(lab, 46, y); x.fillStyle = '#222'; const desc = it.main ? (n.yes.blurb || n.yes.dishes.map(d => d.line).join('，')) : it.say; const ls = wrap(x, desc, W - 92 - lw); x.fillText(ls[0] || '', 46 + lw, y); y += 64; if (ls.length > 1) y = para(x, ls.slice(1).join(''), 46, y, W - 92, 64); y += 30; drawn++;
-    if (it.main && ims.length && H - 50 - y >= 250) { const gw = (W - 92 - 16 * (ims.length - 1)) / ims.length, hh = Math.min(380, H - 60 - y); ims.forEach((im, i) => { const r = Math.max(gw / im.width, hh / im.height); const sw = gw / r, sh = hh / r; x.save(); x.beginPath(); x.roundRect(46 + i * (gw + 16), y, gw, hh, 14); x.clip(); x.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, 46 + i * (gw + 16), y, gw, hh); x.restore(); }); y += hh + 40; } }
+    if (it.main && ims.length && H - 50 - y >= 250) { const gw = (W - 92 - 16 * (ims.length - 1)) / ims.length, hh = Math.min(Math.round(gw * 0.95), H - 60 - y); /* 接近方图，菜不容易被裁掉 */ ims.forEach((im, i) => { const r = Math.max(gw / im.width, hh / im.height); const sw = gw / r, sh = hh / r; x.save(); x.beginPath(); x.roundRect(46 + i * (gw + 16), y, gw, hh, 14); x.clip(); x.drawImage(im, (im.width - sw) / 2, (im.height - sh) / 2, sw, sh, 46 + i * (gw + 16), y, gw, hh); x.restore(); }); y += hh + 40; } }
   c._drawn = drawn; return c;
 }
 // ---- nav：白色备忘录「规则怪谈」，导航建议高亮 ----
@@ -385,7 +386,7 @@ async function renderListLayout(note, layout, place, last) {
   return null;
 }
 async function renderNoteAsync(note, layout, photos, seed) {
-  note = normalize(note);
+  const pics0 = note.pics; note = normalize(note); note.pics = pics0; // 审稿时自己挑的配图（君游 11-28：图不全想换一张）
   const place = note.place || (/白石洲/.test(note.title) ? '白石洲' : /世界之窗/.test(note.title) ? '世界之窗' : /蛇口/.test(note.title) ? '蛇口' : '南山');
   const last = await collagePage(note, photos, seed);
   const LL = await renderListLayout(note, layout, place, last); if (LL) return LL;
@@ -397,7 +398,7 @@ async function renderNoteAsync(note, layout, photos, seed) {
 }
 
 const PCACHE = new Map(); let PHOTOS = [];
-function pagesOf(b, n) { if (b.layout === 'manual') return Promise.resolve((n.images || []).map(f => SHARE ? `${BASE}/up/${f}` : `${BASE}/up/${b.id}/${f}`)); const k = b.id + ':' + n.no + ':' + PHOTOS.length + ':' + (n.edited ? n.edited.at : ''); if (!PCACHE.has(k)) PCACHE.set(k, renderNoteAsync(n, b.layout, PHOTOS.map(f => (SHARE ? BASE + '/photo/' : BASE + '/photo/') + f), n.no).then(cs => cs.map(c => c.toDataURL('image/jpeg', 0.9)))); return PCACHE.get(k); }
+function pagesOf(b, n) { if (b.layout === 'manual') return Promise.resolve((n.images || []).map(f => SHARE ? `${BASE}/up/${f}` : `${BASE}/up/${b.id}/${f}`)); const k = b.id + ':' + n.no + ':' + PHOTOS.length + ':' + (n.edited ? n.edited.at : '') + ':' + JSON.stringify(n.pics || ''); if (!PCACHE.has(k)) PCACHE.set(k, renderNoteAsync(n, b.layout, PHOTOS.map(f => (SHARE ? BASE + '/photo/' : BASE + '/photo/') + f), n.no).then(cs => cs.map(c => c.toDataURL('image/jpeg', 0.9)))); return PCACHE.get(k); }
 function textOf(n) { return `${n.title}\n\n${n.body}\n\n${n.tags.join(' ')}`; }
 async function dlPages(b, n) { (await pagesOf(b, n)).forEach((u, i) => { const a = document.createElement('a'); a.href = u; a.download = `${b.briefName}-第${n.no}篇-P${i + 1}.jpg`; document.body.appendChild(a); setTimeout(() => { a.click(); a.remove(); }, i * 400); }); }
 
@@ -523,7 +524,7 @@ function reviewBatch(m, b, share, compact) {
     <div class="copy">${h(textOf(n))}</div>
     ${n.notes.length ? `<div class="hint">${n.notes.map(x => `${h(x.who)}：${h(x.t)}`).join('<br>')}</div>` : ''}
     ${n.revising ? `<div class="say" style="margin:6px 0">🤖 AI 正在按「${h(String(n.revising.ask).slice(0, 40))}」改，大约 1 分钟，改好这里会自动刷新</div>` : ''}${(() => { const r = (n.revs || []).slice(-1)[0]; return r && r.ok && r.before ? `<details style="margin-top:4px"><summary class="hint">🤖 上次按 ${h(r.who)} 的意见改了 ${r.n} 处${r.reply ? '：' + h(r.reply) : ''}（点开看改前）</summary><div class="hint">改前标题：${h(r.before.title)}</div><div class="copy" style="opacity:.7">${h(r.before.body)}</div></details>` : ''; })()}
-    <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里（写清楚哪句改成什么），点「要改」AI 会自动改好' : '写哪里要改（如：标题换成…／删掉…那句），点「要改」AI 自动改好'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `${b.kind !== 'manual' && ME && ME.role !== 'review' ? '<button class="btn sm" data-rr>AI 复审</button>' : ''}<button class="btn sm" data-ed>改文案</button><button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>${/ok/.test(n.status) && ME && ME.role !== 'review' ? `<button class="btn sm pri" data-as>${n.assign ? '派发：' + h(n.assign.acct) + (n.pub ? ' ✓已发' : '') : '派发给账号'}</button>` : ''}`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
+    <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里（写清楚哪句改成什么），点「要改」AI 会自动改好' : '写哪里要改（如：标题换成…／删掉…那句），点「要改」AI 自动改好'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `${b.kind !== 'manual' && ME && ME.role !== 'review' ? '<button class="btn sm" data-rr>AI 复审</button>' : ''}<button class="btn sm" data-ed>改文案</button>${b.kind !== 'manual' && PHOTOS.length ? '<button class="btn sm" data-pc>换配图</button>' : ''}<button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>${/ok/.test(n.status) && ME && ME.role !== 'review' ? `<button class="btn sm pri" data-as>${n.assign ? '派发：' + h(n.assign.acct) + (n.pub ? ' ✓已发' : '') : '派发给账号'}</button>` : ''}`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
   // 有在按意见改的稿：每 10 秒看一次，改好了就重新排
   clearTimeout(window.__revT); if (b.notes.some(n => n.revising)) { const tick = async () => { if (!document.body.contains(m)) return; try { const nb = share ? (await fetch(BASE + '/data').then(r => r.json())).batch : (await api('/api/batch/' + b.id)).batch; const done = b.notes.filter(n => n.revising).some(n => !(nb.notes.find(o => o.no === n.no) || {}).revising); if (done) { if (share) reviewBatch(m, nb, true, compact); else if (compact) reviewBatch(m, nb, false, true); else show(); return; } } catch (e) { } window.__revT = setTimeout(tick, 10000); }; window.__revT = setTimeout(tick, 10000); }
   // 排版放到下一帧，避免卡住
@@ -535,6 +536,7 @@ function reviewBatch(m, b, share, compact) {
     if (e.target.closest('[data-dl]')) return dlPages(b, n);
     if (e.target.closest('[data-rr]')) { const bt = e.target.closest('[data-rr]'); bt.disabled = true; bt.textContent = '复审中…（1–2 分钟）'; try { const r = await api(`/api/batch/${b.id}/rereview`, { no: n.no }); toast(r.review.adopted ? `挑出 ${r.review.problems.length} 处，已换成改后的版本` : `挑出 ${r.review.problems.length} 处，${r.review.why || '原稿保留'}`); PCACHE.clear(); show(); } catch (er) { toast(er.message); bt.disabled = false; bt.textContent = 'AI 复审'; } return; }
     if (e.target.closest('[data-ed]')) return editModal(b, n);
+    if (e.target.closest('[data-pc]')) return picsModal(b, n);
     if (e.target.closest('[data-as]')) return assignModal(b, n);
     const mk = e.target.closest('[data-mk]'); if (!mk) return; const note = card.querySelector('[data-nt]').value.trim();
     if (mk.dataset.mk === 'fix' && !note) return toast('先写要改哪里');
@@ -772,6 +774,18 @@ async function askBox() { try { localStorage.glAskSeen = Date.now(); const ab = 
   <h3 style="margin-top:14px">${r.boss ? '大家提的' : '我提过的'}</h3>${r.items.map(x => { const [l, c] = AS[x.status] || AS.todo; return `<div class="note" style="padding:8px 10px;margin:6px 0"><div class="row"><span class="tag ${c}">${l}</span><span class="hint">${h(x.by)} · ${day(x.at)}${x.page ? ' · ' + h(x.page) : ''}</span></div><div>${h(x.text)}</div>${x.reply ? `<div class="hint">回复：${h(x.reply)}</div>` : ''}</div>`; }).join('') || '<div class="hint">还没有</div>'}`);
   d.querySelector('#askgo').onclick = async () => { const text = d.querySelector('#asktx').value.trim(); try { await api('/api/asks', { text, page: ST.tab }); toast('收到了，改好会在这里回复你'); d.remove(); } catch (e) { toast(e.message); } }; }
 function modal(html) { const d = document.createElement('div'); d.className = 'modal'; d.innerHTML = `<div style="width:min(640px,100%)">${html}</div>`; document.body.appendChild(d); d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-cl]')) d.remove(); }); return d; }
+// 换配图：审稿的人自己从门店图库里挑（君游 11-28：图 5 那张不全，想换一张，AI 听不懂）
+function picsModal(b, n) { const slots = [...(b.layout === 'green' ? [['food', '美食那一页（主店介绍下面，2 张）', 2]] : []), ['last', '最后一页拼图（4 张）', 4]]; const sel = { food: [...((n.pics || {}).food || [])], last: [...((n.pics || {}).last || [])] }; let cur = slots[0][0];
+  const d = modal(''); const box = d.firstElementChild; box.style.width = 'min(980px,100%)';
+  const draw = () => { const [, , max] = slots.find(x => x[0] === cur); box.innerHTML = `<h2 style="margin-top:0">换配图 · 第 ${n.no} 篇</h2><div class="chips">${slots.map(([k, t]) => `<span class="chip ${k === cur ? 'on' : ''}" data-sl="${k}">${t}<i>${sel[k].length || '自动'}</i></span>`).join('')}</div>
+    <div class="hint" style="margin:8px 0">按想要的顺序点图，最多 ${max} 张；再点一次取消。一张都不选就由系统自动配。图库里没有合适的，先去「门店池 → 实拍图」传。</div>
+    <div class="pv" style="flex-wrap:wrap;max-height:60vh;overflow:auto">${PHOTOS.map(f => { const i = sel[cur].indexOf(f); return `<div data-pf="${h(f)}" style="position:relative;cursor:pointer;outline:${i >= 0 ? '4px solid #F2B84B' : 'none'};border-radius:6px"><img loading="lazy" src="${BASE}/photo/${f}" style="width:150px;height:150px;object-fit:cover;border-radius:6px;display:block">${i >= 0 ? `<span style="position:absolute;left:6px;top:6px;background:#F2B84B;color:#111;font-weight:800;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center">${i + 1}</span>` : ''}</div>`; }).join('')}</div>
+    <div class="row" style="margin-top:10px"><button class="btn pri" data-sv>保存，重新出图</button><button class="btn" data-cl2>取消</button><button class="btn sm" data-rs>这一栏改回自动</button></div>`; };
+  draw();
+  box.onclick = async e => { const sl = e.target.closest('[data-sl]'); if (sl) { cur = sl.dataset.sl; return draw(); } const pf = e.target.closest('[data-pf]'); if (pf) { const f = pf.dataset.pf, a = sel[cur], i = a.indexOf(f), max = slots.find(x => x[0] === cur)[2]; if (i >= 0) a.splice(i, 1); else if (a.length < max) a.push(f); else return toast(`这一栏最多 ${max} 张，先点掉一张`); return draw(); }
+    if (e.target.closest('[data-rs]')) { sel[cur] = []; return draw(); } if (e.target.closest('[data-cl2]')) return d.remove();
+    if (e.target.closest('[data-sv]')) { try { await api(`/api/batch/${b.id}/pics`, { no: n.no, pics: sel }); d.remove(); toast('配图换好了，正在重新出图'); show(); } catch (er) { toast(er.message); } } };
+}
 function editModal(b, n) {
   const d = modal(`<h2 style="margin-top:0">改文案 · 第 ${n.no} 篇</h2><div class="kv"><b>标题</b><input data-k="title" value="${h(n.title)}"><b>正文</b><textarea data-k="body" rows="14">${h(n.body)}</textarea><b>话题</b><input data-k="tags" value="${h((n.tags || []).join(' '))}"></div><div class="hint">图片里的字是按 AI 的清单排的，改这里只改发布用的标题正文。</div><div class="row" style="margin-top:12px"><button class="btn pri" data-sv>保存</button><button class="btn" data-cl>取消</button></div>`);
   d.querySelector('[data-sv]').onclick = async () => { const o = { no: n.no }; d.querySelectorAll('[data-k]').forEach(i => { o[i.dataset.k] = i.value; }); try { await api(`/api/batch/${b.id}/edit`, o); d.remove(); toast('已保存'); show(); } catch (er) { toast(er.message); } };
