@@ -212,18 +212,19 @@ function coverGreen(n, place) {
   if (n.tagline) chip(x, n.tagline, 54, Math.min(y + 10, H - 110), '#FFE38A', 46); return c;
 }
 function greenPage(title) { const [c, x] = cv(); greenHead(x); x.fillStyle = '#111'; x.font = `900 88px ${SANS}`; x.fillText(title, 34, 100); x.strokeStyle = '#C0392B'; x.setLineDash([8, 6]); x.lineWidth = 2; x.beginPath(); x.moveTo(0, 212); x.lineTo(W, 212); x.stroke(); x.setLineDash([]); return [c, x]; }
-function greenBracket(n, place, title) {
-  const [c, x] = greenPage(title); let y = 240;
+function greenBracket(n, place, title) { // 11-28 审稿意见：这一页不要留白、排满，但字不要太大（中等）→ 字最多放大到 1.3 倍，剩下的空白匀到各条之间
   const groups = [[`${place}\n值得去\n景点`, n.good, '#8FD46B'], [`${place}\n不值得\n专程`, n.skip, '#8FD8F2'], [`${place}\n美食\n街区`, n.streets, '#FFCB8A']].filter(g => (g[1] || []).length);
   if (!groups.length) return null; // 林总：第二页直接空白
-  for (const [lab, list, col] of groups) {
-    const y0 = y; x.font = `40px ${SANS}`;
-    for (const it of list) { const w = chip(x, it.place + '：', 205, y, col, 40); x.fillStyle = '#222'; x.font = `38px ${SANS}`; const rest = wrap(x, it.why, W - 205 - w - 30); x.fillText(rest[0] || '', 205 + w + 6, y + 4); y += 62; if (rest.length > 1) { y = para(x, rest.slice(1).join(''), 205, y, W - 240, 56) + 6; } }
-    const y1 = y - 10; x.strokeStyle = '#111'; x.lineWidth = 4; x.beginPath(); x.moveTo(195, y0); x.lineTo(172, y0); x.lineTo(172, y1); x.lineTo(195, y1); x.stroke();
-    x.fillStyle = '#222'; x.font = `48px ${SANS}`; const ls = lab.split('\n'); let ly = (y0 + y1) / 2 - ls.length * 30; ls.forEach(l => { x.textAlign = 'center'; x.fillText(l, 88, ly); ly += 60; }); x.textAlign = 'left';
-    y += 34; if (y > H - 200) break;
-  }
-  return c;
+  const nItems = groups.reduce((a, g) => a + g[1].length, 0);
+  const draw = (k, ex, dry) => { const Z = v => Math.round(v * k); const [c, x] = dry ? cv() : greenPage(title); let y = 240; const LX = 215;
+    for (const [lab, list, col] of groups) { const y0 = y;
+      for (const it of list) { const w = dry ? (x.font = `${Z(40)}px ${SANS}`, x.measureText(it.place + '：').width + 14) : chip(x, it.place + '：', LX, y, col, Z(40)); x.fillStyle = '#222'; x.font = `${Z(38)}px ${SANS}`; const rest = wrap(x, it.why, W - LX - w - 36); if (!dry) x.fillText(rest[0] || '', LX + w + 6, y + 4); y += Z(62); if (rest.length > 1) { const more = wrap(x, rest.slice(1).join(''), W - LX - 40); if (!dry) more.forEach((l, i) => x.fillText(l, LX, y + i * Z(56))); y += more.length * Z(56) + 6; } y += ex; }
+      const y1 = y - ex - 10; if (!dry) { x.strokeStyle = '#111'; x.lineWidth = 4; x.beginPath(); x.moveTo(LX - 10, y0); x.lineTo(LX - 33, y0); x.lineTo(LX - 33, y1); x.lineTo(LX - 10, y1); x.stroke(); x.fillStyle = '#222'; x.font = `${Math.min(52, Z(46))}px ${SANS}`; const ls = lab.split('\n'); const lh = Math.min(66, Z(58)); let ly = (y0 + y1) / 2 - ls.length * lh / 2; ls.forEach(l => { x.textAlign = 'center'; x.fillText(l, 92, ly); ly += lh; }); x.textAlign = 'left'; }
+      y += Z(34) + ex; }
+    return [c, y]; };
+  let k = 1; for (const t of [1.3, 1.2, 1.1]) { if (draw(t, 0, true)[1] <= H - 90) { k = t; break; } }
+  const left = H - 90 - draw(k, 0, true)[1]; const ex = left > 60 ? Math.min(150, Math.floor(left / (nItems + groups.length))) : 0;
+  return draw(k, ex, false)[0];
 }
 function greenTips1(n, place, title, k0) { const LW = W / k0, LH = H / k0;
   const pages = []; let c, x, y; const start = () => { [c, x] = greenPage(title); y = 240; chip(x, `${place}旅游建议`, 40, y, '#FFE38A', 46); y += 96; x.scale(k0, k0); y = y / k0; pages.push(c); };
@@ -257,10 +258,10 @@ function navPages(n, place) { let best = navPages1(n, place, 1); for (const k of
 const THEMES = {
   memo: { start(t) { const [c, x] = cv(); memoHead(x); x.fillStyle = '#111'; x.font = `900 58px ${SANS}`; const y = para(x, t, 60, 130, W - 120, 72) + 34; return [c, x, y]; }, sec(x, t, y) { x.font = `800 46px ${SANS}`; x.fillStyle = '#FFE58A'; x.fillRect(56, y + 22, x.measureText(t).width + 10, 26); x.fillStyle = '#111'; x.fillText(t, 60, y); return y + 70; }, head: '#111', body: '#888', mark: 'circle', sz: { hs: 40, bs: 31, hl: 54, bl: 44, gap: 22, tx: 112, cx: 78, cr: 16, hw: 700 } },
   clean: { start(t) { const [c, x] = cv(); x.fillStyle = '#FCFBF6'; x.fillRect(0, 0, W, H); x.fillStyle = '#4a4a4a'; x.font = `800 88px ${SANS}`; x.fillText(t, 70, 80); return [c, x, 240]; }, sec(x, t, y) { x.fillStyle = '#F2E7D8'; x.fillRect(66, y + 30, x.measureText(t).width + 10, 26); x.fillStyle = '#4a4a4a'; x.font = `800 62px ${SANS}`; x.fillText(t, 70, y); return y + 100; }, head: '#4a4a4a', body: '#777', mark: 'circle' },
-  green: { start(t) { const [c, x] = greenPage(t); return [c, x, 250]; }, sec(x, t, y) { chip(x, t, 40, y, '#FFE38A', 46); return y + 96; }, head: '#C0392B', body: '#222', mark: '', sz: { tx: 50 } },
+  green: { start(t) { const [c, x] = greenPage(t); return [c, x, 250]; }, sec(x, t, y) { chip(x, t, 40, y, '#FFE38A', 46); return y + 96; }, head: '#C0392B', body: '#222', mark: '', maxGrow: 1.3, sz: { tx: 50, hs: 48, bs: 40, hl: 66, bl: 58, gap: 38 } }, // 11-28 审稿意见：这个版式整体字小一点
   nav: { start(t) { const [c, x] = cv(); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#D9A52B'; x.font = `600 46px ${SANS}`; x.fillText('‹ 备忘录', 50, 44); x.fillStyle = '#999'; x.font = `44px ${SANS}`; x.fillText('🔔  🔒  ✉  ➤', W - 360, 44); x.fillStyle = '#000'; x.font = `900 80px ${SANS}`; x.fillText(t, 80, 130); return [c, x, 270]; }, sec(x, t, y) { x.font = `800 54px ${SANS}`; x.fillStyle = '#FFE38A'; x.fillRect(60, y + 26, x.measureText(t).width + 8, 30); x.fillStyle = '#111'; x.fillText(t, 62, y); return y + 92; }, head: '#111', body: '#666', mark: 'num' }
 };
-function infoPages1(theme, title, entries, k0) { const Z = v => Math.round(v * k0);
+function infoPages1(theme, title, entries, k0, extra) { const Z = v => Math.round(v * k0);
   const T = THEMES[theme] || THEMES.clean; const S = Object.assign({ hs: 54, bs: 44, hl: 74, bl: 66, gap: 44, tx: 140, cx: 102, cr: 24, hw: 800 }, T.sz || {}); const pages = []; let c, x, y; const start = () => { [c, x, y] = T.start(title); pages.push(c); };
   if (!entries.some(e => e.head || e.body)) return pages; start(); let k = 0; // 只有小标题没有内容的页不出
   for (const e of entries) {
@@ -269,13 +270,16 @@ function infoPages1(theme, title, entries, k0) { const Z = v => Math.round(v * k
     if (y + hl.length * Z(S.hl) + bl.length * Z(S.bl) + 20 > H - 50) start();
     if (T.mark === 'circle' && e.head) { x.strokeStyle = '#a99d9f'; x.lineWidth = S.cr > 20 ? 4 : 3; x.beginPath(); x.arc(S.cx, y + Z(S.hs) / 2 + 2, S.cr, 0, Math.PI * 2); x.stroke(); }
     x.fillStyle = T.head; x.font = `${S.hw} ${Z(S.hs)}px ${SANS}`; hl.forEach(l => { x.fillText(l, S.tx, y); y += Z(S.hl); });
-    x.fillStyle = T.body; x.font = `${Z(S.bs)}px ${SANS}`; bl.forEach(l => { x.fillText(l, S.tx, y); y += Z(S.bl); }); y += Z(S.gap);
+    x.fillStyle = T.body; x.font = `${Z(S.bs)}px ${SANS}`; bl.forEach(l => { x.fillText(l, S.tx, y); y += Z(S.bl); }); y += Z(S.gap) + (extra || 0);
   }
+  pages.endY = y;
   return pages;
 }
 // 能少一页就把字缩小一点（最多缩到 0.72），别出现第二页只有一两条的情况（林总 2026-11-27）
 function infoPages(theme, title, entries) { let best = infoPages1(theme, title, entries, 1); for (const k of [0.9, 0.82, 0.76, 0.72]) { if (best.length <= 1) break; const p = infoPages1(theme, title, entries, k); if (p.length < best.length) best = p; }
-  if (best.length === 1) for (const k of [1.9, 1.7, 1.55, 1.45, 1.3, 1.15]) { const p = infoPages1(theme, title, entries, k); if (p.length === 1) { best = p; break; } } // 林总：住宿/交通一页就一两行，空空的 → 内容少就把字放大
+  const cap = (THEMES[theme] || {}).maxGrow || 1.9; let kk = 1; if (best.length === 1) for (const k of [1.9, 1.7, 1.55, 1.45, 1.3, 1.15].filter(v => v <= cap)) { const p = infoPages1(theme, title, entries, k); if (p.length === 1) { best = p; kk = k; break; } }
+  // 字放到上限还剩大片空白：把空白匀到各条之间，不留一大块白底（11-28 审稿意见：不要留白、字中等）
+  if (best.length === 1 && best.endY) { const left = H - 80 - best.endY, n = entries.filter(e => e.head || e.body).length; if (left > 160 && n > 1) { const p = infoPages1(theme, title, entries, kk, Math.min(150, Math.floor(left / n))); if (p.length === 1) best = p; } } // 林总：住宿/交通一页就一两行，空空的 → 内容少就把字放大
   return best; }
 const routeEntries = n => (n.route || []).map(r => ({ head: `${r.t ? r.t + ' ' : ''}${r.place}`, body: [r.do, r.tip].filter(Boolean).join('｜') }));
 const foodEntries = (n, skip) => n.sections.flatMap(s => s.items.map(it => ({ s: s.h, it }))).slice(skip || 0).flatMap(({ s, it }, i, a) => [...(i === 0 || a[i - 1].s !== s ? [{ sec: s.replace(/^晚饭·/, '') }] : []), { head: it.name, body: it.main ? [(n.yes.blurb || ''), '必点：' + n.yes.dishes.map(d => d.name).join('、'), n.main && n.main.hours ? '营业：' + n.main.hours : ''].filter(Boolean).join('\n') : [it.say, it.price ? '人均 ' + it.price : ''].filter(Boolean).join('｜') }]);

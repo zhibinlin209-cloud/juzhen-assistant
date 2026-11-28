@@ -176,7 +176,7 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
 【审稿意见（${who}）】${ask}
 【门店事实（以这个为准）】${B.storeTitle || ''}｜${B.address || ''}｜营业${B.hours || ''}｜人均${B.price || ''}｜${B.facts || ''}
 【菜单（菜名价格只能用这些）】${B.menu ? menuText(B) : ''}
-【规矩】只改意见说到的地方，其他一个字都别动；不加新店、新菜、新景点、新营业时间；正文里「${B.storeTitle || 'YES也是大排档'}」的全称要保留；封面和标题不能有店名；不用套话（${CLICHE.join('、')}）。意见里要你删的就删（new 写空）。
+【规矩】只改意见说到的地方，其他一个字都别动；意见里关于排版、字号、留白、图片位置的部分不归你管（另有人处理），不要为了「排满」「填满版面」去加长或删减文字，这类意见没有文字要改就 edits 留空、reply 写「文字不用改」；不加新店、新菜、新景点、新营业时间；正文里「${B.storeTitle || 'YES也是大排档'}」的全称要保留；封面和标题不能有店名；不用套话（${CLICHE.join('、')}）。意见里要你删的就删（new 写空）。
 改的方式：不要重写整篇，只给「把哪句原话换成什么」。old 必须是原稿里一字不差能找到的一段，new 是换掉后的话。意见要改标题才给 title（≤20 字）；意见要改话题才给 tags（完整的新话题列表，8–10 个，要有 #YES也是大排档）。
 只输出 JSON：{"edits":[{"old":"","new":""}],"title":"","tags":[],"reply":"一句话告诉审稿同事改了什么，≤40字"}
 原稿：
@@ -189,7 +189,7 @@ ${JSON.stringify(pick(n0)).slice(0, 9000)}`;
       setN((n, b) => { const before = { title: n.title, body: n.body, tags: n.tags };
         const changed = hit || nt || tags; if (changed) { ['title', 'cover', 'body', 'sections', 'route', 'stay', 'traffic', 'spots', 'tips', 'yes', 'good', 'skip', 'intro', 'tagline', 'coverSub', 'ending'].forEach(k => { if (fixed[k] !== undefined) n[k] = fixed[k]; }); if (tags) { if (!tags.includes('#YES也是大排档')) tags.unshift('#YES也是大排档'); n.tags = tags.slice(0, 10); } n.edited = { who: 'AI（按' + who + '的意见）', at: Date.now() }; }
         n.revs = (n.revs || []).concat([{ ask, who, at: Date.now(), ok: !!changed, n: hit + (nt ? 1 : 0) + (tags ? 1 : 0), reply: String(J0.reply || '').slice(0, 80), before }]).slice(-10);
-        n.status = changed ? 'todo' : n.status; n.notes.push({ t: changed ? `🤖 AI 已按意见改好（${String(J0.reply || '改了 ' + hit + ' 处').slice(0, 60)}），请再看一眼` : '🤖 AI 没找到意见说的地方，请写具体些（比如原句是哪句、改成什么）', who: 'AI', at: Date.now() });
+        n.status = changed ? 'todo' : n.status; n.notes.push({ t: changed ? `🤖 AI 已按意见改好（${String(J0.reply || '改了 ' + hit + ' 处').slice(0, 60)}），请再看一眼` : LAYRE.test(ask) ? '🤖 文字不用改（排版方面的意见已转到「提需求」）' : '🤖 AI 没找到意见说的地方，请写具体些（比如原句是哪句、改成什么）', who: 'AI', at: Date.now() });
         if (b.kind !== 'manual' && B.storeTitle) { try { n.check = check(n, B, b); } catch (e) { } } delete n.revising; });
     } catch (e) { setN(n => { delete n.revising; n.notes.push({ t: '🤖 AI 改稿出错：' + e.message.slice(0, 60) + '，请稍后再点一次「要改」', who: 'AI', at: Date.now() }); }); log('[攻略平台] AI 按意见改稿出错：' + e.message); }
     finally { revising.delete(key); }
@@ -482,11 +482,17 @@ ${shopLines}
   setTimeout(() => { for (const b of batches()) { if (b.status !== 'running' || jobs.has(b.id)) continue; const full = rj(path.join(BD, b.id + '.json'), null); if (!full) continue; if (full.k === undefined) full.k = Math.max(0, ...(full.notes || []).map(x => x.no || 0)); log(`[攻略平台] 接着跑被重启打断的批次 ${b.id}（已出 ${full.notes.length}/${full.n}）`); runBatch(full); } }, 15e3);
   const batches = () => fs.readdirSync(BD).filter(x => x.endsWith('.json')).map(x => rj(path.join(BD, x), null)).filter(Boolean).sort((a, b) => b.at - a.at);
   const getBatch = id => /^g[0-9a-z]+$/.test(id) ? rj(path.join(BD, id + '.json'), null) : null;
+  const LAYRE = /第\s*[0-9一二三四五六七八九十]+\s*[张页]|排版|版式|字号|字体|字.{0,4}(太大|太小|大一点|小一点|大小)|文字.{0,6}(大|小)|留白|空白|太空|排满|颜色|配色|背景|居中|对齐|间距|图片.{0,6}(位置|大小|出界|压)|封面图|拼图/;
   function mark(id, i, st, note, who) {
     const f = path.join(BD, id + '.json'); const b = getBatch(id); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +i); if (!n) throw new Error('没有这一篇');
     if (st) { n.status = st; if (/ok/.test(st) && !n.okAt) n.okAt = Date.now(); } if (note) n.notes.push({ t: String(note).slice(0, 500), who, at: Date.now() }); wj(f, b);
     const revToday = (n.revs || []).filter(r => Date.now() - r.at < 24 * 3600e3).length; if (/fix/.test(st || '') && note && revToday >= 8) { n.notes.push({ t: '🤖 这篇今天已经让 AI 改了 8 次，先不自动改了，请直接点「改文案」手动改', who: 'AI', at: Date.now() }); wj(f, b); }
-    else if (/fix/.test(st || '') && note && String(note).replace(/【商家】/, '').trim().length >= 3 && cfg.glAutoRevise !== false) { n.revising = { ask: note, who, at: Date.now() }; aiRevise(id, n.no, String(note).replace(/^【商家】/, '').slice(0, 500), who).catch(() => { }); }
+    // 排版、字号、留白、图片这类意见，AI 改稿管不了（它只会改字，11-28 有人提「第 2 张图不要留白、字小一点」，它去把文字加长了）→ 自动转进需求箱，每小时那一轮按版式改，改好对所有用这个版式的稿生效
+    const isLay = /fix/.test(st || '') && note && LAYRE.test(String(note));
+    if (isLay) { try { const A = rj(AF, { items: [] }); const B0 = briefs().find(x => x.id === b.brief) || {}; A.items.push({ id: 'a' + Date.now().toString(36), text: `【审稿时提的排版意见】${B0.name || b.brief || ''} · 版式「${(LAYOUTS[b.layout] || {}).name || b.layout || '手工稿'}」（${b.layout || '-'}）· 第 ${n.no} 篇《${String(n.title).slice(0, 20)}》（批次 ${b.id}）：${String(note).slice(0, 400)}`, page: 'review', by: who, byId: '', role: 'review', at: Date.now(), status: 'todo' }); wj(AF, A);
+      n.notes.push({ t: '🤖 这条里有排版/出图方面的意见（字号、留白、图片这些），AI 改稿只能改文字，已自动转到「提需求」：系统每小时处理一次，改好后所有用这个版式的稿都会跟着变。文字方面的意见照常改。', who: 'AI', at: Date.now() }); wj(f, b); } catch (e) { log('[攻略平台] 排版意见转需求箱出错：' + e.message); } }
+    else if (false) { }
+    if (/fix/.test(st || '') && note && revToday < 8 && String(note).replace(/【商家】/, '').trim().length >= 3 && cfg.glAutoRevise !== false) { n.revising = { ask: note, who, at: Date.now() }; aiRevise(id, n.no, String(note).replace(/^【商家】/, '').slice(0, 500), who).catch(() => { }); }
     return n;
   }
 
