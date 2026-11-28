@@ -103,7 +103,21 @@ function bigImg(src) { const d = document.createElement('div'); d.className = 'b
 const W = 1080, H = 1440;
 const SANS = '"PingFang SC","Microsoft YaHei","Noto Sans SC","Hiragino Sans GB",sans-serif';
 const HAND = '"KaiTi","STKaiti","Kaiti SC","楷体",serif';
-function cv() { const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'); x.textBaseline = 'top'; return [c, x]; }
+// 每篇稿的排版选项（林总 11-28：标题/正文的字体、字号、颜色都要能选）：STY = { tk 标题字号倍数, tf 标题字体, bf 正文字体, tc 标题颜色, ac 小标题/重点色 }
+// 做法：不动各个版式的画法，在画布上「拦一道」——设字体时按选项换字体、放缩标题；写字时按选项换颜色。64px 以上算标题，加粗的小字算小标题/重点，白字（压在图片或色块上的）不改色。
+let STY = null;
+const FAMS = { hei: '"PingFang SC","Microsoft YaHei","Noto Sans SC","Hiragino Sans GB",sans-serif', song: '"Songti SC","STSong","SimSun","Noto Serif SC",serif', kai: '"Kaiti SC","STKaiti","KaiTi","楷体",serif', yuan: '"Yuanti SC","YouYuan","幼圆","Hiragino Maru Gothic ProN","PingFang SC","Microsoft YaHei",sans-serif' };
+const FAM_NAMES = [['', '跟版式'], ['hei', '黑体'], ['song', '宋体'], ['kai', '楷体'], ['yuan', '圆体']];
+const COLS = [['', '跟版式', ''], ['black', '黑', '#111111'], ['red', '红', '#D0342C'], ['orange', '橙', '#E8751A'], ['brown', '棕', '#8B5A2B'], ['green', '绿', '#2E8B57'], ['blue', '蓝', '#2F6FDE'], ['purple', '紫', '#7B4BD6']];
+const colOf = k => (COLS.find(c => c[0] === k) || [])[2] || '';
+const FONT_DESC = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'font');
+let GK = 1; function wk(k, f) { const o = GK; GK = k || 1; try { return f(); } finally { GK = o; } } // 有些页是把字号乘了倍数画的，记下倍数，判断「是不是标题」时按原始字号算
+function hexInfo(v) { const m = /^#([0-9a-f]{6})$/i.exec(String(v)); if (!m) return null; const n = parseInt(m[1], 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255; return { lum: (0.299 * r + 0.587 * g + 0.114 * b) / 255, sat: Math.max(r, g, b) - Math.min(r, g, b) }; }
+function cv() { const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'); x.textBaseline = 'top';
+  if (STY && FONT_DESC && FONT_DESC.set) { const S0 = STY; let isT = false, skip = false;
+    Object.defineProperty(x, 'font', { configurable: true, get: () => FONT_DESC.get.call(x), set: v => { const m = /^(.*?)(\d+(?:\.\d+)?)px\s+(.+)$/.exec(String(v)); skip = !m || /Georgia/.test(m[3]); if (skip) { isT = false; return FONT_DESC.set.call(x, v); } let size = +m[2]; isT = /\b[89]00\b/.test(m[1]) && size / (GK || 1) >= 56; if (isT && S0.tk) size = Math.round(size * S0.tk); const fam = FAMS[isT ? S0.tf : S0.bf]; FONT_DESC.set.call(x, `${m[1]}${size}px ${fam || m[3]}`); } });
+    const tc = colOf(S0.tc), ac = colOf(S0.ac); if (tc || ac) { const ft = x.fillText.bind(x); x.fillText = (t, X, Y, mw) => { const go = () => mw === undefined ? ft(t, X, Y) : ft(t, X, Y, mw); if (skip) return go(); const old = x.fillStyle, hi = hexInfo(old); if (!hi || hi.lum > 0.72) return go(); /* 浅色字是压在深色块/图片上的，不动 */ const col = isT ? tc : (hi.sat > 70 ? ac : ''); if (!col) return go(); x.fillStyle = col; go(); x.fillStyle = old; }; } }
+  return [c, x]; }
 function wrap(x, text, maxW) { const out = []; let line = ''; for (const ch of String(text || '')) { if (ch === '\n') { out.push(line); line = ''; continue; } if (x.measureText(line + ch).width > maxW && line) { out.push(line); line = ch; } else line += ch; } if (line) out.push(line); return out; }
 function fitFont(x, lines, wt, size, maxW, fam, min) { x.font = `${wt} ${size}px ${fam || SANS}`; while (size > (min || 56) && (lines || []).some(l => x.measureText(String(l)).width > maxW)) { size -= 4; x.font = `${wt} ${size}px ${fam || SANS}`; } return size; } // 封面字太长就缩小，不出界
 function para(x, text, X, Y, maxW, lh) { const ls = wrap(x, text, maxW); ls.forEach((l, i) => x.fillText(l, X, Y + i * lh)); return Y + ls.length * lh; }
@@ -221,7 +235,7 @@ function greenBracket(n, place, title) { // 11-28 审稿意见：这一页不要
   const groups = [[`${place}\n值得去\n景点`, n.good, '#8FD46B'], [`${place}\n不值得\n专程`, n.skip, '#8FD8F2'], [`${place}\n美食\n街区`, n.streets, '#FFCB8A']].filter(g => (g[1] || []).length);
   if (!groups.length) return null; // 林总：第二页直接空白
   const nItems = groups.reduce((a, g) => a + g[1].length, 0);
-  const draw = (k, ex, dry) => { const Z = v => Math.round(v * k); const [c, x] = dry ? cv() : greenPage(title); let y = 240; const LX = 215;
+  const draw = (k, ex, dry) => wk(k, () => draw0(k, ex, dry)); const draw0 = (k, ex, dry) => { const Z = v => Math.round(v * k); const [c, x] = dry ? cv() : greenPage(title); let y = 240; const LX = 215;
     for (const [lab, list, col] of groups) { const y0 = y;
       for (const it of list) { const w = dry ? (x.font = `${Z(40)}px ${SANS}`, x.measureText(it.place + '：').width + 14) : chip(x, it.place + '：', LX, y, col, Z(40)); x.fillStyle = '#222'; x.font = `${Z(38)}px ${SANS}`; const rest = wrap(x, it.why, W - LX - w - 36); if (!dry) x.fillText(rest[0] || '', LX + w + 6, y + 4); y += Z(62); if (rest.length > 1) { const more = wrap(x, rest.slice(1).join(''), W - LX - 40); if (!dry) more.forEach((l, i) => x.fillText(l, LX, y + i * Z(56))); y += more.length * Z(56) + 6; } y += ex; }
       const y1 = y - ex - 10; if (!dry) { x.strokeStyle = '#111'; x.lineWidth = 4; x.beginPath(); x.moveTo(LX - 10, y0); x.lineTo(LX - 33, y0); x.lineTo(LX - 33, y1); x.lineTo(LX - 10, y1); x.stroke(); x.fillStyle = '#222'; x.font = `${Math.min(52, Z(46))}px ${SANS}`; const ls = lab.split('\n'); const lh = Math.min(66, Z(58)); let ly = (y0 + y1) / 2 - ls.length * lh / 2; ls.forEach(l => { x.textAlign = 'center'; x.fillText(l, 92, ly); ly += lh; }); x.textAlign = 'left'; }
@@ -269,7 +283,8 @@ const THEMES = {
   green: { start(t) { const [c, x] = greenPage(t); return [c, x, 250]; }, sec(x, t, y) { chip(x, t, 40, y, '#FFE38A', 46); return y + 96; }, head: '#C0392B', body: '#222', mark: '', maxGrow: 1.3, sz: { tx: 50, hs: 48, bs: 40, hl: 66, bl: 58, gap: 38 } }, // 11-28 审稿意见：这个版式整体字小一点
   nav: { start(t) { const [c, x] = cv(); x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#D9A52B'; x.font = `600 46px ${SANS}`; x.fillText('‹ 备忘录', 50, 44); x.fillStyle = '#999'; x.font = `44px ${SANS}`; x.fillText('🔔  🔒  ✉  ➤', W - 360, 44); x.fillStyle = '#000'; x.font = `900 80px ${SANS}`; x.fillText(t, 80, 130); return [c, x, 270]; }, sec(x, t, y) { x.font = `800 54px ${SANS}`; x.fillStyle = '#FFE38A'; x.fillRect(60, y + 26, x.measureText(t).width + 8, 30); x.fillStyle = '#111'; x.fillText(t, 62, y); return y + 92; }, head: '#111', body: '#666', mark: 'num' }
 };
-function infoPages1(theme, title, entries, k0, extra) { const Z = v => Math.round(v * k0);
+function infoPages1(theme, title, entries, k0, extra) { return wk(k0, () => infoPages1_(theme, title, entries, k0, extra)); }
+function infoPages1_(theme, title, entries, k0, extra) { const Z = v => Math.round(v * k0);
   const T = THEMES[theme] || THEMES.clean; const S = Object.assign({ hs: 54, bs: 44, hl: 74, bl: 66, gap: 44, tx: 140, cx: 102, cr: 24, hw: 800 }, T.sz || {}); const pages = []; let c, x, y; const start = () => { [c, x, y] = T.start(title); pages.push(c); };
   if (!entries.some(e => e.head || e.body)) return pages; start(); let k = 0; // 只有小标题没有内容的页不出
   for (const e of entries) {
@@ -392,7 +407,8 @@ async function renderListLayout(note, layout, place, last) {
 let RQ = Promise.resolve(); // 一次只排一篇：字号是全局开关，两篇同时排会串
 function renderNoteAsync(note, layout, photos, seed) { const p = RQ.then(() => renderNote0(note, layout, photos, seed)); RQ = p.catch(() => { }); return p; }
 async function renderNote0(note, layout, photos, seed) {
-  FK = +note.fk > 0 ? Math.max(0.7, Math.min(1.4, +note.fk)) : null;
+  const st0 = note.sty || {}; const fk0 = +st0.fk > 0 ? +st0.fk : +note.fk; FK = fk0 > 0 ? Math.max(0.7, Math.min(1.4, fk0)) : null;
+  STY = (st0.tk && st0.tk !== 1) || st0.tf || st0.bf || st0.tc || st0.ac ? st0 : null;
   const pics0 = note.pics; note = normalize(note); note.pics = pics0; // 审稿时自己挑的配图（君游 11-28：图不全想换一张）
   const place = note.place || (/白石洲/.test(note.title) ? '白石洲' : /世界之窗/.test(note.title) ? '世界之窗' : /蛇口/.test(note.title) ? '蛇口' : '南山');
   const last = await collagePage(note, photos, seed);
@@ -405,7 +421,7 @@ async function renderNote0(note, layout, photos, seed) {
 }
 
 const PCACHE = new Map(); let PHOTOS = [], PSID = '';
-function pagesOf(b, n) { if (b.layout === 'manual') return Promise.resolve((n.images || []).map(f => SHARE ? `${BASE}/up/${f}` : `${BASE}/up/${b.id}/${f}`)); const k = b.id + ':' + n.no + ':' + PHOTOS.length + ':' + (n.edited ? n.edited.at : '') + ':' + JSON.stringify(n.pics || '') + ':' + (n.fk || ''); if (!PCACHE.has(k)) PCACHE.set(k, renderNoteAsync(n, b.layout, PHOTOS.map(f => (SHARE ? BASE + '/photo/' : BASE + '/photo/') + f), n.no).then(cs => cs.map(c => c.toDataURL('image/jpeg', 0.9)))); return PCACHE.get(k); }
+function pagesOf(b, n) { if (b.layout === 'manual') return Promise.resolve((n.images || []).map(f => SHARE ? `${BASE}/up/${f}` : `${BASE}/up/${b.id}/${f}`)); const k = b.id + ':' + n.no + ':' + PHOTOS.length + ':' + (n.edited ? n.edited.at : '') + ':' + JSON.stringify(n.pics || '') + ':' + (n.fk || '') + ':' + JSON.stringify(n.sty || ''); if (!PCACHE.has(k)) PCACHE.set(k, renderNoteAsync(n, b.layout, PHOTOS.map(f => (SHARE ? BASE + '/photo/' : BASE + '/photo/') + f), n.no).then(cs => cs.map(c => c.toDataURL('image/jpeg', 0.9)))); return PCACHE.get(k); }
 function textOf(n) { return `${n.title}\n\n${n.body}\n\n${n.tags.join(' ')}`; }
 async function dlPages(b, n) { (await pagesOf(b, n)).forEach((u, i) => { const a = document.createElement('a'); a.href = u; a.download = `${b.briefName}-第${n.no}篇-P${i + 1}.jpg`; document.body.appendChild(a); setTimeout(() => { a.click(); a.remove(); }, i * 400); }); }
 
@@ -529,9 +545,9 @@ function reviewBatch(m, b, share, compact) {
     ${share ? '' : `<div class="chk">${errs.length || warns.length ? '' : '<div class="pass">✓ 任务书规则全部通过</div>'}${errs.map(c => `<div class="err">✗ ${h(c[1])}</div>`).join('')}${warns.map(c => `<div class="warn">! ${h(c[1])}</div>`).join('')}${(() => { const r = n.aiReview; if (!r) return ''; if (r.error) return `<div class="hint">🤖 AI 复审没做成：${h(r.error)}</div>`; return `<details style="margin-top:4px"><summary class="hint">🤖 AI 复审（${h(r.model || '')}）：${r.problems.length ? `挑出 ${r.problems.length} 处` : '没挑出问题'}${r.adopted ? `，硬伤已自动改 ${r.hit || ''} 处` : r.why ? '，' + h(r.why) : ''}${r.skipped ? `；另有 ${r.skipped} 处文风/事实意见没自动改，点开看，要改就写意见点「要改」` : ''}</summary>${r.problems.map(p => `<div class="${p.level === 'err' ? 'err' : 'warn'}">${p.level === 'err' ? '✗' : '!'} [${h(p.where)}] ${h(p.text)}</div>`).join('')}${r.before ? `<div class="hint" style="margin-top:6px">改前标题：${h(r.before.title)}</div><div class="hint" style="white-space:pre-wrap;max-height:200px;overflow:auto">改前正文：${h(r.before.body)}</div>` : ''}</details>`; })()}</div>`}
     <div class="pv" data-pv="${n.no}"><span class="hint">正在排版…</span></div>
     <div class="copy">${h(textOf(n))}</div>
-    ${n.notes.length ? `<div class="hint">${n.notes.map(x => `${h(x.who)}：${h(x.t)}`).join('<br>')}</div>` : ''}
+    ${n.notes.length ? (() => { const L = n.notes, last = L[L.length - 1], cut = t => { t = String(t || ''); return t.length > 26 ? t.slice(0, 26) + '…' : t; }; return L.length === 1 && String(last.t || '').length <= 40 ? `<div class="hint">${h(last.who)}：${h(last.t)}</div>` : `<details style="margin-top:4px"><summary class="hint">修改记录 ${L.length} 条 · 最新 ${h(last.who)}：${h(cut(last.t))}（点开看全部）</summary><div class="hint" style="max-height:260px;overflow:auto">${L.map(x => `${h(x.who)}：${h(x.t)}`).join('<br>')}</div></details>`; })() : ''}
     ${n.revising ? `<div class="say" style="margin:6px 0">🤖 AI 正在按「${h(String(n.revising.ask).slice(0, 40))}」改，大约 1 分钟，改好这里会自动刷新</div>` : ''}${(() => { const r = (n.revs || []).slice(-1)[0]; return r && r.ok && r.before ? `<details style="margin-top:4px"><summary class="hint">🤖 上次按 ${h(r.who)} 的意见改了 ${r.n} 处${r.reply ? '：' + h(r.reply) : ''}（点开看改前）</summary><div class="hint">改前标题：${h(r.before.title)}</div><div class="copy" style="opacity:.7">${h(r.before.body)}</div></details>` : ''; })()}
-    <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里（写清楚哪句改成什么），点「要改」AI 会自动改好' : '写哪里要改（如：标题换成…／删掉…那句），点「要改」AI 自动改好'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `${b.kind !== 'manual' && ME && ME.role !== 'review' ? '<button class="btn sm" data-rr>AI 复审</button>' : ''}<button class="btn sm" data-ed>改文案</button>${b.kind !== 'manual' && (PHOTOS.length || PSID) ? '<button class="btn sm" data-pc>换配图</button>' : ''}${b.kind !== 'manual' ? `<span class="hint" style="margin-left:6px">字号</span>${[['', '自动'], [0.88, '小'], [1, '中'], [1.14, '大']].map(([v, t]) => `<button class="btn sm ${String(n.fk || '') === String(v) ? 'pri' : ''}" data-fk="${v}" title="这篇稿每一页的字统一用这个大小">${t}</button>`).join('')}` : ''}<button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>${/ok/.test(n.status) && ME && ME.role !== 'review' ? `<button class="btn sm pri" data-as>${n.assign ? '派发：' + h(n.assign.acct) + (n.pub ? ' ✓已发' : '') : '派发给账号'}</button>` : ''}`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
+    <div class="row" style="margin-top:8px"><button class="btn sm ok" data-mk="ok">${share ? '没问题' : '通过'}</button><input data-nt placeholder="${share ? '要改的地方写这里（写清楚哪句改成什么），点「要改」AI 会自动改好' : '写哪里要改（如：标题换成…／删掉…那句），点「要改」AI 自动改好'}" style="flex:1;min-width:200px"><button class="btn sm no" data-mk="fix">要改</button>${share ? '' : `${b.kind !== 'manual' && ME && ME.role !== 'review' ? '<button class="btn sm" data-rr>AI 复审</button>' : ''}<button class="btn sm" data-ed>改文案</button>${b.kind !== 'manual' && (PHOTOS.length || PSID) ? '<button class="btn sm" data-pc>换配图</button>' : ''}${b.kind !== 'manual' ? `<span class="hint" style="margin-left:6px">字号</span>${[['', '自动'], [0.88, '小'], [1, '中'], [1.14, '大']].map(([v, t]) => `<button class="btn sm ${String(n.fk || '') === String(v) ? 'pri' : ''}" data-fk="${v}" title="这篇稿每一页的字统一用这个大小">${t}</button>`).join('')}<button class="btn sm ${n.sty && (n.sty.tf || n.sty.bf || n.sty.tc || n.sty.ac || (n.sty.tk && n.sty.tk !== 1)) ? 'pri' : ''}" data-sty>字体·颜色</button>` : ''}<button class="btn sm" data-cp>复制文案</button><button class="btn sm" data-dl>下载图片</button>${/ok/.test(n.status) && ME && ME.role !== 'review' ? `<button class="btn sm pri" data-as>${n.assign ? '派发：' + h(n.assign.acct) + (n.pub ? ' ✓已发' : '') : '派发给账号'}</button>` : ''}`}</div></div>`; }).join('') || '<div class="empty">正在生成第一篇…</div>');
   // 有在按意见改的稿：每 10 秒看一次，改好了就重新排
   clearTimeout(window.__revT); if (b.notes.some(n => n.revising)) { const tick = async () => { if (!document.body.contains(m)) return; try { const nb = share ? (await fetch(BASE + '/data').then(r => r.json())).batch : (await api('/api/batch/' + b.id)).batch; const done = b.notes.filter(n => n.revising).some(n => !(nb.notes.find(o => o.no === n.no) || {}).revising); if (done) { if (share) reviewBatch(m, nb, true, compact); else if (compact) reviewBatch(m, nb, false, true); else show(); return; } } catch (e) { } window.__revT = setTimeout(tick, 10000); }; window.__revT = setTimeout(tick, 10000); }
   // 排版放到下一帧，避免卡住
@@ -544,6 +560,7 @@ function reviewBatch(m, b, share, compact) {
     if (e.target.closest('[data-rr]')) { const bt = e.target.closest('[data-rr]'); bt.disabled = true; bt.textContent = '复审中…（1–2 分钟）'; try { const r = await api(`/api/batch/${b.id}/rereview`, { no: n.no }); toast(r.review.adopted ? `挑出 ${r.review.problems.length} 处，已换成改后的版本` : `挑出 ${r.review.problems.length} 处，${r.review.why || '原稿保留'}`); PCACHE.clear(); show(); } catch (er) { toast(er.message); bt.disabled = false; bt.textContent = 'AI 复审'; } return; }
     if (e.target.closest('[data-ed]')) return editModal(b, n);
     if (e.target.closest('[data-pc]')) return picsModal(b, n);
+    if (e.target.closest('[data-sty]')) return styModal(b, n);
     const fkb = e.target.closest('[data-fk]'); if (fkb) { try { await api(`/api/batch/${b.id}/pics`, { no: n.no, fk: fkb.dataset.fk === '' ? 0 : +fkb.dataset.fk }); toast('字号改好了，正在重新出图'); show(); } catch (er) { toast(er.message); } return; }
     if (e.target.closest('[data-as]')) return assignModal(b, n);
     const mk = e.target.closest('[data-mk]'); if (!mk) return; const note = card.querySelector('[data-nt]').value.trim();
@@ -782,6 +799,20 @@ async function askBox() { try { localStorage.glAskSeen = Date.now(); const ab = 
   <h3 style="margin-top:14px">${r.boss ? '大家提的' : '我提过的'}</h3>${r.items.map(x => { const [l, c] = AS[x.status] || AS.todo; return `<div class="note" style="padding:8px 10px;margin:6px 0"><div class="row"><span class="tag ${c}">${l}</span><span class="hint">${h(x.by)} · ${day(x.at)}${x.page ? ' · ' + h(x.page) : ''}</span></div><div>${h(x.text)}</div>${x.reply ? `<div class="hint">回复：${h(x.reply)}</div>` : ''}</div>`; }).join('') || '<div class="hint">还没有</div>'}`);
   d.querySelector('#askgo').onclick = async () => { const text = d.querySelector('#asktx').value.trim(); try { await api('/api/asks', { text, page: ST.tab }); toast('收到了，改好会在这里回复你'); d.remove(); } catch (e) { toast(e.message); } }; }
 function modal(html) { const d = document.createElement('div'); d.className = 'modal'; d.innerHTML = `<div style="width:min(640px,100%)">${html}</div>`; document.body.appendChild(d); d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-cl]')) d.remove(); }); return d; }
+// 字体·颜色：标题和正文分开选字体、字号、颜色，可以一键用到整批
+function styModal(b, n) { const v = Object.assign({ fk: n.fk || 0, tk: 1, tf: '', bf: '', tc: '', ac: '' }, n.sty || {}); let all = false;
+  const d = modal(''); const box = d.firstElementChild; box.style.width = 'min(720px,100%)';
+  const row = (label, key, opts, sw) => `<div class="row" style="margin:10px 0;align-items:center"><b style="width:92px">${label}</b>${opts.map(([val, t, col]) => `<button class="btn sm ${String(v[key] || '') === String(val || '') || (key === 'tk' && +v[key] === +val) || (key === 'fk' && +v[key] === +val) ? 'pri' : ''}" data-k="${key}" data-v="${val}">${sw && col ? `<i style="display:inline-block;width:12px;height:12px;border-radius:50%;background:${col};margin-right:4px;vertical-align:-1px"></i>` : ''}${t}</button>`).join('')}</div>`;
+  const draw = () => { box.innerHTML = `<h2 style="margin-top:0">字体 · 颜色 · 第 ${n.no} 篇</h2><div class="hint">选了哪项就改哪项，「跟版式」就是不动。封面大字和每页顶上的大标题算「标题」，加粗的小标题（时间、店名这些）算「重点」。</div>
+    <h3 style="margin:14px 0 0">标题</h3>${row('字体', 'tf', FAM_NAMES)}${row('字号', 'tk', [[0.88, '小'], [1, '中'], [1.12, '大']])}${row('颜色', 'tc', COLS, 1)}
+    <h3 style="margin:14px 0 0">正文</h3>${row('字体', 'bf', FAM_NAMES)}${row('字号', 'fk', [[0, '自动'], [0.88, '小'], [1, '中'], [1.14, '大']])}${row('重点色', 'ac', COLS, 1)}
+    <div class="hint" style="margin-top:8px">字体用的是电脑自带的（黑体、宋体、楷体、圆体），苹果和 Windows 电脑上的样子会有一点点差别；在谁的电脑上下载图片，就按谁电脑上的字体出。</div>
+    <div class="row" style="margin-top:12px"><button class="btn pri" data-sv>保存，重新出图</button><label class="hint"><input type="checkbox" data-all ${all ? 'checked' : ''}> 这一批 ${b.notes.length} 篇都用这套</label><button class="btn" data-cl2>取消</button><button class="btn sm" data-rs>全部改回跟版式</button></div>`; };
+  draw();
+  box.onclick = async e => { const k = e.target.closest('[data-k]'); if (k) { const key = k.dataset.k, val = k.dataset.v; v[key] = (key === 'tk' || key === 'fk') ? +val : val; return draw(); } if (e.target.matches('[data-all]')) { all = e.target.checked; return; }
+    if (e.target.closest('[data-rs]')) { Object.assign(v, { fk: 0, tk: 1, tf: '', bf: '', tc: '', ac: '' }); return draw(); } if (e.target.closest('[data-cl2]')) return d.remove();
+    if (e.target.closest('[data-sv]')) { try { await api(`/api/batch/${b.id}/pics`, { no: n.no, sty: v, all }); d.remove(); toast('排版改好了，正在重新出图'); show(); } catch (er) { toast(er.message); } } };
+}
 // 换配图：审稿的人自己从门店图库里挑（君游 11-28：图 5 那张不全，想换一张，AI 听不懂）
 function picsModal(b, n) { const slots = [...(b.layout === 'green' ? [['food', '美食那一页（主店介绍下面，2 张）', 2]] : []), ['last', '最后一页拼图（可多选，1–9 张）', 9]]; const sel = { food: [...((n.pics || {}).food || [])], last: [...((n.pics || {}).last || [])] }; let cur = slots[0][0];
   const d = modal(''); const box = d.firstElementChild; box.style.width = 'min(980px,100%)';
