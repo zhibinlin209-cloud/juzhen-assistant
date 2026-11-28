@@ -123,9 +123,11 @@ const FONT_DESC = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.proto
 let GK = 1; function wk(k, f) { const o = GK; GK = k || 1; try { return f(); } finally { GK = o; } } // 有些页是把字号乘了倍数画的，记下倍数，判断「是不是标题」时按原始字号算
 function hexInfo(v) { const m = /^#([0-9a-f]{6})$/i.exec(String(v)); if (!m) return null; const n = parseInt(m[1], 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255; return { lum: (0.299 * r + 0.587 * g + 0.114 * b) / 255, sat: Math.max(r, g, b) - Math.min(r, g, b) }; }
 function cv() { const c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d'); x.textBaseline = 'top';
+  const ft = x.fillText.bind(x); let inner = (t, X, Y, mw) => mw === undefined ? ft(t, X, Y) : ft(t, X, Y, mw);
   if (STY && FONT_DESC && FONT_DESC.set) { const S0 = STY; let isT = false, skip = false;
     Object.defineProperty(x, 'font', { configurable: true, get: () => FONT_DESC.get.call(x), set: v => { const m = /^(.*?)(\d+(?:\.\d+)?)px\s+(.+)$/.exec(String(v)); skip = !m || /Georgia/.test(m[3]); if (skip) { isT = false; return FONT_DESC.set.call(x, v); } let size = +m[2]; isT = /\b[89]00\b/.test(m[1]) && size / (GK || 1) >= 56; if (isT && S0.tk) size = Math.round(size * S0.tk); const fam = FAMS[isT ? S0.tf : S0.bf]; FONT_DESC.set.call(x, `${m[1]}${size}px ${fam || m[3]}`); } });
-    const tc = colOf(S0.tc), ac = colOf(S0.ac); if (tc || ac) { const ft = x.fillText.bind(x); x.fillText = (t, X, Y, mw) => { const go = () => mw === undefined ? ft(t, X, Y) : ft(t, X, Y, mw); if (skip) return go(); const old = x.fillStyle, hi = hexInfo(old); if (!hi || hi.lum > 0.72) return go(); /* 浅色字是压在深色块/图片上的，不动 */ const col = isT ? tc : (hi.sat > 70 ? ac : ''); if (!col) return go(); x.fillStyle = col; go(); x.fillStyle = old; }; } }
+    const tc = colOf(S0.tc), ac = colOf(S0.ac); if (tc || ac) { const go = inner; inner = (t, X, Y, mw) => { if (skip) return go(t, X, Y, mw); const old = x.fillStyle, hi = hexInfo(old); if (!hi || hi.lum > 0.72) return go(t, X, Y, mw); /* 浅色字是压在深色块/图片上的，不动 */ const col = isT ? tc : (hi.sat > 70 ? ac : ''); if (!col) return go(t, X, Y, mw); x.fillStyle = col; go(t, X, Y, mw); x.fillStyle = old; }; } }
+  const tx = c._tx = []; x.fillText = (t, X, Y, mw) => { const v = String(t === null || t === undefined ? '' : t).trim(); if (v && tx[tx.length - 1] !== v) tx.push(v); return inner(t, X, Y, mw); }; // 记下这一页画了哪些字：审稿人点某一页提意见时，告诉 AI 这一页上写的是什么
   return [c, x]; }
 function wrap(x, text, maxW) { const out = []; let line = ''; for (const ch of String(text || '')) { if (ch === '\n') { out.push(line); line = ''; continue; } if (x.measureText(line + ch).width > maxW && line) { out.push(line); line = ch; } else line += ch; } if (line) out.push(line); return out; }
 function fitFont(x, lines, wt, size, maxW, fam, min) { x.font = `${wt} ${size}px ${fam || SANS}`; while (size > (min || 56) && (lines || []).some(l => x.measureText(String(l)).width > maxW)) { size -= 4; x.font = `${wt} ${size}px ${fam || SANS}`; } return size; } // 封面字太长就缩小，不出界
@@ -430,7 +432,7 @@ async function renderNote0(note, layout, photos, seed) {
 }
 
 const PCACHE = new Map(); let PHOTOS = [], PSID = '';
-function pagesOf(b, n) { if (b.layout === 'manual') return Promise.resolve((n.images || []).map(f => SHARE ? `${BASE}/up/${f}` : `${BASE}/up/${b.id}/${f}`)); const k = b.id + ':' + n.no + ':' + PHOTOS.length + ':' + (n.edited ? n.edited.at : '') + ':' + JSON.stringify(n.pics || '') + ':' + (n.fk || '') + ':' + JSON.stringify(n.sty || ''); if (!PCACHE.has(k)) PCACHE.set(k, renderNoteAsync(n, b.layout, PHOTOS.map(f => (SHARE ? BASE + '/photo/' : BASE + '/photo/') + f), n.no).then(cs => cs.map(c => c.toDataURL('image/jpeg', 0.9)))); return PCACHE.get(k); }
+function pagesOf(b, n) { if (b.layout === 'manual') return Promise.resolve((n.images || []).map(f => SHARE ? `${BASE}/up/${f}` : `${BASE}/up/${b.id}/${f}`)); const k = b.id + ':' + n.no + ':' + PHOTOS.length + ':' + (n.edited ? n.edited.at : '') + ':' + JSON.stringify(n.pics || '') + ':' + (n.fk || '') + ':' + JSON.stringify(n.sty || ''); if (!PCACHE.has(k)) PCACHE.set(k, renderNoteAsync(n, b.layout, PHOTOS.map(f => (SHARE ? BASE + '/photo/' : BASE + '/photo/') + f), n.no).then(cs => { const us = cs.map(c => c.toDataURL('image/jpeg', 0.9)); us.tx = cs.map(c => (c._tx || []).join('\n')); return us; })); return PCACHE.get(k); }
 function textOf(n) { return `${n.title}\n\n${n.body}\n\n${n.tags.join(' ')}`; }
 async function dlPages(b, n) { (await pagesOf(b, n)).forEach((u, i) => { const a = document.createElement('a'); a.href = u; a.download = `${b.briefName}-第${n.no}篇-P${i + 1}.jpg`; document.body.appendChild(a); setTimeout(() => { a.click(); a.remove(); }, i * 400); }); }
 
@@ -552,7 +554,7 @@ function reviewBatch(m, b, share, compact) {
   (b.notes.map(n => { const errs = n.check.filter(c => c[0] === 'err'), warns = n.check.filter(c => c[0] === 'warn'); const [sl, sc] = S[n.status] || S.todo;
     return `<div class="note ${/ok/.test(n.status) ? 'ok' : /fix/.test(n.status) ? 'fix' : ''}" data-no="${n.no}"><div class="row"><h3 style="flex:1">${b.kind === 'manual' ? `${h(b.by)} · ${day(b.firstAt || b.at)}` : `第 ${n.no} 篇`} · ${h(n.title)}</h3><span class="tag ${sc}">${sl}</span><span class="tag">${h(n.dir)}</span>${n.tpl ? `<div class="hint" style="width:100%">学的爆款：「${h(n.tpl.sub)}」套路 · ${n.tpl.id && /^[0-9a-f]{24}$/.test(n.tpl.id) ? `<a href="https://www.xiaohongshu.com/explore/${n.tpl.id}" target="_blank" rel="noopener">${h(n.tpl.title)}</a>` : h(n.tpl.title)}</div>` : ''}</div>
     ${share ? '' : `<div class="chk">${errs.length || warns.length ? '' : '<div class="pass">✓ 任务书规则全部通过</div>'}${errs.map(c => `<div class="err">✗ ${h(c[1])}</div>`).join('')}${warns.map(c => `<div class="warn">! ${h(c[1])}</div>`).join('')}${(() => { const r = n.aiReview; if (!r) return ''; if (r.error) return `<div class="hint">🤖 AI 复审没做成：${h(r.error)}</div>`; return `<details style="margin-top:4px"><summary class="hint">🤖 AI 复审（${h(r.model || '')}）：${r.problems.length ? `挑出 ${r.problems.length} 处` : '没挑出问题'}${r.adopted ? `，硬伤已自动改 ${r.hit || ''} 处` : r.why ? '，' + h(r.why) : ''}${r.skipped ? `；另有 ${r.skipped} 处文风/事实意见没自动改，点开看，要改就写意见点「要改」` : ''}</summary>${r.problems.map(p => `<div class="${p.level === 'err' ? 'err' : 'warn'}">${p.level === 'err' ? '✗' : '!'} [${h(p.where)}] ${h(p.text)}</div>`).join('')}${r.before ? `<div class="hint" style="margin-top:6px">改前标题：${h(r.before.title)}</div><div class="hint" style="white-space:pre-wrap;max-height:200px;overflow:auto">改前正文：${h(r.before.body)}</div>` : ''}</details>`; })()}</div>`}
-    <div class="pv" data-pv="${n.no}"><span class="hint">正在排版…</span></div>
+    <div class="pv" data-pv="${n.no}"><span class="hint">正在排版…</span></div>${b.kind === 'manual' ? '' : '<div class="hint">👆 点哪一页的图，就能直接说那一页要改什么</div>'}
     <div class="copy">${h(textOf(n))}</div>
     ${n.notes.length ? (() => { const L = n.notes, last = L[L.length - 1], cut = t => { t = String(t || ''); return t.length > 26 ? t.slice(0, 26) + '…' : t; }; return L.length === 1 && String(last.t || '').length <= 40 ? `<div class="hint">${h(last.who)}：${h(last.t)}</div>` : `<details style="margin-top:4px"><summary class="hint">修改记录 ${L.length} 条 · 最新 ${h(last.who)}：${h(cut(last.t))}（点开看全部）</summary><div class="hint" style="max-height:260px;overflow:auto">${L.map(x => `${h(x.who)}：${h(x.t)}`).join('<br>')}</div></details>`; })() : ''}
     ${n.revising ? `<div class="say" style="margin:6px 0">🤖 AI 正在按「${h(String(n.revising.ask).slice(0, 40))}」改，大约 1 分钟，改好这里会自动刷新</div>` : ''}${(() => { const r = (n.revs || []).slice(-1)[0]; return r && r.ok && r.before ? `<details style="margin-top:4px"><summary class="hint">🤖 上次按 ${h(r.who)} 的意见改了 ${r.n} 处${r.reply ? '：' + h(r.reply) : ''}（点开看改前）</summary><div class="hint">改前标题：${h(r.before.title)}</div><div class="copy" style="opacity:.7">${h(r.before.body)}</div></details>` : ''; })()}
@@ -563,7 +565,7 @@ function reviewBatch(m, b, share, compact) {
   b.notes.forEach((n, i) => setTimeout(() => { const el = m.querySelector(`[data-pv="${n.no}"]`); if (el) pagesOf(b, n).then(us => { el.innerHTML = us.map(u => `<img src="${u}">`).join(''); }); }, 30 + i * 60));
   m.onclick = async e => {
     const card = e.target.closest('[data-no]'); if (!card) return; const no = +card.dataset.no; const n = b.notes.find(x => x.no === no);
-    const im = e.target.closest('.pv img'); if (im) return bigImg(im.src);
+    const im = e.target.closest('.pv img'); if (im) { const idx = [...im.parentNode.children].indexOf(im); const us = await pagesOf(b, n); if (b.kind === 'manual' || b.layout === 'manual' || !us.tx) return bigImg(im.src); return pageModal(n, us, idx, { send: (note, pno) => sendMark(no, 'fix', note, pno) }); }
     if (e.target.closest('[data-cp]')) return copy(textOf(n));
     if (e.target.closest('[data-dl]')) return dlPages(b, n);
     if (e.target.closest('[data-rr]')) { const bt = e.target.closest('[data-rr]'); bt.disabled = true; bt.textContent = '复审中…（1–2 分钟）'; try { const r = await api(`/api/batch/${b.id}/rereview`, { no: n.no }); toast(r.review.adopted ? `挑出 ${r.review.problems.length} 处，已换成改后的版本` : `挑出 ${r.review.problems.length} 处，${r.review.why || '原稿保留'}`); PCACHE.clear(); show(); } catch (er) { toast(er.message); bt.disabled = false; bt.textContent = 'AI 复审'; } return; }
@@ -574,8 +576,12 @@ function reviewBatch(m, b, share, compact) {
     if (e.target.closest('[data-as]')) return assignModal(b, n);
     const mk = e.target.closest('[data-mk]'); if (!mk) return; const note = card.querySelector('[data-nt]').value.trim();
     if (mk.dataset.mk === 'fix' && !note) return toast('先写要改哪里');
-    try { if (share) await fetch(BASE + '/mark', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ no, status: mk.dataset.mk, note }) }).then(r => r.json()); else await api(`/api/batch/${b.id}/mark`, { no, status: mk.dataset.mk, note }); toast(mk.dataset.mk === 'fix' ? '已交给 AI 按意见改，大约 1 分钟，改好自动刷新' : '已记录'); if (share) { const d = await fetch(BASE + '/data').then(r => r.json()); reviewBatch(m, d.batch, true); } else show(); } catch (er) { toast(er.message); }
+    await sendMark(no, mk.dataset.mk, note, 0);
   };
+  // 提交「通过／要改」。要改时把每一页图上的字一起带上，AI 才知道「图5」「这一页」说的是哪段内容
+  async function sendMark(no, st, note, pno) { const n = b.notes.find(x => x.no === no); const bd = { no, status: st, note };
+    try { if (st === 'fix' && b.kind !== 'manual') { const us = await pagesOf(b, n); if (us.tx) { bd.pages = us.tx.map(t => t.slice(0, 600)).slice(0, 14); if (pno) bd.page = pno; } }
+      if (share) await fetch(BASE + '/mark', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(bd) }).then(r => r.json()); else await api(`/api/batch/${b.id}/mark`, bd); toast(st === 'fix' ? '已交给 AI 按意见改，大约 1 分钟，改好自动刷新' : '已记录'); if (share) { const d = await fetch(BASE + '/data').then(r => r.json()); reviewBatch(m, d.batch, true); } else show(); return true; } catch (er) { toast(er.message); return false; } }
 }
 
 async function stores(m) {
@@ -808,6 +814,19 @@ async function askBox() { try { localStorage.glAskSeen = Date.now(); const ab = 
   <h3 style="margin-top:14px">${r.boss ? '大家提的' : '我提过的'}</h3>${r.items.map(x => { const [l, c] = AS[x.status] || AS.todo; return `<div class="note" style="padding:8px 10px;margin:6px 0"><div class="row"><span class="tag ${c}">${l}</span><span class="hint">${h(x.by)} · ${day(x.at)}${x.page ? ' · ' + h(x.page) : ''}</span></div><div>${h(x.text)}</div>${x.reply ? `<div class="hint">回复：${h(x.reply)}</div>` : ''}</div>`; }).join('') || '<div class="hint">还没有</div>'}`);
   d.querySelector('#askgo').onclick = async () => { const text = d.querySelector('#asktx').value.trim(); try { await api('/api/asks', { text, page: ST.tab }); toast('收到了，改好会在这里回复你'); d.remove(); } catch (e) { toast(e.message); } }; }
 function modal(html) { const d = document.createElement('div'); d.className = 'modal'; d.innerHTML = `<div style="width:min(640px,100%)">${html}</div>`; document.body.appendChild(d); d.addEventListener('click', e => { if (e.target === d || e.target.closest('[data-cl]')) d.remove(); }); return d; }
+// 点某一页的图：左边看大图，右边直接写「这一页要改什么」，AI 只改这一页（11-28 同事：想点着图说要改什么，能准确改到）
+function pageModal(n, us, idx, o) { const d = modal(''); const box = d.firstElementChild; box.style.width = 'min(980px,100%)'; let i = idx, busy = false; const drafts = {};
+  const draw = () => { box.innerHTML = `<div class="row" style="align-items:flex-start;gap:16px"><div style="flex:1 1 320px;min-width:260px;text-align:center"><img src="${us[i]}" data-big style="max-width:100%;max-height:74vh;border-radius:8px;border:1px solid var(--line);cursor:zoom-in;background:#fff"><div class="row" style="justify-content:center;margin-top:8px"><button class="btn sm" data-pp ${i ? '' : 'disabled'}>‹ 上一页</button><span class="hint">第 ${i + 1} 页 / 共 ${us.length} 页</span><button class="btn sm" data-np ${i < us.length - 1 ? '' : 'disabled'}>下一页 ›</button></div></div>
+    <div style="flex:1 1 300px;min-width:260px"><h2 style="margin-top:0">第 ${n.no} 篇 · 第 ${i + 1} 页要改什么</h2><div class="hint">直接说这一页哪里要改，AI 只动这一页，大约 1 分钟改好。</div>
+    <textarea data-pt style="min-height:130px;margin-top:8px" placeholder="例：再加 3 条建议／把第 2 条改成……／删掉最后一条／「妹仔记面馆」那句写具体点">${h(drafts[i] || '')}</textarea>
+    <div class="row" style="margin-top:8px"><button class="btn pri" data-go>让 AI 改这一页</button><button class="btn" data-cl>关闭</button></div>
+    <div class="hint" style="margin-top:12px">不归 AI 改的：换图片点稿子下面的「换配图」；字的大小、字体、颜色点「字号」「字体·颜色」。</div>
+    ${us.tx && us.tx[i] ? `<details style="margin-top:10px"><summary class="hint">这一页上的字（AI 看到的就是这些）</summary><div class="copy" style="max-height:220px;overflow:auto;font-size:12px">${h(us.tx[i])}</div></details>` : ''}</div></div>`; };
+  draw();
+  box.oninput = e => { if (e.target.matches('[data-pt]')) drafts[i] = e.target.value; };
+  box.onclick = async e => { if (e.target.closest('[data-big]')) return bigImg(us[i]); if (e.target.closest('[data-pp]') && i > 0) { i--; return draw(); } if (e.target.closest('[data-np]') && i < us.length - 1) { i++; return draw(); }
+    const go = e.target.closest('[data-go]'); if (go && !busy) { const t = (box.querySelector('[data-pt]').value || '').trim(); if (t.length < 3) return toast('先写这一页要改什么'); busy = true; go.disabled = true; go.textContent = '正在提交…'; const ok = await o.send(t, i + 1); if (ok) d.remove(); else { busy = false; go.disabled = false; go.textContent = '让 AI 改这一页'; } } };
+}
 // 字体·颜色：标题和正文分开选字体、字号、颜色，可以一键用到整批
 function styModal(b, n) { const v = Object.assign({ fk: n.fk || 0, tk: 1, tf: '', bf: '', tc: '', ac: '' }, n.sty || {}); let all = false;
   const d = modal(''); const box = d.firstElementChild; box.style.width = 'min(720px,100%)';

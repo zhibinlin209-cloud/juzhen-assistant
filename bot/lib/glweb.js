@@ -165,31 +165,40 @@ function createGlweb({ dataDir, log, cfg, glib, base, bossDm, sucai, vision, ros
   const revising = new Set();
   // 服务器更新会打断正在改的稿：启动时把卡住的「正在改」清掉，留一句话让人再点一次
   setTimeout(() => { try { batches().forEach(b => { let ch = false; b.notes.forEach(n => { if (n.revising) { delete n.revising; n.notes.push({ t: '🤖 AI 改稿被系统更新打断了，请再点一次「要改」', who: 'AI', at: Date.now() }); ch = true; } }); if (ch) wj(path.join(BD, b.id + '.json'), b); }); } catch (e) { } }, 20e3);
-  async function aiRevise(bid, no, ask, who) {
+  // 审稿人可以要求「加几条」：只允许往这些列表后面加，形状固定（不让加新店、新菜）
+  const ADDF = { tips: null, route: ['t', 'place', 'do', 'tip'], spots: ['place', 'tip'], good: ['place', 'why'], skip: ['place', 'why'], streets: ['place', 'why'], navs: ['place', 'why', 'nav', 'tip'], stay: ['area', 'why', 'fit'], traffic: ['how', 'detail'] };
+  function applyAdds(n, adds) { let cnt = 0; (Array.isArray(adds) ? adds : []).slice(0, 4).forEach(a => { const f = String((a && a.field) || ''); if (!(f in ADDF) || !Array.isArray(a.items)) return; const keys = ADDF[f]; const arr = Array.isArray(n[f]) ? n[f] : (n[f] = []);
+      a.items.slice(0, 10).forEach(it => { if (arr.length >= 18) return; let v; if (!keys) { v = String(typeof it === 'string' ? it : (it && (it.text || it.tip)) || '').trim().slice(0, 70); if (!v || arr.includes(v)) return; } else { if (!it || typeof it !== 'object') return; v = {}; keys.forEach(k => { v[k] = String(it[k] || '').trim().slice(0, 60); }); if (!v[keys[0]] && !v[keys[1]]) return; } arr.push(v); cnt++; }); }); return cnt; }
+  async function aiRevise(bid, no, ask, who, pg) {
     const key = bid + ':' + no; if (revising.has(key)) return; revising.add(key);
     const f = path.join(BD, bid + '.json'); const setN = fn => { const b = getBatch(bid); const n = b && b.notes.find(x => x.no === +no); if (n) { fn(n, b); wj(f, b); } return n; };
     setN(n => { n.revising = { ask, who, at: Date.now() }; });
     try {
       const b0 = getBatch(bid); const n0 = b0.notes.find(x => x.no === +no); const B = briefs().find(x => x.id === b0.brief) || {};
       const pick = n => ({ title: n.title, cover: n.cover, body: n.body, sections: (n.sections || []).map(sc => ({ h: sc.h, items: sc.items.map(i => ({ shop: i.name, say: i.main ? undefined : i.say })) })), route: n.route, stay: n.stay, traffic: n.traffic, spots: n.spots, tips: n.tips, yes: n.yes, good: n.good, skip: n.skip, intro: n.intro, tagline: n.tagline, coverSub: n.coverSub, tags: n.tags });
+      const PG = pg && Array.isArray(pg.pages) ? pg.pages.map(t => String(t || '').slice(0, 600)).slice(0, 14) : []; const pno = pg && +pg.page > 0 ? +pg.page : 0;
+      const pgTxt = PG.length ? `【每一页图上的字（审稿人说「图5／第5张／第5页」就是下面的第 5 页；一行是图上的一段，长句会被拆成几行）】\n${PG.map((t, i) => `—— 第 ${i + 1} 页 ——\n${t}`).join('\n')}\n` : '';
       const prompt = `你是这篇小红书攻略的作者。审稿同事看完提了修改意见，请按意见改。
 【审稿意见（${who}）】${ask}
-【门店事实（以这个为准）】${B.storeTitle || ''}｜${B.address || ''}｜营业${B.hours || ''}｜人均${B.price || ''}｜${B.facts || ''}
+${pno ? `【审稿人是点开第 ${pno} 页的图提的意见】意见里的「这里／这张图／这一页」都指第 ${pno} 页，只改这一页上的内容。\n` : ''}${pgTxt}【门店事实（以这个为准）】${B.storeTitle || ''}｜${B.address || ''}｜营业${B.hours || ''}｜人均${B.price || ''}｜${B.facts || ''}
 【菜单（菜名价格只能用这些）】${B.menu ? menuText(B) : ''}
-【规矩】只改意见说到的地方，其他一个字都别动；意见里关于排版、字号、留白、图片位置的部分不归你管（另有人处理），不要为了「排满」「填满版面」去加长或删减文字，这类意见没有文字要改就 edits 留空、reply 写「文字不用改」；不加新店、新菜、新景点、新营业时间；正文里「${B.storeTitle || 'YES也是大排档'}」的全称要保留；封面和标题不能有店名；不用套话（${CLICHE.join('、')}）。意见里要你删的就删（new 写空）。
+【规矩】只改意见说到的地方，其他一个字都别动；意见里关于字号、字体、颜色、图片位置的部分不归你管（另有人处理），没有文字要改就 edits 留空、reply 写「文字不用改」。审稿人没让你加内容，就不要自己为了「排满」去加长文字；审稿人明确说要「加几条／多写点／补充／太空了加点内容」，就照他说的条数加（没说条数加 3 条），用 adds 加在那一页对应的列表后面。新加的内容只写稳妥、通用、肯定不会错的（怎么排队、什么时候去、带什么、怎么避坑），不写具体票价、车次线路号、营业时间、电话，不和已有的重复，口吻和长度跟原来那几条一样；不加新店、新菜、新景点、新营业时间；正文里「${B.storeTitle || 'YES也是大排档'}」的全称要保留；封面和标题不能有店名；不用套话（${CLICHE.join('、')}）。意见里要你删的就删（new 写空）。
 改的方式：不要重写整篇，只给「把哪句原话换成什么」。old 必须是原稿里一字不差能找到的一段，new 是换掉后的话。意见要改标题才给 title（≤20 字）；意见要改话题才给 tags（完整的新话题列表，8–10 个，要有 #YES也是大排档）。
-只输出 JSON：{"edits":[{"old":"","new":""}],"title":"","tags":[],"reply":"一句话告诉审稿同事改了什么，≤40字"}
+要加内容时用 adds：field 只能是这几个之一，items 的样子要和原稿里那一项一模一样——tips（每项是一句话）、route（{"t":"时间","place":"","do":"","tip":""}）、spots（{"place":"","tip":""}）、good／skip／streets（{"place":"","why":""}）、navs（{"place":"","why":"","nav":"","tip":""}）、stay（{"area":"","why":"","fit":""}）、traffic（{"how":"","detail":""}）。先看那一页图上的字对应原稿的哪个字段，再往那个字段加。要删掉列表里的某一条：edits 里 old 写那一条的原话、new 写空。
+只输出 JSON：{"edits":[{"old":"","new":""}],"adds":[{"field":"tips","items":[]}],"title":"","tags":[],"reply":"一句话告诉审稿同事改了什么（加了几条、改了哪句），≤40字；要是没法改，说清为什么、请他怎么写"}
 原稿：
 ${JSON.stringify(pick(n0)).slice(0, 9000)}`;
       const r = await llm(prompt); const J0 = parseJ(r.text);
       const edits = (Array.isArray(J0.edits) ? J0.edits : []).map(e => ({ old: String((e && e.old) || ''), new: String((e && e.new) || '') })).filter(e => e.old.length >= 2 && e.old !== e.new && !(/YES也是大排档/i.test(e.old) && !/YES也是大排档/i.test(e.new) && !/删|去掉|不要/.test(ask))).slice(0, 20);
       let nt = J0.title && String(J0.title).trim() !== n0.title ? String(J0.title).trim().slice(0, 24) : ''; if (nt && brandRe(B.storeTitle ? B : { storeTitle: 'YES也是大排档', brand: [] }).test(nt)) nt = '';
       const tags = Array.isArray(J0.tags) && J0.tags.length >= 5 ? J0.tags.map(t => '#' + String(t).trim().replace(/^#/, '')).filter(t => t.length > 1).slice(0, 10) : null;
-      const { fixed, hit } = applyEdits(n0, edits, nt);
+      const { fixed, hit: hit0 } = applyEdits(n0, edits, nt); const added = applyAdds(fixed, J0.adds); const hit = hit0 + added;
+      // 删空的那几条从列表里拿掉
+      Object.keys(ADDF).forEach(k => { if (Array.isArray(fixed[k])) fixed[k] = fixed[k].filter(v => typeof v === 'string' ? v.trim() : v && Object.values(v).some(x => String(x || '').trim())); });
       setN((n, b) => { const before = { title: n.title, body: n.body, tags: n.tags };
-        const changed = hit || nt || tags; if (changed) { ['title', 'cover', 'body', 'sections', 'route', 'stay', 'traffic', 'spots', 'tips', 'yes', 'good', 'skip', 'intro', 'tagline', 'coverSub', 'ending'].forEach(k => { if (fixed[k] !== undefined) n[k] = fixed[k]; }); if (tags) { if (!tags.includes('#YES也是大排档')) tags.unshift('#YES也是大排档'); n.tags = tags.slice(0, 10); } n.edited = { who: 'AI（按' + who + '的意见）', at: Date.now() }; }
+        const changed = hit || nt || tags; if (changed) { ['title', 'cover', 'body', 'sections', 'route', 'stay', 'traffic', 'spots', 'tips', 'yes', 'good', 'skip', 'streets', 'navs', 'intro', 'tagline', 'coverSub', 'ending'].forEach(k => { if (fixed[k] !== undefined) n[k] = fixed[k]; }); if (tags) { if (!tags.includes('#YES也是大排档')) tags.unshift('#YES也是大排档'); n.tags = tags.slice(0, 10); } n.edited = { who: 'AI（按' + who + '的意见）', at: Date.now() }; }
         n.revs = (n.revs || []).concat([{ ask, who, at: Date.now(), ok: !!changed, n: hit + (nt ? 1 : 0) + (tags ? 1 : 0), reply: String(J0.reply || '').slice(0, 80), before }]).slice(-10);
-        n.status = changed ? 'todo' : n.status; n.notes.push({ t: changed ? `🤖 AI 已按意见改好（${String(J0.reply || '改了 ' + hit + ' 处').slice(0, 60)}），请再看一眼` : LAYRE.test(ask) ? '🤖 文字不用改（排版方面的意见已转到「提需求」）' : '🤖 AI 没找到意见说的地方，请写具体些（比如原句是哪句、改成什么）', who: 'AI', at: Date.now() });
+        n.status = changed ? 'todo' : n.status; n.notes.push({ t: changed ? `🤖 AI 已按意见改好（${String(J0.reply || '改了 ' + hit + ' 处').slice(0, 60)}），请再看一眼` : LAYRE.test(ask) ? '🤖 文字不用改（排版方面的意见已转到「提需求」）' : `🤖 AI 这次没改动：${String(J0.reply || '').trim().slice(0, 70) || '没找到意见说的地方'}。可以点上面那一页的图，在图旁边直接写这一页要改什么`, who: 'AI', at: Date.now() });
         if (b.kind !== 'manual' && B.storeTitle) { try { n.check = check(n, B, b); } catch (e) { } } delete n.revising; });
     } catch (e) { setN(n => { delete n.revising; n.notes.push({ t: '🤖 AI 改稿出错：' + e.message.slice(0, 60) + '，请稍后再点一次「要改」', who: 'AI', at: Date.now() }); }); log('[攻略平台] AI 按意见改稿出错：' + e.message); }
     finally { revising.delete(key); }
@@ -482,19 +491,20 @@ ${shopLines}
   setTimeout(() => { for (const b of batches()) { if (b.status !== 'running' || jobs.has(b.id)) continue; const full = rj(path.join(BD, b.id + '.json'), null); if (!full) continue; if (full.k === undefined) full.k = Math.max(0, ...(full.notes || []).map(x => x.no || 0)); log(`[攻略平台] 接着跑被重启打断的批次 ${b.id}（已出 ${full.notes.length}/${full.n}）`); runBatch(full); } }, 15e3);
   const batches = () => fs.readdirSync(BD).filter(x => x.endsWith('.json')).map(x => rj(path.join(BD, x), null)).filter(Boolean).sort((a, b) => b.at - a.at);
   const getBatch = id => /^g[0-9a-z]+$/.test(id) ? rj(path.join(BD, id + '.json'), null) : null;
-  const LAYRE = /第\s*[0-9一二三四五六七八九十]+\s*[张页]|排版|版式|字号|字体|字.{0,4}(太大|太小|大一点|小一点|大小)|文字.{0,6}(大|小)|留白|空白|太空|排满|颜色|配色|背景|居中|对齐|间距|图片.{0,6}(位置|大小|出界|压)|封面图|拼图/;
-  function mark(id, i, st, note, who) {
+  const LAYRE = /排版|版式|字号|字体|字.{0,4}(太大|太小|大一点|小一点|大小)|文字.{0,6}(大|小)|留白|空白|太空|排满|颜色|配色|背景|居中|对齐|间距|图片.{0,6}(位置|大小|出界|压)|封面图|拼图/;
+  function mark(id, i, st, note, who, pg) {
     const f = path.join(BD, id + '.json'); const b = getBatch(id); if (!b) throw new Error('没有这个批次'); const n = b.notes.find(x => x.no === +i); if (!n) throw new Error('没有这一篇');
-    if (st) { n.status = st; if (/ok/.test(st) && !n.okAt) n.okAt = Date.now(); } if (note) n.notes.push({ t: String(note).slice(0, 500), who, at: Date.now() }); wj(f, b);
+    if (st) { n.status = st; if (/ok/.test(st) && !n.okAt) n.okAt = Date.now(); } const pno = pg && +pg.page > 0 && +pg.page < 30 ? Math.floor(+pg.page) : 0; if (note) n.notes.push({ t: (pno ? `【第 ${pno} 页】` : '') + String(note).slice(0, 500), who, at: Date.now() }); wj(f, b);
     const revToday = (n.revs || []).filter(r => Date.now() - r.at < 24 * 3600e3).length; if (/fix/.test(st || '') && note && revToday >= 8) { n.notes.push({ t: '🤖 这篇今天已经让 AI 改了 8 次，先不自动改了，请直接点「改文案」手动改', who: 'AI', at: Date.now() }); wj(f, b); }
     // 排版、字号、留白、图片这类意见，AI 改稿管不了（它只会改字，11-28 有人提「第 2 张图不要留白、字小一点」，它去把文字加长了）→ 自动转进需求箱，每小时那一轮按版式改，改好对所有用这个版式的稿生效
     const isPic = /fix/.test(st || '') && note && /换.{0,6}(图|照片)|(图|照片).{0,8}(不全|不完整|不好看|模糊|不清|换|裁)/.test(String(note)); // 换图不用找 AI，自己挑
     if (isPic) { n.notes.push({ t: '🤖 想换图不用写给 AI：点这篇下面的「换配图」，从门店图库里自己挑，也可以直接粘贴图片（美食页 2 张、最后一页拼图 1–9 张），保存后马上重新出图。', who: 'AI', at: Date.now() }); wj(f, b); }
-    const isLay = !isPic && /fix/.test(st || '') && note && LAYRE.test(String(note));
+    const wantAdd = /增加|添加|补充|多写|再写|写多|加[上几一两三四五六七八九十多点\d]|补[上几一两点]|删掉|去掉/.test(String(note || '')); // 说了要加/删/改内容，就是文字的事，交给 AI 改
+    const isLay = !isPic && !wantAdd && /fix/.test(st || '') && note && LAYRE.test(String(note));
     if (isLay) { try { const A = rj(AF, { items: [] }); const B0 = briefs().find(x => x.id === b.brief) || {}; A.items.push({ id: 'a' + Date.now().toString(36), text: `【审稿时提的排版意见】${B0.name || b.brief || ''} · 版式「${(LAYOUTS[b.layout] || {}).name || b.layout || '手工稿'}」（${b.layout || '-'}）· 第 ${n.no} 篇《${String(n.title).slice(0, 20)}》（批次 ${b.id}）：${String(note).slice(0, 400)}`, page: 'review', by: who, byId: '', role: 'review', at: Date.now(), status: 'todo' }); wj(AF, A);
-      n.notes.push({ t: '🤖 这条里有排版/出图方面的意见（字号、留白、图片这些），AI 改稿只能改文字，已自动转到「提需求」：系统每小时处理一次，改好后所有用这个版式的稿都会跟着变。文字方面的意见照常改。', who: 'AI', at: Date.now() }); wj(f, b); } catch (e) { log('[攻略平台] 排版意见转需求箱出错：' + e.message); } }
+      n.notes.push({ t: '🤖 这条里有排版/出图方面的意见（字号、留白、图片这些），AI 改稿只能改文字。字的大小、字体、颜色可以自己点这篇下面的「字号」「字体·颜色」马上改；其他排版问题已自动转到「提需求」，改好后所有用这个版式的稿都会跟着变。文字方面的意见照常改。', who: 'AI', at: Date.now() }); wj(f, b); } catch (e) { log('[攻略平台] 排版意见转需求箱出错：' + e.message); } }
     else if (false) { }
-    if (/fix/.test(st || '') && note && revToday < 8 && String(note).replace(/【商家】/, '').trim().length >= 3 && cfg.glAutoRevise !== false) { n.revising = { ask: note, who, at: Date.now() }; aiRevise(id, n.no, String(note).replace(/^【商家】/, '').slice(0, 500), who).catch(() => { }); }
+    if (/fix/.test(st || '') && note && revToday < 8 && String(note).replace(/【商家】/, '').trim().length >= 3 && cfg.glAutoRevise !== false) { n.revising = { ask: note, who, at: Date.now() }; aiRevise(id, n.no, String(note).replace(/^【商家】/, '').slice(0, 500), who, pg).catch(() => { }); }
     return n;
   }
 
@@ -839,7 +849,7 @@ ${SAMPLE}
       if (sub === '/data') { const sid = (briefs().find(x => x.id === b.brief) || {}).store; return J(res, { ok: true, share: true, batch: b, layouts: LAYOUTS, photos: photosOf(sid).map(f => `${sid}/${f}`).concat(sucaiFor(sid)) }); }
       const pm = sub.match(/^\/photo\/([A-Za-z0-9_-]+)\/(\d+\.jpg)$/); if (pm) { const f = path.join(PD, pm[1], pm[2]); if (!fs.existsSync(f)) return send(res, 404, ''); const buf = fs.readFileSync(f); res.writeHead(200, { 'content-type': 'image/jpeg', 'content-length': buf.length, 'cache-control': 'private, max-age=86400' }); return res.end(buf); }
       { const um = sub.match(/^\/up\/(\d+\.jpg)$/); if (um) return serveJpg(res, upFile(bid, um[1])); }
-      if (sub === '/mark' && req.method === 'POST') { const j = JSON.parse(await body(req, 20000) || '{}'); return J(res, { ok: true, note: mark(bid, j.no, j.status === 'ok' ? 'shop_ok' : j.status === 'fix' ? 'shop_fix' : '', j.note ? '【商家】' + j.note : '', '商家') }); }
+      if (sub === '/mark' && req.method === 'POST') { const j = JSON.parse(await body(req, 90000) || '{}'); return J(res, { ok: true, note: mark(bid, j.no, j.status === 'ok' ? 'shop_ok' : j.status === 'fix' ? 'shop_fix' : '', j.note ? '【商家】' + j.note : '', '商家', { page: j.page, pages: j.pages }) }); }
       return send(res, 404, '{}');
     }
     // 需求箱待处理清单（给定时任务读的，凭密钥链接；只有没处理的需求，纯文字）
@@ -979,7 +989,7 @@ ${SAMPLE}
       if (p === '/api/batches') return J(res, { ok: true, batches: batches().filter(b => u.searchParams.get('kind') === 'manual' ? b.kind === 'manual' : u.searchParams.get('kind') === 'ai' ? b.kind !== 'manual' : true).map(b => ({ id: b.id, briefName: b.briefName, layoutName: b.layoutName, at: b.at, n: b.n, got: b.notes.length, status: b.status, err: b.err, ok: b.notes.filter(x => /ok/.test(x.status)).length, fix: b.notes.filter(x => /fix/.test(x.status)).length, errs: b.notes.filter(x => x.check.some(c => c[0] === 'err')).length })) });
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)$/); if (m) { const b = getBatch(m[1]); if (b) { const B = briefs().find(x => x.id === b.brief); if (B && b.kind !== 'manual' && B.tagsTotal && b.notes.some(n => (n.tags || []).length < 8)) { b.notes.forEach(n => { for (const t of [...B.tagsMust, ...B.tagsOpt]) { if (n.tags.length >= B.tagsTotal) break; if (!n.tags.includes(t)) n.tags.push(t); } }); wj(path.join(BD, b.id + '.json'), b); } // 改规则前出的稿：话题补到 8–10 个
         if (B || b.kind === 'manual') b.notes.forEach(n => { n.check = checkOf(n, B, b); }); } return J(res, b ? { ok: true, batch: b, layouts: LAYOUTS, sid: (briefs().find(x => x.id === b.brief) || {}).store || '', photos: (sid => photosOf(sid).map(f => `${sid}/${f}`).concat(sucaiFor(sid)))((briefs().find(x => x.id === b.brief) || {}).store) } : { ok: false, error: '没有这个批次' }); } // 按最新任务书重新核对
-      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/mark$/); if (m && req.method === 'POST') { const j = JSON.parse(await body(req, 20000)); return J(res, { ok: true, note: mark(m[1], j.no, ['ok', 'fix', 'todo'].includes(j.status) ? j.status : '', j.note, me.name) }); }
+      m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/mark$/); if (m && req.method === 'POST') { const j = JSON.parse(await body(req, 90000)); return J(res, { ok: true, note: mark(m[1], j.no, ['ok', 'fix', 'todo'].includes(j.status) ? j.status : '', j.note, me.name, { page: j.page, pages: j.pages }) }); }
       m = p.match(/^\/api\/batch\/(g[0-9a-z]+)\/share$/); if (m && req.method === 'POST' && canWork) { if (!getBatch(m[1])) throw new Error('没有这个批次'); return J(res, { ok: true, url: `${base}r/${sign(`R|${m[1]}|${Date.now() + 14 * DAY}`)}` }); }
       if (p === '/api/users' && isBoss) return J(res, { ok: true, users: U.users.map(x => ({ id: x.id, name: x.name, role: x.role, roleName: ROLE[x.role], login: x.login || '', set: !!x.hash, off: !!x.off, last: x.last || null })) });
       if (p === '/api/users' && req.method === 'POST' && isBoss) { const j = JSON.parse(await body(req, 4096)); if (j.off) { const x = U.users.find(z => z.id === j.id && z.role !== 'boss'); if (!x) throw new Error('没有这个人'); x.off = true; saveU(); return J(res, { ok: true }); }
